@@ -35,20 +35,22 @@ Odoo builds every model, view, security rule, and automation **at runtime** from
 | Create a new module / `__manifest__.py` / directory structure | **odoo-module-scaffold** |
 | Write or edit view XML (form/list/kanban/search), inheritance & xpath | **odoo-views** |
 | Build or patch web UI components / custom field widgets (OWL 2 / JS) | **odoo-owl** |
+| HTTP controllers / routes, website pages, portal `/my`, public frontend JS | **odoo-web** |
 | ACL, record rules, groups, multi-company access | **odoo-security** |
 | QWeb PDF / HTML reports | **odoo-reports** |
 | Seed data, demo, `noupdate`, sequences, config parameters | **odoo-data** |
 | Version upgrade / migration scripts | **odoo-migration** |
-| `odoo.conf`, workers, Docker, CI test runs, deployment | **odoo-deploy** |
+| `odoo.conf`, workers, Docker, odoo.sh, CI test runs, deployment | **odoo-deploy** |
 | Diagnose an error, trace what actually runs, fix slowness | **odoo-debug**, **odoo-perf** |
 | Prove a change with tests (`at_install` vs `post_install`, etc.) | **odoo-testing** |
+| Review / audit a patch or PR before merge (AI-generated code especially) | **odoo-review** |
 | Customize a standard app (sale/stock/account/mrp/purchase/hr) | **odoo-domain-playbooks** (+ introspect) |
 
 ## The tiers
 
 - **Tier 0 — foundation:** `odoo-introspect` (every other skill calls it).
-- **Tier 1 — core loop:** `odoo-dev` · `odoo-module-scaffold` · `odoo-views` · `odoo-security` · `odoo-testing` · `odoo-debug`.
-- **Tier 2 — frontend & report:** `odoo-owl` · `odoo-reports`.
+- **Tier 1 — core loop:** `odoo-dev` · `odoo-module-scaffold` · `odoo-views` · `odoo-security` · `odoo-testing` · `odoo-review` · `odoo-debug`.
+- **Tier 2 — frontend & report:** `odoo-owl` · `odoo-web` · `odoo-reports`.
 - **Tier 3 — lifecycle:** `odoo-data` · `odoo-migration` · `odoo-perf` · `odoo-deploy`.
 - **Tier 4 — domain playbooks:** `odoo-domain-playbooks`.
 

@@ -21,7 +21,7 @@ Targets Odoo 17/18. Cross-version deprecations: `skills/odoo-introspect/referenc
 
 ## Does this need a migration?
 
-Confirm the real column/field names and types first with `odoo-introspect` (`MODEL=x … < scripts/model_brief.py` → fields + types + stored/compute). Then:
+Confirm the real column/field names and types first with `odoo-introspect` (`MODEL=x … < scripts/model_brief.py` → fields + types + stored/compute). For a **rename or drop**, also run the reverse-impact scan — `odoo-ai refs <model> <field>` — so the migration covers *every* dependent (computes, related fields, views, record rules, saved filters, server actions), not just the column you noticed. Then:
 
 | Change | Migration? | Why |
 |---|---|---|

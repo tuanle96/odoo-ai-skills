@@ -31,6 +31,7 @@ Most Odoo errors are about the **composed runtime**, not a typo: a field/method/
 | Slow endpoint / suspected N+1 | `trace_flow` SQL counts → `odoo-perf` |
 | "Invalid view definition" / blank form | `entrypoints` (resolved arch) + `--dev=xml` |
 | Crash only at `-i` / `-u` | the **first** traceback in the boot log; load-order / data error |
+| "My change/edit didn't apply at all" | `preflight` (via `odoo-introspect`) — installed? `-u` run? shadow `addons_path`? right file? |
 
 ## Decode the error class
 
@@ -78,6 +79,7 @@ Read `distinct_steps` for the call order and `total_sql` / per-call `sql_count` 
 - **Swallowed exceptions.** `except Exception: pass` in a server action / automation hides the real error; grep the addon for bare excepts when "nothing happens".
 - **`-u` didn't recompute.** Changing a stored compute's logic doesn't recompute existing rows automatically; values look wrong until an upgrade marks the field for recompute (see `odoo-perf`).
 - **CacheMiss after raw SQL.** A `cr.execute` UPDATE without `invalidate_recordset` leaves the ORM serving stale values, then missing (see `odoo-perf`).
+- **The edit that "did nothing" was never loaded.** Before assuming a code bug when a change has *no* effect, run `odoo-ai preflight <module>`: the module may be uninstalled, un-`-u`'d, loaded from a **shadow copy** on a duplicate/auto-injected `addons_path`, or the file isn't imported in `__init__`. All four fail silently and look like "my code is wrong".
 
 ## References & related skills
 

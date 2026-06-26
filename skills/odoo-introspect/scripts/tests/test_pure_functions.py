@@ -15,6 +15,8 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent   # .../odoo-introspect/scr
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import model_brief  # noqa: E402  (import-safe: run() is gated on `env` in globals)
+import field_refs   # noqa: E402  (import-safe: run() is gated on `env` in globals)
+import preflight    # noqa: E402  (import-safe: run() is gated on `env` in globals)
 
 
 def _load_odoo_ai():
@@ -77,6 +79,45 @@ def test_analyze_source_returns_before_super():
     out = model_brief.analyze_source(src)
     assert out["has_super"] is True
     assert out["returns_before_super"] is True
+
+
+# --- field_refs pure helpers -------------------------------------------------
+def test_depends_hit_local_and_dotted():
+    assert field_refs.depends_hit(["commitment_date"], "commitment_date") is True
+    assert field_refs.depends_hit(["order_id.commitment_date"], "commitment_date") is True
+    assert field_refs.depends_hit(["order_id.date_order"], "commitment_date") is False
+    assert field_refs.depends_hit([], "commitment_date") is False
+    assert field_refs.depends_hit(None, "x") is False
+
+
+def test_mentions_field_whole_identifier():
+    assert field_refs.mentions_field("<field name='date'/>", "date") is True
+    assert field_refs.mentions_field("<field name='commitment_date'/>", "date") is False
+    assert field_refs.mentions_field("[('user_id','=',uid)]", "user_id") is True
+    assert field_refs.mentions_field("", "date") is False
+
+
+def test_classify_severity():
+    assert field_refs.classify_severity("stored_compute_depends") == "high"
+    assert field_refs.classify_severity("related_field") == "high"
+    assert field_refs.classify_severity("view") == "medium"
+    assert field_refs.classify_severity("record_rule") == "medium"
+    assert field_refs.classify_severity("anything_else") == "low"
+
+
+# --- preflight pure helpers --------------------------------------------------
+def test_parse_addons_path():
+    assert preflight.parse_addons_path("/a, /b ,/c") == ["/a", "/b", "/c"]
+    assert preflight.parse_addons_path("") == []
+    assert preflight.parse_addons_path(None) == []
+
+
+def test_shadow_paths_detects_duplicate_and_datadir():
+    flags = preflight.shadow_paths(["/opt/odoo/addons", "/opt/odoo/addons/"])
+    assert any(f["reason"].startswith("duplicate") for f in flags)
+    flags2 = preflight.shadow_paths(["/home/u/.local/share/Odoo/addons/18.0"])
+    assert any("data-dir" in f["reason"] for f in flags2)
+    assert preflight.shadow_paths(["/opt/a", "/opt/b"]) == []
 
 
 # --- odoo-ai.extract ---------------------------------------------------------
