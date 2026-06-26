@@ -110,6 +110,34 @@ tar czf mydb_fs.tgz -C /var/lib/odoo/filestore mydb  # filestore
 
 The web `/web/database/backup` (needs `admin_passwd`) bundles both into one zip — convenient, but memory-heavy on large DBs; prefer `pg_dump` + filestore tar for big instances.
 
+## Hosting model changes the rules — self-hosted vs odoo.sh vs Odoo Online
+
+Everything above is **self-hosted** (you own `odoo.conf`, the proxy, the OS). The
+two managed platforms remove most of that control — and most of the levers this
+skill describes:
+
+| | Self-hosted | odoo.sh (PaaS) | Odoo Online (SaaS) |
+|---|---|---|---|
+| Custom modules | yes | yes (git-deployed) | **no** (Studio only) |
+| Shell / `odoo-bin` | yes | yes (per-branch web shell) | **no** |
+| `odoo.conf` / workers / proxy | you own it | managed | managed |
+| How you deploy | `-u` + restart | **git push to a branch** | n/a |
+| How AI introspects | `odoo-bin shell` | branch shell **or** RPC | **RPC only** |
+
+- **odoo.sh**: deployment is **git push**, not `-u`. Push to a *staging* branch
+  first — odoo.sh builds it on a copy of production and runs your tests; promote
+  to production only after it's green. You still get a shell per branch, so the
+  full introspection engine works. The migration rehearsal (`odoo-migration`)
+  happens automatically on the staging build — read its log before merging.
+- **Odoo Online**: no custom code, no shell. Introspection falls back to **RPC**
+  (→ `odoo-introspect` `references/introspection.md`); customization is limited to
+  Studio + automations. If the task needs a real module, the instance must move
+  to odoo.sh or self-hosted first — flag that early rather than writing a module
+  that can't be installed.
+
+See `references/odoo-sh.md` for the odoo.sh branch model, the git-push deploy
+flow, staging rehearsal, and what to check in a build log.
+
 ## Gotchas that fail silently
 
 - **`workers > 0` but no `/websocket/` proxy route** → live chat/bus hang with no error in the page.
@@ -123,5 +151,6 @@ The web `/web/database/backup` (needs `admin_passwd`) bundles both into one zip 
 ## References & scripts
 
 - `references/deployment.md` — annotated full `odoo.conf`, complete nginx vhost, `docker-compose.yml` (odoo + postgres), `--dev` sub-options, CI script, and the backup/restore runbook.
+- `references/odoo-sh.md` — odoo.sh branch model (dev/staging/production), git-push deploy, staging rehearsal of `-u`/migrations, build-log triage, and the Odoo Online (SaaS) limits.
 - Running tests / exit codes / tags: `odoo-testing`. What `-u` will touch before you deploy it: `odoo-migration`, `odoo-data`.
 - Per-version config option renames (e.g. `longpolling_port` → `gevent_port`): `skills/odoo-introspect/references/version-matrix.md`.

@@ -39,6 +39,8 @@ SCRIPTS = {
     "entrypoints": (HERE / "entrypoints.py", "===ODOO_EP_START===",    "===ODOO_EP_END==="),
     "metadata":    (HERE / "metadata.py",    "===ODOO_META_START===",  "===ODOO_META_END==="),
     "trace":       (HERE / "trace_flow.py",  "===ODOO_TRACE_START===", "===ODOO_TRACE_END==="),
+    "refs":        (HERE / "field_refs.py",  "===ODOO_REFS_START===",  "===ODOO_REFS_END==="),
+    "preflight":   (HERE / "preflight.py",   "===ODOO_PREFLIGHT_START===", "===ODOO_PREFLIGHT_END==="),
 }
 
 
@@ -100,6 +102,14 @@ def _summ(step, d):
         if step == "trace":
             return f"({d['total_addon_calls']} calls, {d['total_sql']} SQL, "\
                    f"{len(d['distinct_steps'])} distinct steps)"
+        if step == "refs":
+            s = d.get("severity_counts", {})
+            return f"({d['reference_count']} refs: {s.get('high', 0)} high / "\
+                   f"{s.get('medium', 0)} medium)"
+        if step == "preflight":
+            m = d.get("module") or {}
+            return f"(module found={m.get('found')}, state={m.get('state')}, "\
+                   f"{len(d.get('shadow_warnings', []))} shadow warnings)"
     except Exception:
         return ""
     return ""
@@ -118,15 +128,19 @@ def main():
     se = sub.add_parser("entrypoints"); se.add_argument("model"); se.add_argument("--views", default="form,list")
     sm = sub.add_parser("metadata"); sm.add_argument("model")
     st = sub.add_parser("trace"); st.add_argument("model"); st.add_argument("record_id"); st.add_argument("method"); st.add_argument("--commit", action="store_true")
+    sr = sub.add_parser("refs"); sr.add_argument("model"); sr.add_argument("field")
+    sp = sub.add_parser("preflight"); sp.add_argument("module", nargs="?")
     sa = sub.add_parser("all"); sa.add_argument("model"); sa.add_argument("--methods", default=""); sa.add_argument("--source", action="store_true"); sa.add_argument("--views", default="form,list"); sa.add_argument("--record-id"); sa.add_argument("--method")
 
     a = p.parse_args()
     if not a.db:
         sys.exit("❌ No database. Pass --db or set ODOO_DB.")
     cfg = {"db": a.db, "conf": a.conf, "odoo_bin": a.odoo_bin, "timeout": a.timeout}
-    out_dir = Path(a.out_dir) if a.out_dir else Path("/tmp/odoo-ai") / a.model.replace(".", "_")
+    # label for the out dir / log line: model for most, module for preflight.
+    label = getattr(a, "model", None) or getattr(a, "module", None) or a.cmd
+    out_dir = Path(a.out_dir) if a.out_dir else Path("/tmp/odoo-ai") / str(label).replace(".", "_")
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"odoo-ai · db={a.db} · model={a.model} · out={out_dir}")
+    print(f"odoo-ai · db={a.db} · target={label} · out={out_dir}")
 
     if a.cmd == "brief":
         do_step("brief", {"MODEL": a.model, "METHODS": a.methods, "SOURCE": "1" if a.source else ""}, cfg, out_dir, a.model)
@@ -136,6 +150,10 @@ def main():
         do_step("metadata", {"MODEL": a.model}, cfg, out_dir, a.model)
     elif a.cmd == "trace":
         do_step("trace", {"MODEL": a.model, "RECORD_ID": a.record_id, "METHOD": a.method, "COMMIT": "1" if a.commit else ""}, cfg, out_dir, a.model)
+    elif a.cmd == "refs":
+        do_step("refs", {"MODEL": a.model, "FIELD": a.field}, cfg, out_dir, f"{a.model}.{a.field}")
+    elif a.cmd == "preflight":
+        do_step("preflight", {"MODULE": a.module or ""}, cfg, out_dir, str(label))
     elif a.cmd == "all":
         do_step("brief", {"MODEL": a.model, "METHODS": a.methods, "SOURCE": "1" if a.source else ""}, cfg, out_dir, a.model)
         do_step("entrypoints", {"MODEL": a.model, "VIEWS": a.views}, cfg, out_dir, a.model)

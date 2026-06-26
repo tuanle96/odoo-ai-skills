@@ -69,6 +69,16 @@ Before writing `depends`, run the `odoo-introspect` skill's **model_brief (Layer
 }
 ```
 
+**`external_dependencies` — verify the package is real before you add it.** An AI
+will confidently invent a PyPI name (`odoo-helpers`, `python-xlsx`) or a
+near-miss of a real one (typosquat) — adding it makes the module fail to load on
+every host that doesn't have it, or pulls a malicious lookalike. List a Python
+dep only if (a) the package genuinely exists on PyPI, (b) it isn't already
+bundled with Odoo (don't re-declare `requests`, `lxml`, `Pillow`, `psycopg2`,
+`reportlab`, `python-dateutil` — Odoo ships them), and (c) the import name is
+spelled correctly. Pin/known-good versions belong in the deployment's
+requirements, not the manifest.
+
 Load-order rules that fail silently: groups → ACL csv → views → menus/actions that reference them → data. A `ref=` to a not-yet-loaded XML id raises at install; a view referencing a group defined *later* renders without that access logic.
 
 ## `__init__` wiring — the #1 "my model doesn't exist" cause

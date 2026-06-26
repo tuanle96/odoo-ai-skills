@@ -2,10 +2,20 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "odoo-ai-skills",
   "version": "0.1.0",
-  "description": "A Claude Code skills suite for Odoo developers who code 100% via an AI agent: read ground truth from the running instance first (fields, MRO/super chains, views, security, runtime flow), then customize — never guess.",
+  "description": "A Claude Code skills suite for Odoo 17/18 development with an AI agent: read ground truth from the running instance first (fields, MRO/super chains, views, security, runtime flow, reverse field impact, module load state), build the smallest correct change, prove it with tests, and review it before merge — never guess. Covers models, scaffolding, views, OWL, public web (controllers/website/portal), security, reports, data, migration, performance, deploy (incl. odoo.sh), and domain playbooks.",
   "author": {
     "name": "Lê Anh Tuấn",
     "email": "tuanle.works@gmail.com"
   },
-  "keywords": ["odoo", "introspection", "erp", "ai-agent", "python"]
+  "keywords": [
+    "odoo",
+    "introspection",
+    "erp",
+    "ai-agent",
+    "claude-code",
+    "python",
+    "owl",
+    "qweb",
+    "code-review"
+  ]
 }

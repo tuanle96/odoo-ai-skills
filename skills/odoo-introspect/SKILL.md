@@ -36,6 +36,13 @@ Odoo composes each model class at runtime from the installed addon dependency gr
 | **C** | `metadata.py` | menu graph (navigation paths), seeded `ir.model.data` + `noupdate` records, **deep** report wiring (QWeb templates + paperformat + parser) | navigation, seeded data, or a report is in scope |
 | **D** | `trace_flow.py` | the **real** runtime call sequence + SQL across addons (executes; rolls back by default) | any sizable flow (sale/stock/account/mrp) — MRO alone isn't enough |
 
+Two more focused scanners cover questions the four layers don't:
+
+| Scanner | Script | Answers | Run when |
+|---------|--------|---------|----------|
+| **E (refs)** | `field_refs.py` | reverse impact — every compute/related/view/rule/filter/action that **depends on a field** (so a rename/retype/drop covers all of them) | before renaming, retyping, or dropping a field |
+| **preflight** | `preflight.py` | is the module actually installed/loaded, from which path, with shadow/duplicate `addons_path` traps flagged | "my change didn't apply" / before trusting an edit landed |
+
 Each script runs inside `odoo-bin shell` and prints pure JSON between sentinels (`===ODOO_BRIEF_START===` … etc.). Feed that JSON to the agent **before** any code.
 
 ## One command: `odoo-ai all <model>`
@@ -53,6 +60,10 @@ scripts/odoo-ai --db <DB> all sale.order --methods action_confirm \
 # individual layers / a single trace:
 scripts/odoo-ai --db <DB> brief sale.order --methods action_confirm --source
 scripts/odoo-ai --db <DB> trace sale.order 42 action_confirm   # --commit to persist (dev DB only)
+
+# reverse impact before a rename, and the "did my edit even load?" preflight:
+scripts/odoo-ai --db <DB> refs sale.order commitment_date      # who breaks if I change this field
+scripts/odoo-ai --db <DB> preflight my_module                  # installed? loaded from where? shadowed?
 ```
 
 Config via flags or env: `--db/ODOO_DB` (required), `--conf/ODOO_CONF`, `--odoo-bin/ODOO_BIN`, `--out-dir` (default `/tmp/odoo-ai/<model>`). Or run a single script directly: `MODEL=sale.order odoo-bin shell -d <DB> --no-http < scripts/model_brief.py`.
@@ -79,6 +90,8 @@ See `references/sample-output.md` for the JSON shape each layer returns.
 - `scripts/entrypoints.py` — Layer B: buttons, view modifiers, window actions, reports (quick).
 - `scripts/metadata.py` — Layer C: menu graph, seeded data + noupdate, deep report wiring.
 - `scripts/trace_flow.py` — Layer D: real runtime call sequence (executes; rolls back unless `COMMIT=1`).
+- `scripts/field_refs.py` — Layer E: reverse impact of a field (computes/related/views/rules/filters/actions that depend on it) before a rename/retype/drop.
+- `scripts/preflight.py` — module preflight: installed/loaded state, load path, shadow/duplicate `addons_path` traps.
 - `scripts/odoo-ai` — CLI that runs all four and writes a JSON folder.
 - `references/introspection.md` — RPC fallback for SaaS + mcp-odoo integration.
 - `references/sample-output.md` — abbreviated sample JSON for each of the four layers.
