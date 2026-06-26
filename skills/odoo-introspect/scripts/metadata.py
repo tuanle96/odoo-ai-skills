@@ -108,7 +108,8 @@ def reports():
         rname = a.get("report_name")
         templates = _read("ir.ui.view", [("type", "=", "qweb"), ("key", "=", rname)],
                           ["key", "name", "inherit_id"])
-        parser = env.get(f"report.{rname}") if hasattr(env, "get") else None  # noqa: F821
+        # api.Environment has no .get(); membership uses __contains__, item uses __getitem__
+        parser = env[f"report.{rname}"] if rname and f"report.{rname}" in env else None  # noqa: F821
         out.append({
             "name": a.get("name"),
             "report_name": rname,

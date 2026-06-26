@@ -37,7 +37,21 @@ model = env[MODEL]            # noqa: F821  (env comes from the odoo shell)
 MODIFIERS = ("invisible", "readonly", "required", "column_invisible")
 
 
+def _odoo_version():
+    try:
+        import odoo
+        return ".".join(str(x) for x in odoo.release.version_info[:2])
+    except Exception:
+        return None
+
+
 def parse_view(view_type):
+    # get_view() replaced fields_view_get in v16; guard proactively with a clear
+    # message instead of leaking a raw AttributeError on older instances.
+    if not hasattr(model, "get_view"):
+        return {"_error": f"get_view() unavailable — requires Odoo v16+ (this instance is "
+                          f"{_odoo_version()}); fall back to fields_view_get / raw ir.ui.view "
+                          "arch. See references/version-matrix.md."}
     try:
         arch = model.get_view(view_type=view_type)["arch"]
         root = ET.fromstring(arch)
@@ -83,6 +97,7 @@ def _safe_read(model_name, domain, cols):
 
 result = {
     "model": MODEL,
+    "odoo_version": _odoo_version(),
     "views": {vt: parse_view(vt) for vt in VIEWS},
     "window_actions": _safe_read(
         "ir.actions.act_window", [("res_model", "=", MODEL)],

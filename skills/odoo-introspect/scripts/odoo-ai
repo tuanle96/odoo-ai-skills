@@ -59,8 +59,11 @@ def run_in_shell(script_path, env_extra, cfg):
 
 
 def extract(stdout, start, end):
+    # Take from the FIRST start marker to the LAST end marker (rsplit), so a JSON
+    # body that happens to contain the end sentinel (e.g. via --source) doesn't
+    # truncate the payload early.
     if start in stdout and end in stdout:
-        return stdout.split(start, 1)[1].split(end, 1)[0].strip()
+        return stdout.split(start, 1)[1].rsplit(end, 1)[0].strip()
     return None
 
 
