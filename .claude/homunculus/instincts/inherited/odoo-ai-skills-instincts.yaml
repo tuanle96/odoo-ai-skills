@@ -1,0 +1,319 @@
+# Instincts generated from https://github.com/tuanle96/odoo-ai-skills
+# Generated: 2026-06-26T16:59:43.133Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: odoo-ai-skills-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: feat
+
+## Evidence
+
+- 1 commits analyzed
+- Detected conventional commit pattern
+- Examples: feat: add odoo-web + odoo-review skills, reverse-impact & preflight scanners
+
+---
+id: odoo-ai-skills-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Commit Length
+
+## Action
+
+Write moderate-length commit messages (~76 characters)
+
+## Evidence
+
+- Average commit message length: 76 chars
+- Based on 1 commits
+
+---
+id: odoo-ai-skills-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Naming Files
+
+## Action
+
+Use PascalCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: PascalCase
+
+---
+id: odoo-ai-skills-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: odoo-ai-skills-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: odoo-ai-skills-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: odoo-ai-skills-instinct-file-naming
+trigger: "When creating a new Python file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Instinct File Naming
+
+## Action
+
+Name the file using PascalCase
+
+## Evidence
+
+- Pattern in namingConventions.files: PascalCase
+
+---
+id: odoo-ai-skills-instinct-function-naming
+trigger: "When defining a new function"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Instinct Function Naming
+
+## Action
+
+Name the function using camelCase
+
+## Evidence
+
+- Pattern in namingConventions.functions: camelCase
+
+---
+id: odoo-ai-skills-instinct-class-naming
+trigger: "When defining a new class"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Instinct Class Naming
+
+## Action
+
+Name the class using PascalCase
+
+## Evidence
+
+- Pattern in namingConventions.classes: PascalCase
+
+---
+id: odoo-ai-skills-instinct-constant-naming
+trigger: "When defining a constant"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Instinct Constant Naming
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE
+
+## Evidence
+
+- Pattern in namingConventions.constants: SCREAMING_SNAKE_CASE
+
+---
+id: odoo-ai-skills-instinct-import-style
+trigger: "When importing modules within the package"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Instinct Import Style
+
+## Action
+
+Use relative imports
+
+## Evidence
+
+- Pattern in importStyle: relative
+
+---
+id: odoo-ai-skills-instinct-export-style
+trigger: "When exporting symbols from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Instinct Export Style
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in exportStyle: named
+
+---
+id: odoo-ai-skills-instinct-test-location
+trigger: "When adding new tests"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Instinct Test Location
+
+## Action
+
+Place test files in the separate 'tests' folder
+
+## Evidence
+
+- Pattern in architecture.testLocation: separate
+- Common folder: tests
+
+---
+id: odoo-ai-skills-instinct-git-commit-prefix
+trigger: "When writing a commit message for a new feature"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Instinct Git Commit Prefix
+
+## Action
+
+Prefix the commit message with 'feat:'
+
+## Evidence
+
+- Pattern in commits.prefixes: feat
+- Example: 'feat: add odoo-web + odoo-review skills, reverse-impact & preflight scanners'
+
+---
+id: odoo-ai-skills-instinct-git-commit-length
+trigger: "When composing a commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Instinct Git Commit Length
+
+## Action
+
+Keep the commit message concise, around 76 characters on average
+
+## Evidence
+
+- Pattern in commits.averageLength: 76
+
+---
+id: odoo-ai-skills-instinct-ci-workflow-location
+trigger: "When modifying or adding CI workflows"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: tuanle96/odoo-ai-skills
+---
+
+# Odoo Ai Skills Instinct Ci Workflow Location
+
+## Action
+
+Place workflow configuration files in '.github/workflows/'
+
+## Evidence
+
+- Pattern in architecture.configFiles: .github/workflows/ci.yml
+
