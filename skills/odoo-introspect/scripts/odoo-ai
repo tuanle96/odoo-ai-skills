@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""
+odoo-ai — one command to gather Odoo ground truth for an AI agent.
+
+Runs the skill's introspection scripts inside `odoo-bin shell`, extracts the
+JSON from each, and writes it to an output dir. Instead of three (or four) shell
+invocations, the agent (or you) runs ONE command and gets a folder of JSON to
+feed in before any code is written.
+
+Config (flags override env):
+    --db / ODOO_DB            database name           (required)
+    --conf / ODOO_CONF        path to odoo.conf       (optional)
+    --odoo-bin / ODOO_BIN     odoo binary             (default: odoo-bin)
+    --out-dir                 where JSON is written   (default: /tmp/odoo-ai/<model>)
+
+Commands:
+    odoo-ai brief       <model> [--methods a,b] [--source]
+    odoo-ai entrypoints <model> [--views form,list]
+    odoo-ai metadata    <model>
+    odoo-ai trace       <model> <record_id> <method> [--commit]
+    odoo-ai all         <model> [--methods a,b] [--source] [--record-id N --method M]
+
+Examples:
+    odoo-ai --db dev all sale.order --methods action_confirm,write,create
+    odoo-ai --db dev --conf /etc/odoo.conf all sale.order \
+        --methods action_confirm --record-id 42 --method action_confirm
+    odoo-ai --db dev trace sale.order 42 action_confirm
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent          # the skill's scripts/ dir
+SCRIPTS = {
+    "brief":       (HERE / "model_brief.py", "===ODOO_BRIEF_START===", "===ODOO_BRIEF_END==="),
+    "entrypoints": (HERE / "entrypoints.py", "===ODOO_EP_START===",    "===ODOO_EP_END==="),
+    "metadata":    (HERE / "metadata.py",    "===ODOO_META_START===",  "===ODOO_META_END==="),
+    "trace":       (HERE / "trace_flow.py",  "===ODOO_TRACE_START===", "===ODOO_TRACE_END==="),
+}
+
+
+def run_in_shell(script_path, env_extra, cfg):
+    cmd = [cfg["odoo_bin"], "shell", "-d", cfg["db"], "--no-http", "--log-level=warn"]
+    if cfg.get("conf"):
+        cmd += ["-c", cfg["conf"]]
+    env = {**os.environ, **{k: str(v) for k, v in env_extra.items()}}
+    try:
+        with open(script_path) as fh:
+            proc = subprocess.run(cmd, stdin=fh, env=env,
+                                  capture_output=True, text=True, timeout=cfg["timeout"])
+    except FileNotFoundError:
+        sys.exit(f"❌ '{cfg['odoo_bin']}' not found. Set --odoo-bin / ODOO_BIN.")
+    except subprocess.TimeoutExpired:
+        sys.exit(f"❌ Timed out after {cfg['timeout']}s running {script_path.name}.")
+    return proc
+
+
+def extract(stdout, start, end):
+    if start in stdout and end in stdout:
+        return stdout.split(start, 1)[1].split(end, 1)[0].strip()
+    return None
+
+
+def do_step(step, env_extra, cfg, out_dir, model):
+    script, start, end = SCRIPTS[step]
+    proc = run_in_shell(script, env_extra, cfg)
+    body = extract(proc.stdout, start, end)
+    if body is None:
+        tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-8:]
+        print(f"  ⚠️  {step}: no JSON returned. Last lines:\n     " + "\n     ".join(tail))
+        return None
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError as e:
+        print(f"  ⚠️  {step}: JSON parse failed ({e}).")
+        return None
+    path = out_dir / f"{model.replace('.', '_')}.{step}.json"
+    path.write_text(json.dumps(data, indent=2))
+    print(f"  ✓ {step:<11} -> {path}  {_summ(step, data)}")
+    return data
+
+
+def _summ(step, d):
+    try:
+        if step == "brief":
+            return f"({d['field_count']} fields, {len(d['overridden_methods'])} methods)"
+        if step == "entrypoints":
+            nb = sum(len(v.get("buttons", [])) for v in d.get("views", {}).values()
+                     if isinstance(v, dict))
+            return f"({nb} buttons, {len(d.get('reports', []))} reports)"
+        if step == "metadata":
+            return f"({len(d['menu_graph']['menus'])} menu paths, "\
+                   f"{len(d['seeded_data'].get('noupdate_records', []))} protected records)"
+        if step == "trace":
+            return f"({d['total_addon_calls']} calls, {d['total_sql']} SQL, "\
+                   f"{len(d['distinct_steps'])} distinct steps)"
+    except Exception:
+        return ""
+    return ""
+
+
+def main():
+    p = argparse.ArgumentParser(prog="odoo-ai", description="Gather Odoo ground truth for an AI agent.")
+    p.add_argument("--db", default=os.environ.get("ODOO_DB"))
+    p.add_argument("--conf", default=os.environ.get("ODOO_CONF"))
+    p.add_argument("--odoo-bin", default=os.environ.get("ODOO_BIN", "odoo-bin"))
+    p.add_argument("--out-dir")
+    p.add_argument("--timeout", type=int, default=600)
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sb = sub.add_parser("brief"); sb.add_argument("model"); sb.add_argument("--methods", default=""); sb.add_argument("--source", action="store_true")
+    se = sub.add_parser("entrypoints"); se.add_argument("model"); se.add_argument("--views", default="form,list")
+    sm = sub.add_parser("metadata"); sm.add_argument("model")
+    st = sub.add_parser("trace"); st.add_argument("model"); st.add_argument("record_id"); st.add_argument("method"); st.add_argument("--commit", action="store_true")
+    sa = sub.add_parser("all"); sa.add_argument("model"); sa.add_argument("--methods", default=""); sa.add_argument("--source", action="store_true"); sa.add_argument("--views", default="form,list"); sa.add_argument("--record-id"); sa.add_argument("--method")
+
+    a = p.parse_args()
+    if not a.db:
+        sys.exit("❌ No database. Pass --db or set ODOO_DB.")
+    cfg = {"db": a.db, "conf": a.conf, "odoo_bin": a.odoo_bin, "timeout": a.timeout}
+    out_dir = Path(a.out_dir) if a.out_dir else Path("/tmp/odoo-ai") / a.model.replace(".", "_")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"odoo-ai · db={a.db} · model={a.model} · out={out_dir}")
+
+    if a.cmd == "brief":
+        do_step("brief", {"MODEL": a.model, "METHODS": a.methods, "SOURCE": "1" if a.source else ""}, cfg, out_dir, a.model)
+    elif a.cmd == "entrypoints":
+        do_step("entrypoints", {"MODEL": a.model, "VIEWS": a.views}, cfg, out_dir, a.model)
+    elif a.cmd == "metadata":
+        do_step("metadata", {"MODEL": a.model}, cfg, out_dir, a.model)
+    elif a.cmd == "trace":
+        do_step("trace", {"MODEL": a.model, "RECORD_ID": a.record_id, "METHOD": a.method, "COMMIT": "1" if a.commit else ""}, cfg, out_dir, a.model)
+    elif a.cmd == "all":
+        do_step("brief", {"MODEL": a.model, "METHODS": a.methods, "SOURCE": "1" if a.source else ""}, cfg, out_dir, a.model)
+        do_step("entrypoints", {"MODEL": a.model, "VIEWS": a.views}, cfg, out_dir, a.model)
+        do_step("metadata", {"MODEL": a.model}, cfg, out_dir, a.model)
+        if a.record_id and a.method:
+            do_step("trace", {"MODEL": a.model, "RECORD_ID": a.record_id, "METHOD": a.method}, cfg, out_dir, a.model)
+        else:
+            print("  · trace skipped (pass --record-id and --method to include the runtime layer)")
+    print(f"\nFeed the JSON in {out_dir} to the agent BEFORE asking it to write code.")
+
+
+if __name__ == "__main__":
+    main()

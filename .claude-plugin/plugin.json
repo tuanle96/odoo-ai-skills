@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "odoo-ai-skills",
+  "version": "0.1.0",
+  "description": "A Claude Code skills suite for Odoo developers who code 100% via an AI agent: read ground truth from the running instance first (fields, MRO/super chains, views, security, runtime flow), then customize — never guess.",
+  "author": {
+    "name": "Lê Anh Tuấn",
+    "email": "tuanle.works@gmail.com"
+  },
+  "keywords": ["odoo", "introspection", "erp", "ai-agent", "python"]
+}

@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.DS_Store
+*.swp
+/tmp/
+.idea/
+.vscode/
+*.log
+
+# local working reports / plans (not part of the plugin)
+plans/
