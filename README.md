@@ -8,6 +8,9 @@
 
 A [Claude Code](https://docs.claude.com/en/docs/claude-code) **skills suite for doing Odoo development with an AI agent — correctly.**
 
+🌐 **Landing page: [tuanle96.github.io/odoo-ai-skills](https://tuanle96.github.io/odoo-ai-skills/)**
+
+
 Odoo composes every model, view, security rule, and automation **at runtime** from the installed addon dependency graph. Field names, the method-resolution order, the `super()` chain, the rendered view arch, record rules — none of it is reliably knowable from memory or `grep`. It exists only in **the running instance**. Guessing it is the single biggest cause of AI-written Odoo code that looks right, runs for admin on one record, and breaks for a real user, on a second company, in a batch, or on the next upgrade.
 
 **So every skill in this suite turns on one rule:**
