@@ -52,8 +52,15 @@ basis: the competitive analysis under `plans/reports/`.)
 ### Tests
 - Pure helpers unit-tested for evidence-bundle (Markdown render + verdicts),
   claim-verify (claim→probe mapping, verdict classification), and doc-index (RST
-  chunking, canonical URLs, TF-IDF query). The integration smoke is extended to
-  verify-claims against the live registry.
+  chunking, canonical URLs, TF-IDF query).
+- **Real-tested against live Odoo 17 / 18 / 19** — the integration smoke now also
+  covers `verify-claims`, the Layer D `trace`, and `preflight` (68/68 checks; the
+  CI job installs `base,sale` so the trace flow has a record). `docs-build` was
+  exercised against an actual `git` sparse-checkout of `odoo/documentation`.
+- **Validated end-to-end against a real 390-module Enterprise instance**
+  (Studio fields, custom addons, multi-company): all read-only layers, the
+  enforcement gates, `verify-claims`, and the write/execute layers (`trace`/
+  `state`) on a throwaway record that was created then deleted. Instance untouched.
 
 ## [0.8.0] - 2026-06-27
 

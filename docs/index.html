@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>odoo-ai-skills — read ground truth, then change code</title>
-<meta name="description" content="A Claude Code skills suite for doing Odoo 17/18/19 development with an AI agent — correctly. Read the running instance first, build the smallest correct change, prove it with a test, review before merge.">
+<meta name="description" content="The local-first verification & deploy gate for AI-written Odoo 17/18/19 changes. Static indexes suggest; this verifies against your running instance — fields, MRO, security, runtime trace — then gates the merge. No SaaS, no seats. LGPL-3.0.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -208,9 +208,10 @@
 <section id="layers">
   <div class="wrap">
     <span class="eyebrow">The introspection engine</span>
-    <h2>Six JSON layers of ground truth</h2>
+    <h2>Eight layers of ground truth — then gates that prove the change</h2>
     <p class="lead">One command — <code>odoo-ai all &lt;model&gt;</code> — runs inside <code>odoo-bin shell</code>
-      and prints pure JSON the agent reads before any code.</p>
+      and prints pure JSON the agent reads before any code. Then <b>Layer&nbsp;I</b> turns that evidence into an
+      enforced merge/deploy gate.</p>
     <div class="grid g3">
       <div class="card"><h3><span class="badge">A</span> model_brief</h3><p>Fields (+ selection literals, ondelete/domain), MRO + <code>super()</code> analysis, security (ACL + record rules), auto-triggers, recommended <code>depends</code>.</p></div>
       <div class="card"><h3><span class="badge">B</span> entrypoints</h3><p>Form/list buttons → method/action, view modifiers, and the resolved view inheritance chain for xpath work.</p></div>
@@ -218,28 +219,33 @@
       <div class="card"><h3><span class="badge">D</span> trace_flow</h3><p>The <b>real</b> runtime call sequence + SQL across addons — executes on a throwaway record, rolls back.</p></div>
       <div class="card"><h3><span class="badge alt">E</span> field_refs</h3><p>Reverse impact of a field — every compute/related/view/rule that breaks on a rename or drop.</p></div>
       <div class="card"><h3><span class="badge alt">F</span> state_capture</h3><p>Runtime values at a breakpoint + exception post-mortem. Redacts secrets by default.</p></div>
+      <div class="card"><h3><span class="badge">G</span> security_sim</h3><p>Effective per-user/company access — combined ACL + record-rule domain via Odoo's own combiner; the <code>sudo()</code> blind spots.</p></div>
+      <div class="card"><h3><span class="badge">H</span> capabilities</h3><p>Does Odoo already ship this? Native surface + <code>native-check</code> gate-then-rank over curated cards, existence-gated against the instance.</p></div>
     </div>
+    <p class="lead" style="margin-top:30px"><b>Layer&nbsp;I — enforcement gates</b> (local, no DB): scenario-test generator · env parity/drift · static anti-pattern validator · enforced privacy redaction · upgrade/migration harness · <b>deploy-gate</b> (approve / needs-human / block) + a PR-comment <b>evidence bundle</b> · a <b>bring-your-own-index</b> claim verifier. <b>Layer&nbsp;J</b> — a local Odoo developer-docs index. Bring any static index or agent; this verifies it against <i>your</i> running instance.</p>
   </div>
 </section>
 
 <section>
   <div class="wrap">
     <div class="stats">
-      <div class="stat"><div class="n">17</div><div class="l">skills</div></div>
-      <div class="stat"><div class="n">6</div><div class="l">introspection layers</div></div>
+      <div class="stat"><div class="n">19</div><div class="l">skills</div></div>
+      <div class="stat"><div class="n">8 + I/J</div><div class="l">engine layers + gates</div></div>
       <div class="stat"><div class="n">17→19</div><div class="l">Odoo versions</div></div>
-      <div class="stat"><div class="n">CI</div><div class="l">tested on 17 &amp; 18 CE</div></div>
+      <div class="stat"><div class="n">CE + EE</div><div class="l">real-tested 17/18/19</div></div>
     </div>
   </div>
 </section>
 
 <section id="skills">
   <div class="wrap">
-    <span class="eyebrow">17 skills</span>
+    <span class="eyebrow">19 skills</span>
     <h2>A skill for every part of the job</h2>
     <div class="skilltiers">
       <div class="tier"><h4>Foundation</h4><div class="chips">
         <span class="chip"><b>odoo-introspect</b> · ground-truth engine + CLI</span>
+        <span class="chip"><b>odoo-capabilities</b> · is it already native?</span>
+        <span class="chip"><b>odoo-docs</b> · local doc index</span>
         <span class="chip"><b>odoo</b> · router</span>
       </div></div>
       <div class="tier"><h4>Core loop</h4><div class="chips">
@@ -307,7 +313,7 @@ odoo-ai --db &lt;DB&gt; all sale.order --methods action_confirm</pre>
 
 <footer>
   <div class="wrap row">
-    <div><span class="brand"><span class="dot"></span> odoo-ai-skills</span> · LGPL-3.0 · v0.3.1</div>
+    <div><span class="brand"><span class="dot"></span> odoo-ai-skills</span> · LGPL-3.0 · v0.9.0</div>
     <div style="display:flex; gap:22px">
       <a href="https://github.com/tuanle96/odoo-ai-skills">GitHub</a>
       <a href="https://github.com/tuanle96/odoo-ai-skills/blob/main/CHANGELOG.md">Changelog</a>

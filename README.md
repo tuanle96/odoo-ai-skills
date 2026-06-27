@@ -52,7 +52,7 @@ claude plugin marketplace add tuanle96/odoo-ai-skills   # register the marketpla
 claude plugin install odoo-ai-skills@odoo-ai            # install the plugin
 ```
 
-The 18 skills then load namespaced — `/odoo-ai-skills:odoo` (router), `/odoo-ai-skills:odoo-introspect`, etc. Update later with `claude plugin update odoo-ai-skills@odoo-ai`.
+The 19 skills then load namespaced — `/odoo-ai-skills:odoo` (router), `/odoo-ai-skills:odoo-introspect`, etc. Update later with `claude plugin update odoo-ai-skills@odoo-ai`.
 
 To try it before installing, load it straight from a local clone:
 
@@ -89,7 +89,8 @@ claude plugin validate /path/to/odoo-ai-skills # check the manifest
 | Skill | What it does |
 |-------|--------------|
 | **odoo-capabilities** | **Step 0** — before reinventing platform behavior, ask what Odoo already ships. `odoo-ai native-check "<requirement>"` (Layer H gate-then-rank) recall-matches ~34 curated capability cards (TF-IDF + intent-phrase), then **existence-gates** each against the live instance and returns candidates with cited evidence; `odoo-ai capabilities <model>` / `--module <addon>` maps the full native surface (wizards, actions, crons, automations, sequences, mixins, fields) with xmlids as evidence. `odoo-ai native-learn "<phrase>" --card <id>` teaches it mappings so recall improves from use. Fires only for *additive* / core-override tasks. |
-| **odoo-introspect** | The engine every other skill calls first. JSON layers — A: fields+MRO+super+security · B: views/buttons · C: menu/data/reports · D: real runtime trace (with SQL-hotspot / write-map / exception summary) · **G: effective per-user/company security** — plus focused scanners: **refs** (reverse field impact, graph-resolved dotted paths), **preflight** (is it even loaded?), and **state_capture** (Layer F: runtime values at a breakpoint + exception post-mortem) — and the `odoo-ai` CLI. |
+| **odoo-introspect** | The engine every other skill calls first. JSON layers — A: fields+MRO+super+security · B: views/buttons · C: menu/data/reports · D: real runtime trace (with SQL-hotspot / write-map / exception summary) · **G: effective per-user/company security** — plus focused scanners: **refs** (reverse field impact, graph-resolved dotted paths), **preflight** (is it even loaded?), and **state_capture** (Layer F: runtime values at a breakpoint + exception post-mortem) — and the `odoo-ai` CLI. Also hosts the **Layer I enforcement gates** (scenario tests · env parity · static validator · redaction · upgrade harness · deploy-gate · evidence bundle · BYO-index `verify-claims`). |
+| **odoo-docs** | **Layer J** — local developer-docs lookup. Build a TF-IDF index of the official Odoo docs once (`odoo-ai docs-build --version 18`), then `odoo-ai docs "<question>"` returns ranked passages + canonical odoo.com URLs. Subordinate to introspection (docs *propose*, the instance *disposes*); built locally, never vendored (clean CC-BY-SA). |
 
 ### Tier 1 — Core loop
 | Skill | What it does |
@@ -180,6 +181,10 @@ scripts/odoo-ai deploy-gate /tmp/odoo-ai/evidence_bundle/   # → approve | need
 ```
 
 These came out of the v0.7 codebase evaluation (under `plans/reports/`), which found the suite excellent at *grounding* but advisory-only at *enforcement*. Each gate's pure logic is unit-tested without Odoo.
+
+## Tested against real Odoo
+
+Beyond the unit suite, the integration smoke runs **every layer + gate against live Odoo 17 / 18 / 19** in CI (`.github/workflows/integration.yml`). The suite has also been validated end-to-end against a real **390-module Enterprise** instance (Studio fields, custom addons, multi-company): all read-only layers (A–H), the enforcement gates, the BYO-index `verify-claims` (it correctly flagged an external claim about a module *absent* from that instance), and the write/execute layers — a runtime `trace` of `sale.order.action_confirm` captured the real cross-app cascade (`stock.picking` / `stock.move` / `quality.check`) and rolled back. The failures a static index can't catch are in `docs/high-risk-playbooks.md`.
 
 ## Security — handling introspection output
 
