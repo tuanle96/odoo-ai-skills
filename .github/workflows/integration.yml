@@ -39,7 +39,10 @@ jobs:
 
       - name: Initialize a clean DB (install base, no demo)
         run: |
+          # The official odoo image entrypoint builds --db_* args from these env
+          # vars (default HOST=db), overriding the conf — so set them explicitly.
           docker run --rm --network host -v "$PWD":/repo -w /repo \
+            -e HOST=localhost -e PORT=5432 -e USER=odoo -e PASSWORD=odoo \
             odoo:${{ matrix.odoo }} \
             odoo -d ci -c /repo/.github/ci-odoo.conf \
                  -i base --stop-after-init --log-level=warn
@@ -48,7 +51,9 @@ jobs:
         run: |
           # Everything runs INSIDE the odoo image (odoo + python3 on PATH), so
           # the smoke test's subprocess env reaches the `odoo shell` child
-          # directly — no docker env-forwarding needed.
+          # directly — no docker env-forwarding needed. The entrypoint passes a
+          # non-`odoo` command (python3) straight through, so db args come from
+          # the conf (db_host=localhost).
           docker run --rm --network host -v "$PWD":/repo -w /repo \
             -e ODOO_DB=ci \
             -e ODOO_CONF=/repo/.github/ci-odoo.conf \
