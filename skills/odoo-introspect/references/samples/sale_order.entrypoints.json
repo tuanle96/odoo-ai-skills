@@ -1,0 +1,109 @@
+{
+    "model": "sale.order",
+    "odoo_version": "18.0",
+    "views": {
+        "form": {
+            "buttons": [
+                {
+                    "name": "action_confirm",
+                    "type": "object",
+                    "string": "Confirm",
+                    "context": null,
+                    "groups": null,
+                    "invisible": "state not in ['draft', 'sent']",
+                    "confirm": null
+                },
+                {
+                    "name": "action_quotation_send",
+                    "type": "object",
+                    "string": "Send by Email",
+                    "context": null,
+                    "groups": null,
+                    "invisible": "state not in ['draft']",
+                    "confirm": null
+                }
+            ],
+            "fields": [
+                {
+                    "name": "partner_id",
+                    "widget": "res_partner_many2one",
+                    "groups": null,
+                    "modifiers": {
+                        "readonly": "state in ['sale', 'cancel']"
+                    }
+                },
+                {
+                    "name": "commitment_date",
+                    "widget": null,
+                    "groups": null,
+                    "modifiers": null
+                },
+                {
+                    "name": "state",
+                    "widget": "statusbar",
+                    "groups": null,
+                    "modifiers": null
+                }
+            ],
+            "root_view_id": 423,
+            "inheritance_chain": [
+                {
+                    "xmlid": "sale.view_order_form",
+                    "name": "sale.order.form",
+                    "priority": 16,
+                    "mode": "primary"
+                },
+                {
+                    "xmlid": "sale_stock.view_order_form_inherit",
+                    "name": "sale.order.form.stock",
+                    "priority": 20,
+                    "mode": "extension"
+                }
+            ]
+        },
+        "list": {
+            "buttons": [],
+            "fields": [
+                {
+                    "name": "name",
+                    "widget": null,
+                    "groups": null,
+                    "modifiers": null
+                },
+                {
+                    "name": "state",
+                    "widget": "badge",
+                    "groups": null,
+                    "modifiers": null
+                }
+            ],
+            "root_view_id": 425,
+            "inheritance_chain": [
+                {
+                    "xmlid": "sale.view_quotation_tree",
+                    "name": "sale.order.list",
+                    "priority": 16,
+                    "mode": "primary"
+                }
+            ]
+        }
+    },
+    "window_actions": [
+        {
+            "name": "Quotations",
+            "view_mode": "list,kanban,form",
+            "domain": "[]",
+            "context": "{'default_partner_id': active_id}",
+            "target": "current",
+            "view_id": false
+        }
+    ],
+    "reports": [
+        {
+            "name": "Quotation / Order",
+            "report_name": "sale.report_saleorder",
+            "report_type": "qweb-pdf"
+        }
+    ],
+    "_caveat": "The resolved 'arch' is authoritative for this get_view() context. 'inheritance_chain' is diagnostic/best-effort (ordered by parent/priority) — the real applied set also depends on context, action, groups, company and website; not a full replacement for Odoo's view application engine."
+}

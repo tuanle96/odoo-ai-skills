@@ -1,0 +1,134 @@
+{
+    "model": "sale.order",
+    "user": {
+        "id": 7,
+        "login": "salesperson@acme.com",
+        "name": "Sam Sales",
+        "is_superuser": false,
+        "groups_count": 14
+    },
+    "company": {
+        "acting_company": {
+            "id": 1,
+            "name": "Acme"
+        },
+        "user_allowed_companies": [
+            {
+                "id": 1,
+                "name": "Acme"
+            },
+            {
+                "id": 2,
+                "name": "Acme EU"
+            }
+        ],
+        "model_has_company_id": true
+    },
+    "access_rights": {
+        "read": true,
+        "write": true,
+        "create": true,
+        "unlink": false,
+        "_source": "additive over applicable ir.model.access rows",
+        "odoo_check": {
+            "read": true,
+            "write": true,
+            "create": true,
+            "unlink": false
+        },
+        "contributing_acl": [
+            {
+                "name": "sale.order user",
+                "group": "Sales / User: Own Documents Only",
+                "perm_read": true,
+                "perm_write": true,
+                "perm_create": true,
+                "perm_unlink": false
+            }
+        ]
+    },
+    "record_rules": {
+        "read": {
+            "effective_domain": [
+                "|",
+                [
+                    "company_id",
+                    "=",
+                    false
+                ],
+                [
+                    "company_id",
+                    "in",
+                    [
+                        1
+                    ]
+                ]
+            ],
+            "global_rules": [
+                {
+                    "id": 12,
+                    "name": "Sales Order: multi-company",
+                    "domain_force": "['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]",
+                    "groups": null
+                }
+            ],
+            "group_rules": [
+                {
+                    "id": 33,
+                    "name": "Own Quotations Only",
+                    "domain_force": "[('user_id', '=', user.id)]",
+                    "groups": [
+                        "Sales / User: Own Documents Only"
+                    ]
+                }
+            ]
+        },
+        "write": {
+            "effective_domain": [
+                "|",
+                [
+                    "company_id",
+                    "=",
+                    false
+                ],
+                [
+                    "company_id",
+                    "in",
+                    [
+                        1
+                    ]
+                ]
+            ],
+            "global_rules": [
+                {
+                    "id": 12,
+                    "name": "Sales Order: multi-company",
+                    "domain_force": "['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]",
+                    "groups": null
+                }
+            ],
+            "group_rules": []
+        },
+        "create": {
+            "effective_domain": null,
+            "global_rules": [],
+            "group_rules": []
+        },
+        "unlink": {
+            "effective_domain": null,
+            "global_rules": [],
+            "group_rules": []
+        }
+    },
+    "field_access": {
+        "restricted": [
+            {
+                "field": "margin",
+                "groups": "sale.group_sale_margin"
+            }
+        ],
+        "_note": "fields hidden by `groups=` for this user (absent from their fields_get); sudo() ignores this too"
+    },
+    "_warnings": [],
+    "_caveat": "Simulates the ACTING USER. sudo() bypasses BOTH ACL and record rules — grep source (Layer A SOURCE=1) for sudo() on the paths you care about. Record-rule effective_domain comes from Odoo's own ir.rule._compute_domain; ACL effect is additive over applicable rows (see odoo_check for Odoo's own verdict)."
+}

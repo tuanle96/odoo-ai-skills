@@ -68,3 +68,4 @@ Then confirm exact names against the brief (half the "new" fields already exist)
 - `references/account.md` — account.move: `action_post`/`_post`, taxes, posted-move immutability, lock dates, journals.
 - `references/mrp.md` — mrp.production/bom: move generation, BoM explosion, backorders, component reservation.
 - `references/purchase-hr.md` — purchase.order: `button_confirm` → receipt → bill; plus a brief hr.employee / hr.leave note.
+- `references/scenario-playbooks.md` — three end-to-end `introspect → plan → patch → test` walkthroughs (`invoice_post`, `picking_validate`, `mrp_produce`): the right hook, the guard-before / react-after rule, and the per-flow gotchas.

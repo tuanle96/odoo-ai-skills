@@ -34,6 +34,10 @@ Usage
     # include full source bodies for the requested methods (verbose):
     MODEL=sale.order METHODS=action_confirm SOURCE=1 odoo-bin shell -d <DB> < model_brief.py
 
+    # include full server-action / cron CODE bodies (may contain secrets —
+    # trusted context only; default is a redacted preview):
+    MODEL=sale.order CODE=1 odoo-bin shell -d <DB> < model_brief.py
+
     # write to file:
     MODEL=sale.order OUT=/tmp/brief.json odoo-bin shell -d <DB> < model_brief.py
 
@@ -159,6 +163,35 @@ def repr_domain(dom, max_len=300):
         return "<unrepresentable>"
 
 
+def gate_code(records, field="code", want_code=False, preview_len=200):
+    """Replace a raw code body with a safe summary unless want_code is set.
+
+    Server-action / cron code bodies routinely embed secrets, endpoints, and
+    sensitive business logic. Dumping them by default is a leak risk on an
+    open-source tool whose output gets pasted into an external LLM. By default
+    we emit has_code / code_len / code_preview (a short, head-only slice) and
+    require CODE=1 to include the full body. Mutates each record in place and
+    returns the same list for convenience.
+    """
+    for rec in records or []:
+        if not isinstance(rec, dict) or field not in rec:
+            continue
+        body = rec.get(field)
+        if not body or not isinstance(body, str):
+            rec[field + "_present"] = False
+            rec.pop(field, None)
+            continue
+        if want_code:
+            rec[field + "_present"] = True
+            rec[field + "_len"] = len(body)
+            continue
+        rec.pop(field, None)
+        rec[field + "_present"] = True
+        rec[field + "_len"] = len(body)
+        rec[field + "_preview"] = body[:preview_len] + ("…" if len(body) > preview_len else "")
+    return records
+
+
 def classify_addon_path(module_path, core_dir, enterprise_marker="enterprise"):
     """Classify a module by its on-disk location — ground truth, not author.
 
@@ -186,6 +219,7 @@ def run():
         raise SystemExit("Set MODEL, e.g. MODEL=sale.order")
     METHODS = [m.strip() for m in os.environ.get("METHODS", "").split(",") if m.strip()]
     WANT_SOURCE = os.environ.get("SOURCE") in ("1", "true", "yes")
+    WANT_CODE = os.environ.get("CODE") in ("1", "true", "yes")
     OUT = os.environ.get("OUT")
 
     model = env[MODEL]            # noqa: F821  (env comes from the odoo shell)
@@ -313,19 +347,24 @@ def run():
     }
 
     # --- 4. Auto-trigger surface (fires WITHOUT a user clicking) -------------
+    # Code bodies (server actions / crons) are gated behind CODE=1: by default
+    # we emit a redacted summary (present/len/preview) so secrets and sensitive
+    # business logic don't leak into an external LLM. Set CODE=1 to include full
+    # bodies (trusted context only).
     triggers = {
-        "server_actions": _safe_read(
+        "server_actions": gate_code(_safe_read(
             "ir.actions.server", [("model_id.model", "=", MODEL)],
             ["name", "state", "usage", "code"],
-        ),
+        ), want_code=WANT_CODE),
         "automated_actions": _safe_read(
             "base.automation", [("model_id.model", "=", MODEL)],
             ["name", "trigger", "filter_domain", "active"],
         ),
-        "crons": _safe_read(
+        "crons": gate_code(_safe_read(
             "ir.cron", [("model_id.model", "=", MODEL)],
             ["name", "active", "interval_number", "interval_type", "code"],
-        ),
+        ), want_code=WANT_CODE),
+        "_code_gating": "full" if WANT_CODE else "redacted (set CODE=1 for full bodies)",
     }
 
     # --- 5. MRO + source/super analysis per method --------------------------

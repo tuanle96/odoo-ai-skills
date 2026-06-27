@@ -25,6 +25,11 @@ Usage
     MODEL=sale.order FIELD=commitment_date \
         odoo-bin shell -d <DB> --no-http < field_refs.py
 
+    # graph-resolve dotted depends/related through comodel_name (fewer
+    # false positives than the last-segment text heuristic):
+    MODEL=sale.order FIELD=commitment_date RESOLVE_PATHS=1 \
+        odoo-bin shell -d <DB> --no-http < field_refs.py
+
 Output: pure JSON wrapped in ===ODOO_REFS_START=== / ===ODOO_REFS_END===.
 """
 import os
@@ -76,12 +81,63 @@ def classify_severity(kind):
     return "low"
 
 
+def resolve_dotted_path(start_model, dotted, comodel_of):
+    """Walk a dotted depends/related path through the relation graph.
+
+    The text heuristic in `depends_hit` matches the LAST segment of a dotted
+    path regardless of which model it actually lands on, so `order_id.date` and
+    `partner_id.date` both "hit" FIELD=date even though they reach different
+    models. This resolves the path for real: starting at `start_model`, each
+    non-terminal segment must be a relational field whose `comodel_name` becomes
+    the next model; the final segment is the terminal field on the model reached.
+
+    `comodel_of(model, field) -> comodel_name | None` returns the target model
+    for a relational field, or None for non-relational / unknown fields.
+
+    Returns {"terminal_model", "terminal_field", "resolved", "reason"}.
+    `resolved` is False when a non-terminal hop can't be traversed (the field is
+    unknown or not relational) — the caller then can't confirm the terminal.
+    """
+    parts = [p for p in (dotted or "").split(".") if p]
+    if not parts:
+        return {"terminal_model": None, "terminal_field": None,
+                "resolved": False, "reason": "empty path"}
+    model = start_model
+    for i, seg in enumerate(parts):
+        if i == len(parts) - 1:
+            return {"terminal_model": model, "terminal_field": seg,
+                    "resolved": True, "reason": "ok"}
+        comodel = comodel_of(model, seg)
+        if not comodel:
+            return {"terminal_model": model, "terminal_field": seg, "resolved": False,
+                    "reason": f"cannot traverse {model}.{seg} (non-relational or unknown)"}
+        model = comodel
+    return {"terminal_model": model, "terminal_field": None,
+            "resolved": False, "reason": "no terminal segment"}
+
+
+def path_hits_target(start_model, paths, target_model, target_field, comodel_of):
+    """First path in `paths` that graph-resolves to (target_model, target_field).
+
+    Returns the match detail dict (path + terminal) or None. Used to replace the
+    last-segment heuristic when graph resolution is enabled.
+    """
+    for p in paths or []:
+        info = resolve_dotted_path(start_model, p, comodel_of)
+        if (info["resolved"] and info["terminal_model"] == target_model
+                and info["terminal_field"] == target_field):
+            return {"path": p, "terminal_model": info["terminal_model"],
+                    "terminal_field": info["terminal_field"]}
+    return None
+
+
 # --- Env-dependent work (runs only inside odoo-bin shell) --------------------
 def run():
     MODEL = os.environ.get("MODEL")
     FIELD = os.environ.get("FIELD")
     if not MODEL or not FIELD:
         raise SystemExit("Set MODEL and FIELD, e.g. MODEL=sale.order FIELD=commitment_date")
+    RESOLVE_PATHS = os.environ.get("RESOLVE_PATHS") in ("1", "true", "yes")
 
     refs = []
 
@@ -101,6 +157,14 @@ def run():
         WARNINGS.append(f"{FIELD} is not a current field of {MODEL} "
                         "(already renamed/removed?); scanning references anyway")
 
+    def comodel_of(model_name, fname):
+        """Relation-graph hop for path resolution: comodel of a relational field."""
+        try:
+            f = env[model_name]._fields.get(fname)              # noqa: F821
+        except Exception:
+            return None
+        return getattr(f, "comodel_name", None) if f is not None else None
+
     # 1. Other fields (any model) whose depends/related reach this field. ------
     def scan_fields():
         hits = []
@@ -114,16 +178,34 @@ def run():
                     continue
                 dep = list(getattr(f, "depends", None) or [])
                 rel = list(getattr(f, "related", None) or [])
-                # related on the SAME model targeting this field, or a depends
-                # path whose last hop is this field, is a real downstream link.
-                if depends_hit(dep, FIELD) or (mname == MODEL and rel and rel[-1] == FIELD):
-                    hits.append({
-                        "model": mname, "field": fname,
-                        "stored": bool(getattr(f, "store", False)),
-                        "compute": getattr(f, "compute", None),
-                        "related": ".".join(rel) if rel else None,
-                        "depends": dep or None,
-                    })
+                resolved_via = None
+                if RESOLVE_PATHS:
+                    # Graph-resolve each depends path (relative to the compute's
+                    # OWN model) and the related path, confirming they actually
+                    # land on MODEL.FIELD — not just share its last segment.
+                    match = path_hits_target(mname, dep, MODEL, FIELD, comodel_of)
+                    if match:
+                        resolved_via = {"via": "depends", **match}
+                    elif rel:
+                        rmatch = path_hits_target(mname, [".".join(rel)], MODEL, FIELD, comodel_of)
+                        if rmatch:
+                            resolved_via = {"via": "related", **rmatch}
+                    matched = resolved_via is not None
+                else:
+                    # Text heuristic: last-segment match (may false-positive).
+                    matched = depends_hit(dep, FIELD) or (mname == MODEL and rel and rel[-1] == FIELD)
+                if not matched:
+                    continue
+                hit = {
+                    "model": mname, "field": fname,
+                    "stored": bool(getattr(f, "store", False)),
+                    "compute": getattr(f, "compute", None),
+                    "related": ".".join(rel) if rel else None,
+                    "depends": dep or None,
+                }
+                if resolved_via:
+                    hit["resolved_via"] = resolved_via
+                hits.append(hit)
         return hits
     for h in safe("field scan", scan_fields) or []:
         kind = "related_field" if h["related"] else "stored_compute_depends"
@@ -191,15 +273,25 @@ def run():
         "model": MODEL,
         "field": FIELD,
         "field_exists": target is not None,
+        "path_resolution": "graph-resolved" if RESOLVE_PATHS else "text-heuristic",
         "defining_modules": modules,
         "reference_count": len(refs),
         "severity_counts": by_sev,
         "references": refs,
         "_warnings": WARNINGS,
-        "_caveat": "Text scans (views/domains/code) are whole-identifier heuristics "
-                   "scoped to this model where possible; a same-named field elsewhere "
-                   "in a shared blob can false-positive. Confirm high-severity hits, "
-                   "and write the migration (odoo-migration) to cover every dependent.",
+        "_caveat": (
+            "Field depends/related links are graph-resolved through comodel_name, "
+            "so dotted paths are confirmed to land on this exact model.field (few "
+            "false positives). View/domain/code text scans remain whole-identifier "
+            "heuristics scoped to this model. Confirm high-severity hits, and write "
+            "the migration (odoo-migration) to cover every dependent."
+            if RESOLVE_PATHS else
+            "Text scans (views/domains/code) AND field depends/related are whole-"
+            "identifier / last-segment heuristics scoped to this model where possible; "
+            "a same-named field elsewhere can false-positive. Re-run with "
+            "--resolve-paths (RESOLVE_PATHS=1) to graph-resolve depends/related "
+            "through comodel_name. Confirm high-severity hits, and write the "
+            "migration (odoo-migration) to cover every dependent."),
     }
     payload = json.dumps(out, indent=2, default=str)
     print("===ODOO_REFS_START===")

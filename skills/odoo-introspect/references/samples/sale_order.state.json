@@ -1,0 +1,56 @@
+{
+    "root": "sale.order(42).action_confirm",
+    "committed": false,
+    "break_at": "sale.order._action_confirm",
+    "break_line": null,
+    "captured_fields": [
+        "state",
+        "amount_total"
+    ],
+    "redaction": {
+        "enabled": true,
+        "key_count": 7,
+        "extra": []
+    },
+    "error": null,
+    "breakpoint_hits": 1,
+    "breakpoints": [
+        {
+            "hit": 1,
+            "kind": "call",
+            "addon": "sale",
+            "model": "sale.order",
+            "method": "_action_confirm",
+            "file_line": 530,
+            "depth": 2,
+            "locals": {
+                "self": {
+                    "__recordset__": "sale.order",
+                    "len": 1,
+                    "ids": [
+                        42
+                    ],
+                    "truncated": false
+                }
+            },
+            "self": {
+                "__recordset__": "sale.order",
+                "len": 1,
+                "ids": [
+                    42
+                ],
+                "truncated": false
+            },
+            "self_fields": {
+                "state": [
+                    "draft"
+                ],
+                "amount_total": [
+                    1180.0
+                ]
+            }
+        }
+    ],
+    "exception_stack": [],
+    "_caveat": "Values are bounded snapshots (recordsets → ids only unless FIELDS given). Reading FIELDS executes computes/queries; breakpoints fire only in addon (odoo.addons.*) frames, not core ORM plumbing."
+}

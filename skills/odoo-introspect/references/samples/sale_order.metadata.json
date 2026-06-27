@@ -1,0 +1,59 @@
+{
+    "model": "sale.order",
+    "menu_graph": {
+        "actions": [
+            {
+                "id": 366,
+                "name": "Quotations",
+                "view_mode": "list,kanban,form"
+            },
+            {
+                "id": 367,
+                "name": "Orders",
+                "view_mode": "list,form"
+            }
+        ],
+        "menus": [
+            {
+                "path": "Sales / Orders / Quotations",
+                "action": "Quotations"
+            },
+            {
+                "path": "Sales / Orders / Orders",
+                "action": "Orders"
+            }
+        ]
+    },
+    "seeded_data": {
+        "count_returned": 2,
+        "limit": 150,
+        "by_module": {
+            "sale": 2
+        },
+        "noupdate_records": [
+            "sale.sale_order_rule_personal (res_id=33)"
+        ],
+        "sample": [
+            "sale.seq_sale_order",
+            "sale.sale_order_rule_personal"
+        ]
+    },
+    "reports": [
+        {
+            "name": "Quotation / Order",
+            "report_name": "sale.report_saleorder",
+            "report_type": "qweb-pdf",
+            "paperformat": [
+                3,
+                "European A4"
+            ],
+            "qweb_templates": [
+                "sale.report_saleorder",
+                "sale.report_saleorder_document"
+            ],
+            "parser_model": null,
+            "hint": "If customizing data, look for _get_report_values on the parser model; if customizing layout, inherit the qweb template(s) above."
+        }
+    ],
+    "_warnings": []
+}

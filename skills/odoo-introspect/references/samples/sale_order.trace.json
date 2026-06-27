@@ -1,0 +1,147 @@
+{
+    "root": "sale.order(42).action_confirm",
+    "committed": false,
+    "error": null,
+    "sql_count_enabled": true,
+    "warnings": [],
+    "total_addon_calls": 137,
+    "total_sql": 88,
+    "summary": {
+        "call_counts": [
+            {
+                "model": "stock.move",
+                "method": "_action_done",
+                "addon": "stock",
+                "count": 14
+            },
+            {
+                "model": "sale.order.line",
+                "method": "_compute_qty_delivered",
+                "addon": "sale_stock",
+                "count": 9
+            },
+            {
+                "model": "sale.order",
+                "method": "_action_confirm",
+                "addon": "sale",
+                "count": 1
+            }
+        ],
+        "top_self_sql": [
+            {
+                "model": "stock.move",
+                "method": "_action_done",
+                "addon": "stock",
+                "line": 980,
+                "self_sql": 31,
+                "cumulative_sql": 44
+            },
+            {
+                "model": "account.move",
+                "method": "create",
+                "addon": "account",
+                "line": 120,
+                "self_sql": 12,
+                "cumulative_sql": 12
+            },
+            {
+                "model": "sale.order",
+                "method": "_action_confirm",
+                "addon": "sale",
+                "line": 530,
+                "self_sql": 8,
+                "cumulative_sql": 71
+            }
+        ],
+        "max_depth": 9,
+        "writes_by_model": {
+            "account.move": {
+                "creates": 1,
+                "writes": 0,
+                "fields": [
+                    "invoice_line_ids",
+                    "move_type",
+                    "partner_id"
+                ]
+            },
+            "sale.order": {
+                "creates": 0,
+                "writes": 2,
+                "fields": [
+                    "state"
+                ]
+            },
+            "stock.move": {
+                "creates": 6,
+                "writes": 3,
+                "fields": [
+                    "product_id",
+                    "quantity",
+                    "state"
+                ]
+            }
+        },
+        "exception_origin": null
+    },
+    "distinct_steps": [
+        {
+            "model": "sale.order",
+            "method": "action_confirm",
+            "addon": "sale_loyalty"
+        },
+        {
+            "model": "sale.order",
+            "method": "action_confirm",
+            "addon": "sale"
+        },
+        {
+            "model": "sale.order",
+            "method": "_action_confirm",
+            "addon": "sale"
+        },
+        {
+            "model": "stock.rule",
+            "method": "_run_pull",
+            "addon": "stock"
+        },
+        {
+            "model": "account.move",
+            "method": "create",
+            "addon": "account"
+        }
+    ],
+    "calls": [
+        {
+            "depth": 0,
+            "addon": "sale_loyalty",
+            "model": "sale.order",
+            "method": "action_confirm",
+            "line": 31,
+            "sql_count": 88
+        },
+        {
+            "depth": 1,
+            "addon": "sale",
+            "model": "sale.order",
+            "method": "action_confirm",
+            "line": 512,
+            "sql_count": 84
+        },
+        {
+            "depth": 2,
+            "addon": "sale",
+            "model": "sale.order",
+            "method": "_action_confirm",
+            "line": 530,
+            "sql_count": 71
+        },
+        {
+            "depth": 3,
+            "addon": "stock",
+            "model": "stock.rule",
+            "method": "_run_pull",
+            "line": 210,
+            "sql_count": 35
+        }
+    ]
+}

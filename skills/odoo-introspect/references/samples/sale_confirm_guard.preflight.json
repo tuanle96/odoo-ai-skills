@@ -1,0 +1,28 @@
+{
+    "database": "dev",
+    "has_demo_data": false,
+    "addons_path": [
+        "/opt/odoo/odoo/addons",
+        "/mnt/extra-addons"
+    ],
+    "shadow_warnings": [],
+    "_warnings": [],
+    "module": {
+        "found": true,
+        "name": "sale_confirm_guard",
+        "state": "installed",
+        "installed_version": "18.0.1.0.0",
+        "latest_version": "18.0.1.0.1",
+        "auto_install": false,
+        "application": false
+    },
+    "module_loaded_from": [
+        "/mnt/extra-addons/sale_confirm_guard"
+    ],
+    "module_models_in_registry": [
+        "sale.order"
+    ],
+    "verdict": [
+        "installed_version != latest_version — run -u sale_confirm_guard to apply your code/data changes."
+    ]
+}

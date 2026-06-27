@@ -6,7 +6,8 @@ asserts structural invariants on the JSON they emit. Unlike test_pure_functions
 
 It validates the env-bound paths the unit tests can't reach: selection-literal
 extraction, the manifest by-location split, the view inheritance chain, seeded
-`noupdate` records, and Layer F redaction.
+`noupdate` records, the graph-resolved field reverse-impact (Layer E), the
+effective-security simulation (Layer G), and Layer F redaction.
 
 How it shells out
 -----------------
@@ -47,6 +48,8 @@ SENTINELS = {
     "model_brief.py":   ("===ODOO_BRIEF_START===", "===ODOO_BRIEF_END==="),
     "entrypoints.py":   ("===ODOO_EP_START===", "===ODOO_EP_END==="),
     "metadata.py":      ("===ODOO_META_START===", "===ODOO_META_END==="),
+    "field_refs.py":    ("===ODOO_REFS_START===", "===ODOO_REFS_END==="),
+    "security_sim.py":  ("===ODOO_SECURITY_START===", "===ODOO_SECURITY_END==="),
     "state_capture.py": ("===ODOO_STATE_START===", "===ODOO_STATE_END==="),
 }
 
@@ -84,6 +87,15 @@ def resolve_record_id():
         f'r = env["{MODEL}"].search([], limit=1)\n'
         f'print("===RID===", r.id if r else 0)\n')
     m = re.search(r"===RID===\s+(\d+)", out)
+    return int(m.group(1)) if m and int(m.group(1)) > 0 else None
+
+
+def resolve_nonsuper_uid():
+    """Pick a non-superuser (id != 1) so Layer G isn't just the bypassed root."""
+    out = _shell_code(
+        'u = env["res.users"].search([("id","!=",1)], order="id", limit=1)\n'
+        'print("===UID===", u.id if u else 0)\n')
+    m = re.search(r"===UID===\s+(\d+)", out)
     return int(m.group(1)) if m and int(m.group(1)) > 0 else None
 
 
@@ -136,6 +148,47 @@ def smoke_metadata():
           isinstance(d.get("seeded_data", {}).get("noupdate_records"), list))
 
 
+def smoke_refs():
+    # Layer E — reverse impact, exercised in graph-resolved mode. Uses a field
+    # guaranteed to exist on res.partner so the env-bound path of the resolver
+    # runs against a real registry (relation hops + comodel_name), independent
+    # of whatever dependents happen to exist on a clean base DB.
+    field = "country_id" if MODEL == "res.partner" else "display_name"
+    print(f"Layer E — field_refs (graph-resolved) on {MODEL}.{field}")
+    d = _shell("field_refs.py", {"MODEL": MODEL, "FIELD": field, "RESOLVE_PATHS": "1"})
+    check("refs.path_resolution graph-resolved",
+          d.get("path_resolution") == "graph-resolved", str(d.get("path_resolution")))
+    check("refs.field_exists true", d.get("field_exists") is True)
+    check("refs.reference_count is int", isinstance(d.get("reference_count"), int))
+    check("refs.severity_counts has buckets",
+          set(d.get("severity_counts", {})) >= {"high", "medium", "low"})
+    # Every graph-resolved field reference must carry a resolved_via that lands
+    # on exactly this model.field (no last-segment false positives).
+    bad = [r for r in d.get("references", [])
+           if r["kind"] in ("stored_compute_depends", "related_field")
+           and r.get("resolved_via", {}).get("terminal_field") not in (field, None)]
+    check("refs.resolved_via lands on target field", not bad, str(bad[:2]))
+
+
+def smoke_security():
+    uid = resolve_nonsuper_uid()
+    if not uid:
+        print("Layer G — security (skipped: no non-superuser found)")
+        return
+    print(f"Layer G — security (effective ACL + rules) on {MODEL} as uid {uid}")
+    d = _shell("security_sim.py", {"MODEL": MODEL, "AS_USER": uid})
+    ar = d.get("access_rights", {})
+    check("security.access_rights has modes",
+          all(m in ar for m in ("read", "write", "create", "unlink")), str(list(ar)))
+    check("security.odoo_check present", isinstance(ar.get("odoo_check"), dict))
+    check("security.record_rules has read.effective_domain",
+          "effective_domain" in d.get("record_rules", {}).get("read", {}))
+    check("security.user resolved (not superuser)",
+          d.get("user", {}).get("id") == uid and d.get("user", {}).get("is_superuser") is False)
+    check("security.field_access.restricted is a list",
+          isinstance(d.get("field_access", {}).get("restricted"), list))
+
+
 def smoke_state():
     global RECORD_ID
     if not RECORD_ID:
@@ -164,7 +217,7 @@ def main():
         print("SKIP integration_smoke: ODOO_DB not set (pure-function CI is unaffected).")
         return 0
     print(f"integration_smoke · db={DB} · model={MODEL} · odoo_bin={ODOO_BIN}\n")
-    for fn in (smoke_brief, smoke_entrypoints, smoke_metadata, smoke_state):
+    for fn in (smoke_brief, smoke_entrypoints, smoke_metadata, smoke_refs, smoke_security, smoke_state):
         try:
             fn()
         except Exception as e:  # noqa: BLE001

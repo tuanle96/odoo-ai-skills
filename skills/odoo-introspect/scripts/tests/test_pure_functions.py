@@ -17,8 +17,10 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import model_brief  # noqa: E402  (import-safe: run() is gated on `env` in globals)
 import entrypoints  # noqa: E402  (import-safe: run() is gated on `env` in globals)
 import field_refs   # noqa: E402  (import-safe: run() is gated on `env` in globals)
+import trace_flow   # noqa: E402  (import-safe: run() is gated on `env` in globals)
 import preflight    # noqa: E402  (import-safe: run() is gated on `env` in globals)
 import state_capture  # noqa: E402  (import-safe: run() is gated on `env` in globals)
+import security_sim  # noqa: E402  (import-safe: run() is gated on `env` in globals)
 
 
 def _load_odoo_ai():
@@ -132,6 +134,38 @@ def test_classify_addon_path():
     assert model_brief.classify_addon_path("/opt/odoo/odoo/addons_custom/x", core) == "local"
 
 
+# --- model_brief.gate_code ---------------------------------------------------
+def test_gate_code_redacts_by_default():
+    recs = [{"name": "a", "code": "x = secret_token\n" + "y" * 500}]
+    out = model_brief.gate_code(recs, want_code=False, preview_len=100)
+    rec = out[0]
+    assert "code" not in rec                       # full body removed
+    assert rec["code_present"] is True
+    assert rec["code_len"] == len("x = secret_token\n") + 500
+    assert rec["code_preview"].endswith("…")       # truncated preview
+    assert len(rec["code_preview"]) == 101
+
+
+def test_gate_code_keeps_body_when_wanted():
+    recs = [{"name": "a", "code": "do_stuff()"}]
+    out = model_brief.gate_code(recs, want_code=True)
+    rec = out[0]
+    assert rec["code"] == "do_stuff()"             # full body kept
+    assert rec["code_present"] is True
+    assert rec["code_len"] == len("do_stuff()")
+    assert "code_preview" not in rec
+
+
+def test_gate_code_handles_empty_and_missing():
+    out = model_brief.gate_code([{"name": "a", "code": False}, {"name": "b"}], want_code=False)
+    assert out[0]["code_present"] is False and "code" not in out[0]
+    assert "code" not in out[1]                    # no code key → untouched body-wise
+    # _safe_read error markers (no 'code' key) must pass through unharmed
+    errs = model_brief.gate_code([{"_error": "boom"}], want_code=False)
+    assert errs == [{"_error": "boom"}]
+    assert model_brief.gate_code(None, want_code=False) is None
+
+
 # --- entrypoints.order_inheritance_chain ------------------------------------
 def test_inheritance_chain_orders_by_priority():
     views = [
@@ -182,6 +216,174 @@ def test_classify_severity():
     assert field_refs.classify_severity("view") == "medium"
     assert field_refs.classify_severity("record_rule") == "medium"
     assert field_refs.classify_severity("anything_else") == "low"
+
+
+# --- field_refs.resolve_dotted_path (graph-aware) ---------------------------
+# A tiny schema: comodel of each relational field; non-relational fields absent.
+_SCHEMA = {
+    "sale.order":  {"partner_id": "res.partner", "commitment_date": None},
+    "res.partner": {"country_id": "res.country", "name": None},
+    "res.country": {"code": None},
+}
+
+
+def _comodel_of(model, field):
+    return _SCHEMA.get(model, {}).get(field)
+
+
+def test_resolve_dotted_local_field():
+    out = field_refs.resolve_dotted_path("sale.order", "commitment_date", _comodel_of)
+    assert out["resolved"] is True
+    assert out["terminal_model"] == "sale.order"
+    assert out["terminal_field"] == "commitment_date"
+
+
+def test_resolve_dotted_multi_hop():
+    out = field_refs.resolve_dotted_path("sale.order", "partner_id.country_id.code", _comodel_of)
+    assert out["resolved"] is True
+    assert out["terminal_model"] == "res.country"
+    assert out["terminal_field"] == "code"
+
+
+def test_resolve_dotted_untraversable_hop():
+    # 'commitment_date' is non-relational, so we can't traverse past it.
+    out = field_refs.resolve_dotted_path("sale.order", "commitment_date.foo", _comodel_of)
+    assert out["resolved"] is False
+    assert "cannot traverse" in out["reason"]
+
+
+def test_resolve_dotted_empty():
+    out = field_refs.resolve_dotted_path("sale.order", "", _comodel_of)
+    assert out["resolved"] is False and out["reason"] == "empty path"
+
+
+def test_path_hits_target_disambiguates_same_last_segment():
+    # Two paths ending in the SAME segment 'name' resolve to DIFFERENT models —
+    # the text heuristic can't tell them apart, graph resolution can.
+    schema = {
+        "sale.order": {"partner_id": "res.partner", "company_id": "res.company"},
+        "res.partner": {"name": None},
+        "res.company": {"name": None},
+    }
+    cof = lambda m, f: schema.get(m, {}).get(f)  # noqa: E731
+    hit = field_refs.path_hits_target(
+        "sale.order", ["partner_id.name", "company_id.name"],
+        "res.partner", "name", cof)
+    assert hit is not None and hit["path"] == "partner_id.name"
+    # target on res.company picks the OTHER path
+    hit2 = field_refs.path_hits_target(
+        "sale.order", ["partner_id.name", "company_id.name"],
+        "res.company", "name", cof)
+    assert hit2 is not None and hit2["path"] == "company_id.name"
+    # no path lands on the target field
+    assert field_refs.path_hits_target(
+        "sale.order", ["partner_id.name"], "res.partner", "email", cof) is None
+
+
+# --- trace_flow pure helpers -------------------------------------------------
+def test_compute_self_sql_subtracts_children():
+    # root(10) -> childA(6) -> grandchild(4); childB(1). depths preorder.
+    calls = [
+        {"depth": 0, "sql_count": 10},   # root: self = 10 - (6 + 1) = 3
+        {"depth": 1, "sql_count": 6},    # childA: self = 6 - 4 = 2
+        {"depth": 2, "sql_count": 4},    # grandchild: self = 4
+        {"depth": 1, "sql_count": 1},    # childB: self = 1
+    ]
+    assert trace_flow.compute_self_sql(calls) == [3, 2, 4, 1]
+
+
+def test_compute_self_sql_handles_none_and_empty():
+    assert trace_flow.compute_self_sql([]) == []
+    assert trace_flow.compute_self_sql([{"depth": 0, "sql_count": None}]) == [0]
+
+
+def test_summarize_calls_counts_and_hotspots():
+    calls = [
+        {"depth": 0, "model": "sale.order", "method": "action_confirm", "addon": "sale",
+         "line": 10, "sql_count": 12},
+        {"depth": 1, "model": "stock.move", "method": "_action_done", "addon": "stock",
+         "line": 20, "sql_count": 9},
+        {"depth": 1, "model": "stock.move", "method": "_action_done", "addon": "stock",
+         "line": 20, "sql_count": 1},
+    ]
+    out = trace_flow.summarize_calls(calls)
+    # most-invoked pair first
+    assert out["call_counts"][0] == {"model": "stock.move", "method": "_action_done",
+                                     "addon": "stock", "count": 2}
+    assert out["max_depth"] == 1
+    # self-sql hotspot: root self = 12 - (9 + 1) = 2; the depth-1 frames keep their own
+    top = {(r["method"], r["self_sql"]) for r in out["top_self_sql"]}
+    assert ("_action_done", 9) in top
+    # every reported hotspot has positive self_sql
+    assert all(r["self_sql"] > 0 for r in out["top_self_sql"])
+
+
+def test_summarize_calls_empty():
+    assert trace_flow.summarize_calls([]) == {"call_counts": [], "top_self_sql": [], "max_depth": 0}
+
+
+def test_aggregate_writes_groups_by_model_fields_only():
+    events = [
+        {"model": "sale.order", "method": "write", "fields": ["state"]},
+        {"model": "sale.order", "method": "write", "fields": ["state", "date_order"]},
+        {"model": "stock.move", "method": "create", "fields": ["product_id"]},
+    ]
+    out = trace_flow.aggregate_writes(events)
+    assert out["sale.order"] == {"creates": 0, "writes": 2,
+                                 "fields": ["date_order", "state"]}
+    assert out["stock.move"] == {"creates": 1, "writes": 0, "fields": ["product_id"]}
+    assert trace_flow.aggregate_writes([]) == {}
+
+
+def test_vals_field_names_dict_and_list_no_values():
+    assert trace_flow._vals_field_names({"state": "sale", "x": 1}) == ["state", "x"]
+    assert trace_flow._vals_field_names([{"a": 1}, {"b": 2, "a": 3}]) == ["a", "b"]
+    assert trace_flow._vals_field_names(None) == []
+    assert trace_flow._vals_field_names("not-a-dict") == []
+
+
+# --- security_sim pure helpers ----------------------------------------------
+def test_effective_acl_additive():
+    rows = [
+        {"perm_read": True, "perm_write": False, "perm_create": False, "perm_unlink": False},
+        {"perm_read": True, "perm_write": True, "perm_create": False, "perm_unlink": False},
+    ]
+    eff = security_sim.effective_acl(rows)
+    assert eff == {"read": True, "write": True, "create": False, "unlink": False}
+
+
+def test_effective_acl_empty_denies_all():
+    assert security_sim.effective_acl([]) == {
+        "read": False, "write": False, "create": False, "unlink": False}
+    assert security_sim.effective_acl(None)["read"] is False
+
+
+def test_parse_field_groups():
+    out = security_sim.parse_field_groups("base.group_user, !base.group_portal ,sale.group_x")
+    assert out["positive"] == ["base.group_user", "sale.group_x"]
+    assert out["negative"] == ["base.group_portal"]
+    assert security_sim.parse_field_groups("") == {"positive": [], "negative": []}
+    assert security_sim.parse_field_groups(None) == {"positive": [], "negative": []}
+
+
+def test_field_visible_positive_groups():
+    # no spec → always visible
+    assert security_sim.field_visible(None, []) is True
+    assert security_sim.field_visible("", ["base.group_user"]) is True
+    # positive: needs at least one
+    assert security_sim.field_visible("base.group_system", ["base.group_user"]) is False
+    assert security_sim.field_visible("base.group_system", ["base.group_system"]) is True
+
+
+def test_field_visible_negative_groups():
+    # negated: hidden FROM members of that group
+    assert security_sim.field_visible("!base.group_portal", ["base.group_portal"]) is False
+    assert security_sim.field_visible("!base.group_portal", ["base.group_user"]) is True
+    # mixed: must be in a positive AND in no negative
+    assert security_sim.field_visible(
+        "base.group_user,!base.group_portal", ["base.group_user"]) is True
+    assert security_sim.field_visible(
+        "base.group_user,!base.group_portal", ["base.group_user", "base.group_portal"]) is False
 
 
 # --- preflight pure helpers --------------------------------------------------

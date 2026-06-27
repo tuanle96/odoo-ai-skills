@@ -1,0 +1,202 @@
+{
+    "identity": {
+        "model": "sale.order",
+        "table": "sale_order",
+        "description": "Sales Order",
+        "order": "date_order desc, id desc",
+        "rec_name": "name",
+        "inherit": [
+            "portal.mixin",
+            "mail.thread",
+            "mail.activity.mixin",
+            "utm.mixin"
+        ],
+        "inherits": {},
+        "transient": false,
+        "auto": true,
+        "capabilities": {
+            "mail_thread": true,
+            "activities": true,
+            "portal": true,
+            "company_dependent_fields": []
+        }
+    },
+    "field_count": 3,
+    "fields": {
+        "commitment_date": {
+            "type": "datetime",
+            "string": "Delivery Date",
+            "help": "This is the delivery date promised to the customer.",
+            "store": true,
+            "required": false,
+            "readonly": false,
+            "index": false,
+            "copy": false,
+            "translate": false,
+            "tracking": null,
+            "has_default": false,
+            "compute": null,
+            "inverse": null,
+            "search": null,
+            "related": null,
+            "depends": null,
+            "comodel": null,
+            "groups": null,
+            "company_dependent": false,
+            "modules": "sale"
+        },
+        "partner_id": {
+            "type": "many2one",
+            "string": "Customer",
+            "help": null,
+            "store": true,
+            "required": true,
+            "readonly": false,
+            "index": true,
+            "copy": true,
+            "translate": false,
+            "tracking": 1,
+            "has_default": false,
+            "compute": null,
+            "inverse": null,
+            "search": null,
+            "related": null,
+            "depends": null,
+            "comodel": "res.partner",
+            "groups": null,
+            "company_dependent": false,
+            "modules": "sale",
+            "ondelete": "restrict"
+        },
+        "state": {
+            "type": "selection",
+            "string": "Status",
+            "help": null,
+            "store": true,
+            "required": true,
+            "readonly": true,
+            "index": false,
+            "copy": false,
+            "translate": false,
+            "tracking": 3,
+            "has_default": true,
+            "compute": null,
+            "inverse": null,
+            "search": null,
+            "related": null,
+            "depends": null,
+            "comodel": null,
+            "groups": null,
+            "company_dependent": false,
+            "modules": "sale",
+            "selection": [
+                {
+                    "value": "draft",
+                    "label": "Quotation"
+                },
+                {
+                    "value": "sent",
+                    "label": "Quotation Sent"
+                },
+                {
+                    "value": "sale",
+                    "label": "Sales Order"
+                },
+                {
+                    "value": "cancel",
+                    "label": "Cancelled"
+                }
+            ]
+        }
+    },
+    "security": {
+        "access_rights": [
+            {
+                "name": "sale.order user",
+                "group_id": [
+                    11,
+                    "Sales / User: Own Documents Only"
+                ],
+                "perm_read": true,
+                "perm_write": true,
+                "perm_create": true,
+                "perm_unlink": false
+            }
+        ],
+        "record_rules": [
+            {
+                "name": "Sales Order: multi-company",
+                "active": true,
+                "global": true,
+                "domain_force": "['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]",
+                "groups": [],
+                "perm_read": true,
+                "perm_write": true,
+                "perm_create": true,
+                "perm_unlink": true
+            }
+        ]
+    },
+    "auto_triggers": {
+        "server_actions": [],
+        "automated_actions": [],
+        "crons": [],
+        "_code_gating": "redacted (set CODE=1 for full bodies)"
+    },
+    "overridden_methods": [
+        "action_confirm"
+    ],
+    "methods": {
+        "action_confirm": [
+            {
+                "addon": "sale_loyalty",
+                "class": "odoo.addons.sale_loyalty.models.sale_order.SaleOrder",
+                "file": ".../sale_loyalty/models/sale_order.py",
+                "line": 31,
+                "decorators": null,
+                "has_super": true,
+                "super_position": "late (after custom logic)",
+                "returns_before_super": false,
+                "hooks_called": [],
+                "heuristic": true
+            },
+            {
+                "addon": "sale",
+                "class": "odoo.addons.sale.models.sale_order.SaleOrder",
+                "file": ".../sale/models/sale_order.py",
+                "line": 512,
+                "decorators": null,
+                "has_super": false,
+                "super_position": null,
+                "returns_before_super": null,
+                "hooks_called": [
+                    "_prepare_confirmation_values",
+                    "_send_order_confirmation_mail"
+                ],
+                "heuristic": true
+            }
+        ]
+    },
+    "manifest_depends": {
+        "method_chain_addons": [
+            "sale_loyalty",
+            "sale"
+        ],
+        "by_location": {
+            "core": [
+                "sale_loyalty",
+                "sale"
+            ],
+            "enterprise": [],
+            "local": [],
+            "unknown": []
+        },
+        "module_paths": {
+            "sale_loyalty": "/opt/odoo/odoo/addons/sale_loyalty",
+            "sale": "/opt/odoo/odoo/addons/sale"
+        },
+        "note": "'core'/'enterprise' addons ship with Odoo — depend on the one that OWNS the method you extend so your override resolves ABOVE it in the MRO. 'local' addons are yours/third-party. Classification is by on-disk path, not author."
+    },
+    "_warnings": [],
+    "_caveat": "MRO is the POTENTIAL super() chain. Use has_super / super_position / returns_before_super to judge actual order; trace big flows."
+}

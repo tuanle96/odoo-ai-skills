@@ -21,9 +21,10 @@ Effective access on a model is **composed at runtime** from every installed addo
 ```bash
 odoo-ai --db <DB> brief <model>     # security{} = access_rights (ACL) + record_rules
 odoo-ai --db <DB> all  <model>      # + entrypoints / metadata / trace
+odoo-ai --db <DB> security <model> --user <login|id> [--company <id|name>]  # EFFECTIVE access for one user
 ```
 
-Inspect `security.access_rights` (the ACL union) and `security.record_rules` (global vs group, `domain_force`, `perm_*`) before changing anything.
+Inspect `security.access_rights` (the ACL union) and `security.record_rules` (global vs group, `domain_force`, `perm_*`) before changing anything. When the question is "what can **this specific user** actually do / see" (the classic *admin OK, user 403s*), run **`security` (Layer G)**: it combines the ACL additively and resolves the record-rule `effective_domain` with Odoo's own combiner under `with_user`, lists the group-restricted fields, and cross-checks against `check_access`.
 
 **Version floor: Odoo 17/18, through Odoo 19 (current LTS).** ACL/record-rule *semantics* are stable back to v14, but group external IDs and the introspection tooling assume 17/18+. Two recent security-relevant renames AI gets wrong: the access-check API was unified (**`check_access`** raises / **`has_access`** returns bool / **`_filtered_access`** filters a recordset) in v18 and the old `check_access_rights`/`check_access_rule` pair is superseded → v19; and from **v18.2 public model methods are RPC-callable by default** — see the `@api.private` note below. Details in `skills/odoo-introspect/references/version-matrix.md`.
 

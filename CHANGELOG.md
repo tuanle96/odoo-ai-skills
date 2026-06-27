@@ -6,6 +6,102 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-27
+
+A feature release building on the 0.3.x hardening: two new introspection layers
+(effective security, richer runtime trace), a graph-aware field resolver, Odoo
+19 in CI, committed JSON fixtures, and domain scenario playbooks.
+
+### Added
+- **Committed JSON sample fixtures** (`skills/odoo-introspect/references/samples/`).
+  One full, valid JSON document per layer (brief / entrypoints / metadata / trace
+  / refs / preflight / security / state) for `sale.order`, the machine-readable
+  companions to `sample-output.md`. A new test (`test_sample_fixtures.py`) parses
+  each and asserts it carries the required top-level keys the matching script
+  emits, so the fixtures can't silently drift from the code.
+- **Scenario playbooks** (`skills/odoo-domain-playbooks/references/scenario-playbooks.md`):
+  three end-to-end `introspect → plan → patch → test` walkthroughs — `invoice_post`
+  (`account.move._post`), `picking_validate` (`stock.picking.button_validate` +
+  the v17 field trap), and `mrp_produce` (`mrp.production.button_mark_done`) — each
+  with the right hook, the guard-before / react-after rule, and per-flow gotchas.
+- **Richer trace summary (Layer D, `trace_flow.py`).** The trace now carries a
+  `summary` block: `top_self_sql` (SQL hotspots by SELF cost — cumulative minus
+  children, computed in one O(n) pass over the depth-ordered trace, so a thin
+  parent no longer masks an expensive callee), `call_counts` (most-invoked
+  `(model, method)` pairs → N+1 smell), `writes_by_model` (creates/writes per
+  model + the field **names** touched — names only, never values), and
+  `exception_origin` (the innermost addon frame an exception passed through).
+  `trace_flow.py` was refactored to be import-safe (env work moved into `run()`),
+  so the new pure helpers `compute_self_sql` / `summarize_calls` /
+  `aggregate_writes` are unit-tested.
+- **Effective-security simulator (Layer G, `security_sim.py` + `odoo-ai security`).**
+  Answers "what can THIS user (in THIS company) actually do to a model, and which
+  rows can they see?" — combines `ir.model.access` additively across the user's
+  applicable rows, resolves each mode's record-rule `effective_domain` via Odoo's
+  own `ir.rule._compute_domain` under `with_user`, lists group-restricted fields
+  (the diff of `fields_get` as superuser vs as the user), reports multi-company
+  posture, and cross-checks the ACL verdict against `check_access` /
+  `check_access_rights`. Flags the superuser bypass and the `sudo()` blind spot.
+  Pass the user via `--user` / `AS_USER` (login or id) and `--company` /
+  `AS_COMPANY`. Pure helpers `effective_acl` / `field_visible` /
+  `parse_field_groups` are unit-tested; a `smoke_security` integration check runs
+  it against a real non-superuser.
+- **Odoo 19.0 in the integration smoke CI matrix** (alongside 17.0 / 18.0),
+  using the official `odoo:19.0` image + Postgres service.
+- **Layer E now exercised in the integration smoke test.** `field_refs.py` runs
+  in graph-resolved mode against a real registry (relation hops + `comodel_name`)
+  and asserts `path_resolution == "graph-resolved"`, the severity buckets, and
+  that every resolved field reference lands on exactly the target `model.field`.
+- **Graph-aware field reverse-impact (Layer E, `field_refs.py`).** New
+  `--resolve-paths` / `RESOLVE_PATHS=1` mode walks each dotted `depends` /
+  `related` path through `comodel_name` and confirms it resolves to the *exact*
+  `model.field` instead of matching only the last segment — so `partner_id.name`
+  and `company_id.name` are no longer conflated. Output adds `path_resolution`
+  (`graph-resolved` / `text-heuristic`) and a `resolved_via` detail on matched
+  field references. Pure helpers `resolve_dotted_path` / `path_hits_target` are
+  unit-tested.
+
+### Changed
+- **Clarified that `entrypoints.py` `inheritance_chain` is diagnostic/best-effort.**
+  The resolved `arch` is authoritative for a given `get_view()` context; the
+  chain is ordered by parent/priority but the real applied set also depends on
+  context, action, groups, company and website. Added a top-level `_caveat` and
+  updated the docstring / `sample-output.md`.
+
+### Fixed
+- **Stale `manifest_depends` docs in `sample-output.md`.** The Layer A sample
+  and note still described the pre-0.3.0 author-heuristic split
+  (`official_addons` / `custom_addons_seen`); updated to the path-based
+  `by_location` (`core` / `enterprise` / `local` / `unknown`) + `module_paths`
+  shape the code actually emits. Added a Layer E (`field_refs`) sample.
+
+## [0.3.2]
+
+Hardening pass from a review focused on safe defaults and runtime robustness.
+
+### Security
+- **Server-action / cron code bodies are now gated in Layer A (`model_brief.py`).**
+  `auto_triggers.server_actions[].code` and `crons[].code` previously dumped the
+  full body, which often embeds secrets, endpoints, and sensitive business
+  logic. By default they now emit a redacted summary (`code_present`,
+  `code_len`, `code_preview`); set `CODE=1` to include full bodies (trusted
+  context only). An `auto_triggers._code_gating` marker records the mode.
+
+### Fixed
+- **`trace_flow.py` SQL counter is now best-effort.** Wrapping the cursor's
+  `execute` is guarded; if it fails in the target environment the call graph is
+  still traced. Output adds `sql_count_enabled` (bool) and `warnings`, and
+  `total_sql` is `null` when counting was disabled instead of failing the whole
+  trace.
+
+### Changed
+- **Clarified `odoo-ai all` scope** in the CLI help, runtime output, and docs:
+  `all` = `brief + entrypoints + metadata` (+ optional `trace`), and explicitly
+  **not** `refs` / `preflight` / `state`.
+- Documented the code/source leakage caveat and the `CODE=1` gate in
+  `odoo-introspect` SKILL and `sample-output.md`; added `CODE` to the container
+  env pass-through list in `references/introspection.md`.
+
 ## [0.3.1]
 
 ### Added
@@ -89,7 +185,9 @@ against a live Odoo 18 instance.
 - Pure-function unit tests and a compile/test CI workflow.
 - Odoo version coverage extended to 19 (current LTS).
 
-[Unreleased]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.3.2...v0.4.0
+[0.3.2]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/tuanle96/odoo-ai-skills/releases/tag/v0.2.0

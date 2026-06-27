@@ -69,7 +69,7 @@ claude plugin validate /path/to/odoo-ai-skills # check the manifest
 ### Tier 0 — Foundation (the ground-truth engine)
 | Skill | What it does |
 |-------|--------------|
-| **odoo-introspect** | The engine every other skill calls first. Four JSON layers (A: fields+MRO+super+security · B: views/buttons · C: menu/data/reports · D: real runtime trace), plus focused scanners — **refs** (reverse field impact), **preflight** (is it even loaded?), and **state_capture** (Layer F: runtime values at a breakpoint + exception post-mortem) — and the `odoo-ai` CLI. |
+| **odoo-introspect** | The engine every other skill calls first. JSON layers — A: fields+MRO+super+security · B: views/buttons · C: menu/data/reports · D: real runtime trace (with SQL-hotspot / write-map / exception summary) · **G: effective per-user/company security** — plus focused scanners: **refs** (reverse field impact, graph-resolved dotted paths), **preflight** (is it even loaded?), and **state_capture** (Layer F: runtime values at a breakpoint + exception post-mortem) — and the `odoo-ai` CLI. |
 
 ### Tier 1 — Core loop
 | Skill | What it does |
@@ -120,8 +120,9 @@ scripts/odoo-ai --db <DB> all sale.order --methods action_confirm \
     --record-id 42 --method action_confirm
 
 # focused scanners:
-scripts/odoo-ai --db <DB> refs sale.order commitment_date   # who breaks if I change this field
+scripts/odoo-ai --db <DB> refs sale.order commitment_date --resolve-paths  # who breaks if I change this field
 scripts/odoo-ai --db <DB> preflight my_module               # installed? loaded from where? shadowed?
+scripts/odoo-ai --db <DB> security sale.order --user 7      # effective ACL + record rules + restricted fields
 
 # runtime values (Layer F) — the JSON analog of an IDE's "inspect variables":
 scripts/odoo-ai --db <DB> state sale.order 42 action_confirm \

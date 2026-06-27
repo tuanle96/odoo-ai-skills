@@ -1,0 +1,52 @@
+{
+    "model": "sale.order",
+    "field": "commitment_date",
+    "field_exists": true,
+    "path_resolution": "graph-resolved",
+    "defining_modules": "sale",
+    "reference_count": 3,
+    "severity_counts": {
+        "high": 1,
+        "medium": 2,
+        "low": 0
+    },
+    "references": [
+        {
+            "kind": "stored_compute_depends",
+            "severity": "high",
+            "model": "sale.order.line",
+            "field": "commitment_date_copy",
+            "stored": true,
+            "compute": "_compute_commitment",
+            "related": null,
+            "depends": [
+                "order_id.commitment_date"
+            ],
+            "resolved_via": {
+                "via": "depends",
+                "path": "order_id.commitment_date",
+                "terminal_model": "sale.order",
+                "terminal_field": "commitment_date"
+            }
+        },
+        {
+            "kind": "view",
+            "severity": "medium",
+            "id": 781,
+            "xml_id": "sale_stock.view_order_form_inherit",
+            "name": "sale.order.form.stock",
+            "type": "form",
+            "inherit_id": "sale.view_order_form"
+        },
+        {
+            "kind": "record_rule",
+            "severity": "medium",
+            "id": 55,
+            "name": "Late delivery orders",
+            "global": false,
+            "domain_force": "[('commitment_date', '<', context_today())]"
+        }
+    ],
+    "_warnings": [],
+    "_caveat": "Field depends/related links are graph-resolved through comodel_name, so dotted paths are confirmed to land on this exact model.field (few false positives). View/domain/code text scans remain whole-identifier heuristics scoped to this model. Confirm high-severity hits, and write the migration (odoo-migration) to cover every dependent."
+}

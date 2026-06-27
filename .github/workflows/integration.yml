@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        odoo: ["17.0", "18.0"]
+        odoo: ["17.0", "18.0", "19.0"]
     services:
       postgres:
         image: postgres:15
@@ -54,7 +54,7 @@ jobs:
           # directly — no docker env-forwarding needed. The entrypoint passes a
           # non-`odoo` command (python3) straight through, so db args come from
           # the conf (db_host=localhost). Layer F auto-resolves a record id, so
-          # redaction is exercised too (15 checks, not 12).
+          # redaction is exercised too; Layer E runs in graph-resolved mode.
           docker run --rm --network host -v "$PWD":/repo -w /repo \
             -e ODOO_DB=ci \
             -e ODOO_CONF=/repo/.github/ci-odoo.conf \

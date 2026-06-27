@@ -30,6 +30,13 @@ priority), with xmlid + priority. That's what you need before writing an xpath:
 the resolved arch alone doesn't tell you which view to inherit or where your
 xpath lands relative to other inheritors.
 
+CAVEAT: the resolved `arch` is authoritative for THIS get_view() context. The
+`inheritance_chain` is diagnostic / best-effort — it lists the candidate views
+ordered by parent/priority, but the real applied set also depends on context,
+the action, groups, company, and website, plus xpath-level edge cases. Treat it
+as a strong starting map, not a full replacement for Odoo's internal view
+application engine.
+
 The env-dependent work lives in run(); the pure helper (order_inheritance_chain)
 is module-level so it's importable/unit-testable without Odoo. run() executes
 only when `env` is present (i.e. inside `odoo-bin shell`).
@@ -202,6 +209,11 @@ def run():
             "ir.actions.report", [("model", "=", MODEL)],
             ["name", "report_name", "report_type"],
         ),
+        "_caveat": "The resolved 'arch' is authoritative for this get_view() context. "
+                   "'inheritance_chain' is diagnostic/best-effort (ordered by "
+                   "parent/priority) — the real applied set also depends on context, "
+                   "action, groups, company and website; not a full replacement for "
+                   "Odoo's view application engine.",
     }
 
     payload = json.dumps(result, indent=2, default=str)

@@ -19,7 +19,13 @@ Commands:
     odoo-ai metadata    <model>
     odoo-ai trace       <model> <record_id> <method> [--commit]
     odoo-ai state       <model> <record_id> <method> [--break model.method] [--line N] [--fields a,b] [--on-exception] [--redact-extra a,b] [--no-redact]
+    odoo-ai security    <model> [--user login_or_id] [--company id_or_name]
     odoo-ai all         <model> [--methods a,b] [--source] [--record-id N --method M]
+
+`all` = brief + entrypoints + metadata (+ optional trace when --record-id and
+--method are given). It does NOT run refs, preflight, or state — run those
+explicitly (refs before a field change, preflight to confirm your code loads,
+state for post-mortem locals).
 
 Examples:
     odoo-ai --db dev all sale.order --methods action_confirm,write,create
@@ -43,6 +49,7 @@ SCRIPTS = {
     "trace":       (HERE / "trace_flow.py",  "===ODOO_TRACE_START===", "===ODOO_TRACE_END==="),
     "refs":        (HERE / "field_refs.py",  "===ODOO_REFS_START===",  "===ODOO_REFS_END==="),
     "preflight":   (HERE / "preflight.py",   "===ODOO_PREFLIGHT_START===", "===ODOO_PREFLIGHT_END==="),
+    "security":    (HERE / "security_sim.py", "===ODOO_SECURITY_START===", "===ODOO_SECURITY_END==="),
     "state":       (HERE / "state_capture.py", "===ODOO_STATE_START===", "===ODOO_STATE_END==="),
 }
 
@@ -103,8 +110,11 @@ def _summ(step, d):
             return f"({len(d['menu_graph']['menus'])} menu paths, "\
                    f"{len(d['seeded_data'].get('noupdate_records', []))} protected records)"
         if step == "trace":
+            sm = d.get("summary", {})
+            hot = sm.get("top_self_sql") or []
+            extra = f", hot={hot[0]['model']}.{hot[0]['method']}" if hot else ""
             return f"({d['total_addon_calls']} calls, {d['total_sql']} SQL, "\
-                   f"{len(d['distinct_steps'])} distinct steps)"
+                   f"{len(d['distinct_steps'])} distinct steps{extra})"
         if step == "refs":
             s = d.get("severity_counts", {})
             return f"({d['reference_count']} refs: {s.get('high', 0)} high / "\
@@ -113,6 +123,12 @@ def _summ(step, d):
             m = d.get("module") or {}
             return f"(module found={m.get('found')}, state={m.get('state')}, "\
                    f"{len(d.get('shadow_warnings', []))} shadow warnings)"
+        if step == "security":
+            ar = d.get("access_rights", {})
+            granted = [m for m in ("read", "write", "create", "unlink") if ar.get(m)]
+            u = d.get("user", {})
+            return f"(user={u.get('login')}, can={'/'.join(granted) or 'none'}, "\
+                   f"{len(d.get('field_access', {}).get('restricted', []))} restricted fields)"
         if step == "state":
             return f"({d.get('breakpoint_hits', 0)} snapshots, "\
                    f"{len(d.get('exception_stack', []))} exc frames, "\
@@ -135,10 +151,11 @@ def main():
     se = sub.add_parser("entrypoints"); se.add_argument("model"); se.add_argument("--views", default="form,list"); se.add_argument("--view-id", dest="view_id", default=""); se.add_argument("--view-xmlid", dest="view_xmlid", default="")
     sm = sub.add_parser("metadata"); sm.add_argument("model")
     st = sub.add_parser("trace"); st.add_argument("model"); st.add_argument("record_id"); st.add_argument("method"); st.add_argument("--commit", action="store_true")
-    sr = sub.add_parser("refs"); sr.add_argument("model"); sr.add_argument("field")
+    sr = sub.add_parser("refs"); sr.add_argument("model"); sr.add_argument("field"); sr.add_argument("--resolve-paths", dest="resolve_paths", action="store_true", help="graph-resolve dotted depends/related through comodel_name (fewer false positives)")
     sp = sub.add_parser("preflight"); sp.add_argument("module", nargs="?")
+    sg = sub.add_parser("security", help="effective ACL + record rules + restricted fields for a user/company"); sg.add_argument("model"); sg.add_argument("--user", default="", help="login or id to simulate (default: current shell user)"); sg.add_argument("--company", default="", help="company id or name (default: user's company)")
     ss = sub.add_parser("state"); ss.add_argument("model"); ss.add_argument("record_id"); ss.add_argument("method"); ss.add_argument("--break", dest="break_at", default=""); ss.add_argument("--line", dest="break_line"); ss.add_argument("--fields", default=""); ss.add_argument("--on-exception", action="store_true"); ss.add_argument("--max-hits", default="3"); ss.add_argument("--commit", action="store_true"); ss.add_argument("--no-redact", action="store_true", help="disable default redaction of password/token/secret/... (trusted dev box only)"); ss.add_argument("--redact-extra", default="", help="comma-separated extra key names to redact")
-    sa = sub.add_parser("all"); sa.add_argument("model"); sa.add_argument("--methods", default=""); sa.add_argument("--source", action="store_true"); sa.add_argument("--views", default="form,list"); sa.add_argument("--record-id"); sa.add_argument("--method")
+    sa = sub.add_parser("all", help="brief + entrypoints + metadata (+ optional trace); NOT refs/preflight/state"); sa.add_argument("model"); sa.add_argument("--methods", default=""); sa.add_argument("--source", action="store_true"); sa.add_argument("--views", default="form,list"); sa.add_argument("--record-id"); sa.add_argument("--method")
 
     a = p.parse_args()
     if not a.db:
@@ -164,9 +181,16 @@ def main():
     elif a.cmd == "trace":
         do_step("trace", {"MODEL": a.model, "RECORD_ID": a.record_id, "METHOD": a.method, "COMMIT": "1" if a.commit else ""}, cfg, out_dir, a.model)
     elif a.cmd == "refs":
-        do_step("refs", {"MODEL": a.model, "FIELD": a.field}, cfg, out_dir, f"{a.model}.{a.field}")
+        do_step("refs", {"MODEL": a.model, "FIELD": a.field, "RESOLVE_PATHS": "1" if a.resolve_paths else ""}, cfg, out_dir, f"{a.model}.{a.field}")
     elif a.cmd == "preflight":
         do_step("preflight", {"MODULE": a.module or ""}, cfg, out_dir, str(label))
+    elif a.cmd == "security":
+        env_extra = {"MODEL": a.model}
+        if a.user:
+            env_extra["AS_USER"] = a.user
+        if a.company:
+            env_extra["AS_COMPANY"] = a.company
+        do_step("security", env_extra, cfg, out_dir, a.model)
     elif a.cmd == "state":
         env_extra = {
             "MODEL": a.model, "RECORD_ID": a.record_id, "METHOD": a.method,
@@ -190,6 +214,8 @@ def main():
             do_step("trace", {"MODEL": a.model, "RECORD_ID": a.record_id, "METHOD": a.method}, cfg, out_dir, a.model)
         else:
             print("  · trace skipped (pass --record-id and --method to include the runtime layer)")
+        print("  · scope: brief + entrypoints + metadata (+trace). NOT refs/preflight/state — "
+              "run `odoo-ai refs|preflight|state` explicitly when you need them.")
     print(f"\nFeed the JSON in {out_dir} to the agent BEFORE asking it to write code.")
 
 

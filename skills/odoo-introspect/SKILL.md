@@ -34,13 +34,14 @@ Odoo composes each model class at runtime from the installed addon dependency gr
 | **A** | `model_brief.py` | fields (+ selection literals, `ondelete`/`inverse_name`/`domain`, index/copy/tracking; + which modules touched each), MRO + super analysis, security (ACL + record rules), auto-triggers, recommended `depends` (official vs custom split) | **Always** |
 | **B** | `entrypoints.py` | form/list buttons (→ which method/action), view modifiers (readonly/invisible/required), **view inheritance chain** (base + applied extensions by priority), window actions, reports (quick) | a button / view / action / xpath is in scope |
 | **C** | `metadata.py` | menu graph (navigation paths), seeded `ir.model.data` + `noupdate` records, **deep** report wiring (QWeb templates + paperformat + parser) | navigation, seeded data, or a report is in scope |
-| **D** | `trace_flow.py` | the **real** runtime call sequence + SQL across addons (executes; rolls back by default) | any sizable flow (sale/stock/account/mrp) — MRO alone isn't enough |
+| **D** | `trace_flow.py` | the **real** runtime call sequence + SQL across addons, plus a `summary` (SQL self-cost hotspots, most-invoked methods, writes-by-model/field, exception origin); executes, rolls back by default | any sizable flow (sale/stock/account/mrp) — MRO alone isn't enough |
 
 Two more focused scanners cover questions the four layers don't:
 
 | Scanner | Script | Answers | Run when |
 |---------|--------|---------|----------|
-| **E (refs)** | `field_refs.py` | reverse impact — every compute/related/view/rule/filter/action that **depends on a field** (so a rename/retype/drop covers all of them) | before renaming, retyping, or dropping a field |
+| **E (refs)** | `field_refs.py` | reverse impact — every compute/related/view/rule/filter/action that **depends on a field** (so a rename/retype/drop covers all of them); `--resolve-paths` graph-resolves dotted depends through `comodel_name` | before renaming, retyping, or dropping a field |
+| **G (security)** | `security_sim.py` | **effective** security for a given user/company — combined ACL (additive) + record-rule `effective_domain` (Odoo's own combiner) + group-restricted fields. Answers "what can THIS user actually do, and which rows can they see?" | before changing ACL/rules, or auditing who can reach a model |
 | **preflight** | `preflight.py` | is the module actually installed/loaded, from which path, with shadow/duplicate `addons_path` traps flagged | "my change didn't apply" / before trusting an edit landed |
 
 And one runtime-**state** layer for when you need the values, not just the call graph:
@@ -69,7 +70,12 @@ scripts/odoo-ai --db <DB> trace sale.order 42 action_confirm   # --commit to per
 
 # reverse impact before a rename, and the "did my edit even load?" preflight:
 scripts/odoo-ai --db <DB> refs sale.order commitment_date      # who breaks if I change this field
+scripts/odoo-ai --db <DB> refs sale.order commitment_date --resolve-paths  # graph-resolve dotted depends (fewer false positives)
 scripts/odoo-ai --db <DB> preflight my_module                  # installed? loaded from where? shadowed?
+
+# effective security for a specific user (combined ACL + record rules + restricted fields):
+scripts/odoo-ai --db <DB> security sale.order --user salesperson@acme.com   # what can THIS user do / see
+scripts/odoo-ai --db <DB> security sale.order --user 7 --company 2          # ...in a specific company
 
 # runtime VALUES (Layer F): break when execution enters a method and dump its state,
 # or capture the full stack-with-locals if it raises:
@@ -79,6 +85,10 @@ scripts/odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception   # 
 ```
 
 > **Layer F redacts sensitive data by default.** Locals, dict keys, and field names that look like secrets (`password`, `token`, `secret`, `api_key`, `authorization`, `session`, …) are emitted as `<redacted>`. Add more with `--redact-extra ssn,iban`; turn it off with `--no-redact` on a trusted dev box only. Redaction is key-name based — it won't catch a secret stored under a benign name, and source bodies (`--source`) / explicit `--fields` values are **not** redacted. Don't paste raw `state`/source JSON into an external LLM unless reviewed.
+
+> **Code bodies are gated, not dumped.** `brief` returns server-action and cron `code` as a redacted summary (`code_present`, `code_len`, `code_preview`) by default, because those bodies often embed secrets, endpoints, and sensitive business logic. Pass `--source` (method source) or set `CODE=1` (action/cron bodies) only in trusted context — and review before pasting into an external LLM.
+
+> **`all` scope.** `odoo-ai all` runs `brief + entrypoints + metadata` (plus `trace` when you pass `--record-id` and `--method`). It does **not** run `refs`, `preflight`, or `state` — run those explicitly when you need reverse-impact, load-verification, or runtime values.
 
 Config via flags or env: `--db/ODOO_DB` (required), `--conf/ODOO_CONF`, `--odoo-bin/ODOO_BIN`, `--out-dir` (default `/tmp/odoo-ai/<model>`). Or run a single script directly: `MODEL=sale.order odoo-bin shell -d <DB> --no-http < scripts/model_brief.py`.
 
