@@ -6,10 +6,13 @@ description: >-
   ValidationError / UserError, CacheMiss, registry/loading failures, "Invalid
   view definition" XML errors), turning on dev mode (--dev=all/xml/qweb/reload),
   dropping into pdb / odoo-bin shell, scoping log output (--log-handler), logging
-  SQL, and tracing what actually runs at runtime. Use whenever an Odoo stack
-  trace, failed -i/-u, blank or 500 page, or "works locally not in prod" shows
-  up, or before you guess which addon or layer caused it. Read the running
-  instance instead of guessing. Targets Odoo 17/18/19.
+  SQL, tracing what actually runs at runtime, capturing runtime VALUES
+  (args/locals/self at a breakpoint + exception post-mortem stack via Layer F
+  state_capture), and interactive step-through with debugpy/DAP. Use whenever an
+  Odoo stack trace, failed -i/-u, blank or 500 page, "works locally not in prod",
+  a wrong-at-runtime value, or "why did it raise" shows up, or before you guess
+  which addon or layer caused it. Read the running instance instead of guessing.
+  Targets Odoo 17/18/19.
 ---
 
 # Odoo debugging
@@ -28,6 +31,9 @@ Most Odoo errors are about the **composed runtime**, not a typo: a field/method/
 | Wrong / stale computed value | `model_brief` `depends` — incomplete `@api.depends` (see `odoo-perf`) |
 | "My override never runs" | `model_brief` MRO + `trace_flow` — real call order, not assumed |
 | Big flow does the wrong thing | `trace_flow` (Layer D) — actual cross-addon call sequence |
+| **A value is wrong at runtime — what *was* it?** | `state_capture` (Layer F) — break at the `model.method` and dump args/locals/`self` |
+| **It raises and the traceback doesn't explain why** | `state_capture --on-exception` — full call stack with every frame's locals |
+| Need to **step through** interactively | `debugpy` attach (VS Code/PyCharm) — see "Interactive debugging" below |
 | Slow endpoint / suspected N+1 | `trace_flow` SQL counts → `odoo-perf` |
 | "Invalid view definition" / blank form | `entrypoints` (resolved arch) + `--dev=xml` |
 | Crash only at `-i` / `-u` | the **first** traceback in the boot log; load-order / data error |
@@ -72,6 +78,43 @@ odoo-ai --db <DB> trace <model> <record_id> <method>
 
 Read `distinct_steps` for the call order and `total_sql` / per-call `sql_count` for where queries explode (hand off to `odoo-perf`).
 
+## Inspect the values, not just the flow
+
+`trace_flow` tells you *what* runs; often the bug is in *what the values were*. Two ways to see them — pick by who's driving.
+
+### Non-interactive state capture (Layer F) — agent-native, no IDE
+
+`state_capture` (via `odoo-introspect`) is the JSON analog of an IDE's "inspect variables" and post-mortem. It executes the method on a throwaway record (rolls back) and captures runtime **state**, so an agent reads it like any other layer — no `(Pdb)` prompt to sit at:
+
+```bash
+# break when execution enters a method; dump args + locals + self (+ named fields):
+odoo-ai --db <DB> state sale.order 42 action_confirm \
+    --break sale.order._action_confirm --fields state,amount_total
+
+# break at a specific source line inside the addon method:
+odoo-ai --db <DB> state sale.order 42 action_confirm --break sale.order._action_confirm --line 315
+
+# no breakpoint — capture the FULL call stack with every frame's locals if it raises:
+odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception
+```
+
+`exception_stack` is the thing a bare traceback throws away: each addon frame deepest-last, with its locals and `self` recordset. Recordsets serialize to `model + ids` (cheap); pass `--fields` to read named field values off `self`. This is the first move for "the value is wrong / why did it raise", before reaching for an interactive debugger.
+
+### Interactive step-through (debugpy + DAP) — when you must drive it live
+
+For genuine step-into/step-over/watch, attach a DAP debugger. Odoo ships nothing special — it's stock `debugpy` (the Python Debug Adapter Protocol implementation) attached to `odoo-bin`, then VS Code / PyCharm connects. **Odoo-specific traps that stop breakpoints from hitting:**
+
+- **Run single-process: `--workers=0`.** With multiple workers your request lands in a process the debugger isn't attached to, so the breakpoint never fires.
+- **gevent.** The websocket/longpolling worker runs under gevent; `debugpy`'s `GEVENT_SUPPORT` interaction is the usual reason breakpoints are skipped (and the source of console spam). Debug the HTTP path with `--workers=0`, and keep gevent off the path you're stepping.
+- Attach to the **running process** (don't relaunch from the IDE) so it's the same interpreter actually serving Odoo.
+
+```bash
+python -m debugpy --listen 0.0.0.0:5678 odoo-bin -c odoo.conf -d <DB> --workers=0
+# then "attach" from the IDE to localhost:5678
+```
+
+**For an autonomous agent that needs step-through** (not just state capture), interactive `pdb`/`ipdb` are a poor fit — they block on a prompt. The agent-friendly path is to speak **DAP** through one of the emerging DAP-MCP bridges (e.g. `debugger-mcp` / `microsoft/DebugMCP` / `dapi`), which expose `breakpoint / continue / step / variables / evaluate / stack` as MCP tools over the same `debugpy` adapter. Treat that as optional external tooling layered on the debugpy setup above — the suite's own `state_capture` covers the common "what were the values" case without it.
+
 ## Gotchas that fail silently
 
 - **The top frame lies.** Odoo wraps and re-raises; the real cause is often the *first* traceback in the log (especially at boot), not the last printed one.
@@ -80,6 +123,7 @@ Read `distinct_steps` for the call order and `total_sql` / per-call `sql_count` 
 - **`-u` didn't recompute.** Changing a stored compute's logic doesn't recompute existing rows automatically; values look wrong until an upgrade marks the field for recompute (see `odoo-perf`).
 - **CacheMiss after raw SQL.** A `cr.execute` UPDATE without `invalidate_recordset` leaves the ORM serving stale values, then missing (see `odoo-perf`).
 - **The edit that "did nothing" was never loaded.** Before assuming a code bug when a change has *no* effect, run `odoo-ai preflight <module>`: the module may be uninstalled, un-`-u`'d, loaded from a **shadow copy** on a duplicate/auto-injected `addons_path`, or the file isn't imported in `__init__`. All four fail silently and look like "my code is wrong".
+- **debugpy breakpoints never fire under multi-worker / gevent.** A breakpoint set while Odoo runs with `workers>0` (or on the gevent websocket path) is simply skipped — no error. Debug with `--workers=0` and keep gevent off the stepped path (see "Interactive step-through" above).
 
 ## References & related skills
 
@@ -87,6 +131,6 @@ Read `distinct_steps` for the call order and `total_sql` / per-call `sql_count` 
 - `references/tracebacks.md` — annotated real tracebacks per error class, the log-reading recipe, `--log-handler` patterns, pdb / shell session examples, the "first vs last frame" rule, and install/upgrade failure diagnosis.
 
 **Other skills in the loop**
-- `odoo-introspect` — Tier 0 engine; `odoo-ai all <model>`, `trace_flow` (Layer D) for real call order + SQL.
+- `odoo-introspect` — Tier 0 engine; `odoo-ai all <model>`, `trace_flow` (Layer D) for real call order + SQL, and `state_capture` (Layer F) for runtime values + exception post-mortem.
 - `odoo-security` — `AccessError` / record-rule decoding. `odoo-perf` — SQL-count / cache / N+1.
 - `odoo-dev` — once the cause is known, the smallest safe patch.

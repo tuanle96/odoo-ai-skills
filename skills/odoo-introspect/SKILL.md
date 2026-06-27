@@ -43,6 +43,12 @@ Two more focused scanners cover questions the four layers don't:
 | **E (refs)** | `field_refs.py` | reverse impact — every compute/related/view/rule/filter/action that **depends on a field** (so a rename/retype/drop covers all of them) | before renaming, retyping, or dropping a field |
 | **preflight** | `preflight.py` | is the module actually installed/loaded, from which path, with shadow/duplicate `addons_path` traps flagged | "my change didn't apply" / before trusting an edit landed |
 
+And one runtime-**state** layer for when you need the values, not just the call graph:
+
+| Layer | Script | Answers | Run when |
+|-------|--------|---------|----------|
+| **F (state)** | `state_capture.py` | the **values** at runtime — args/locals/`self` at a breakpoint (`model.method` or source line), and the **full call stack with every frame's locals** when the method raises. The non-interactive, JSON analog of an IDE's "inspect variables" / post-mortem | Layer D shows *what* runs but you need *what the values were*, or a flow raises and the traceback alone doesn't explain why |
+
 Each script runs inside `odoo-bin shell` and prints pure JSON between sentinels (`===ODOO_BRIEF_START===` … etc.). Feed that JSON to the agent **before** any code.
 
 ## One command: `odoo-ai all <model>`
@@ -64,6 +70,12 @@ scripts/odoo-ai --db <DB> trace sale.order 42 action_confirm   # --commit to per
 # reverse impact before a rename, and the "did my edit even load?" preflight:
 scripts/odoo-ai --db <DB> refs sale.order commitment_date      # who breaks if I change this field
 scripts/odoo-ai --db <DB> preflight my_module                  # installed? loaded from where? shadowed?
+
+# runtime VALUES (Layer F): break when execution enters a method and dump its state,
+# or capture the full stack-with-locals if it raises:
+scripts/odoo-ai --db <DB> state sale.order 42 action_confirm \
+    --break sale.order._action_confirm --fields state,amount_total   # inspect-variables, as JSON
+scripts/odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception   # post-mortem stack + locals
 ```
 
 Config via flags or env: `--db/ODOO_DB` (required), `--conf/ODOO_CONF`, `--odoo-bin/ODOO_BIN`, `--out-dir` (default `/tmp/odoo-ai/<model>`). Or run a single script directly: `MODEL=sale.order odoo-bin shell -d <DB> --no-http < scripts/model_brief.py`.
@@ -92,6 +104,7 @@ See `references/sample-output.md` for the JSON shape each layer returns.
 - `scripts/trace_flow.py` — Layer D: real runtime call sequence (executes; rolls back unless `COMMIT=1`).
 - `scripts/field_refs.py` — Layer E: reverse impact of a field (computes/related/views/rules/filters/actions that depend on it) before a rename/retype/drop.
 - `scripts/preflight.py` — module preflight: installed/loaded state, load path, shadow/duplicate `addons_path` traps.
+- `scripts/state_capture.py` — Layer F: runtime state — breakpoint snapshot (args/locals/`self` at a `model.method` or source line) + exception post-mortem (full call stack with each frame's locals). Non-interactive, JSON.
 - `scripts/odoo-ai` — CLI that runs all four and writes a JSON folder.
 - `references/introspection.md` — RPC fallback for SaaS + mcp-odoo integration.
 - `references/sample-output.md` — abbreviated sample JSON for each of the four layers.

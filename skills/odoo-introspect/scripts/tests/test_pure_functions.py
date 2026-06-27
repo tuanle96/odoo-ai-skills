@@ -17,6 +17,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import model_brief  # noqa: E402  (import-safe: run() is gated on `env` in globals)
 import field_refs   # noqa: E402  (import-safe: run() is gated on `env` in globals)
 import preflight    # noqa: E402  (import-safe: run() is gated on `env` in globals)
+import state_capture  # noqa: E402  (import-safe: run() is gated on `env` in globals)
 
 
 def _load_odoo_ai():
@@ -161,6 +162,114 @@ def test_summ_handles_bad_shape():
     # Missing keys are swallowed → "" (never raises, never returns junk).
     assert odoo_ai._summ("brief", {}) == ""
     assert odoo_ai._summ("unknown-step", {}) == ""
+
+
+def test_summ_state():
+    d = {"breakpoint_hits": 2, "exception_stack": [{"a": 1}], "error": "ValueError: x"}
+    out = odoo_ai._summ("state", d)
+    assert "2 snapshots" in out and "1 exc frames" in out and "error=yes" in out
+    out2 = odoo_ai._summ("state", {"breakpoint_hits": 0, "exception_stack": [], "error": None})
+    assert "error=no" in out2
+
+
+# --- state_capture pure helpers ---------------------------------------------
+class _FakeRecordset:
+    """Duck-typed Odoo recordset for serialization tests (no Odoo needed)."""
+    def __init__(self, name, ids):
+        self._name = name
+        self.ids = ids
+
+    def browse(self, *a, **k):   # presence is part of the duck-type check
+        return self
+
+
+def test_state_truncate():
+    assert state_capture.truncate("abc", 10) == "abc"
+    long = state_capture.truncate("x" * 50, 10)
+    assert long.startswith("x" * 10) and "+40 chars" in long
+    assert state_capture.truncate(12345, 3).startswith("123")
+
+
+def test_state_should_break():
+    # model.method
+    assert state_capture.should_break("sale.order", "action_confirm", "sale.order.action_confirm")
+    assert not state_capture.should_break("sale.order", "write", "sale.order.action_confirm")
+    # bare method (any model)
+    assert state_capture.should_break("res.partner", "create", "create")
+    assert not state_capture.should_break("res.partner", "write", "create")
+    # model-only wildcard
+    assert state_capture.should_break("sale.order", "anything", "sale.order.*")
+    assert not state_capture.should_break("stock.move", "anything", "sale.order.*")
+    # empty spec never breaks
+    assert not state_capture.should_break("sale.order", "write", "")
+
+
+def test_state_addon_from_module():
+    # real-world: custom/enterprise addons resolve by module name, not file path
+    assert state_capture.addon_from_module("odoo.addons.bm_account.models.res_partner") == "bm_account"
+    assert state_capture.addon_from_module("odoo.addons.sale.models.sale_order") == "sale"
+    # core ORM plumbing is NOT an addon frame
+    assert state_capture.addon_from_module("odoo.models") is None
+    assert state_capture.addon_from_module("odoo.api") is None
+    assert state_capture.addon_from_module("") is None
+    assert state_capture.addon_from_module(None) is None
+
+
+def test_state_is_recordset():
+    assert state_capture.is_recordset(_FakeRecordset("sale.order", [1, 2]))
+    assert not state_capture.is_recordset({"_name": "x"})       # no ids/browse
+    assert not state_capture.is_recordset("sale.order")
+    assert not state_capture.is_recordset(None)
+
+
+def test_state_summarize_recordset():
+    rs = _FakeRecordset("sale.order", list(range(25)))
+    out = state_capture.summarize_recordset(rs, max_records=10)
+    assert out["__recordset__"] == "sale.order"
+    assert out["len"] == 25 and out["truncated"] is True
+    assert out["ids"] == list(range(10))
+
+
+def test_state_serialize_primitives_and_truncation():
+    assert state_capture.serialize_value(None) is None
+    assert state_capture.serialize_value(True) is True
+    assert state_capture.serialize_value(7) == 7
+    assert state_capture.serialize_value("hi") == "hi"
+    big = state_capture.serialize_value("y" * 300, max_string=50)
+    assert "+250 chars" in big
+
+
+def test_state_serialize_recordset_and_containers():
+    rs = _FakeRecordset("res.partner", [5])
+    val = state_capture.serialize_value({"partner": rs, "tags": [1, 2, 3]})
+    assert val["partner"]["__recordset__"] == "res.partner"
+    assert val["tags"] == [1, 2, 3]
+    # element cap on long lists
+    out = state_capture.serialize_value(list(range(100)), max_items=10)
+    assert len(out) == 11 and "more items" in out[-1]
+
+
+def test_state_serialize_depth_and_unreprable():
+    deep = {"a": {"b": {"c": {"d": 1}}}}
+    out = state_capture.serialize_value(deep, max_depth=2)
+    # beyond max_depth the inner value collapses to a type marker string
+    assert isinstance(out["a"]["b"], str) and out["a"]["b"].startswith("<dict>")
+
+    class Boom:
+        def __repr__(self):
+            raise RuntimeError("no repr")
+    assert "unreprable" in state_capture.serialize_value(Boom())
+
+
+def test_state_serialize_locals_skips_dunder_and_caps():
+    frame_locals = {"__doc__": "x", "self": _FakeRecordset("a.b", [1]),
+                    "vals": {"k": "v"}, "n": 3}
+    out = state_capture.serialize_locals(frame_locals, max_locals=40)
+    assert "__doc__" not in out
+    assert out["self"]["__recordset__"] == "a.b"
+    assert out["vals"] == {"k": "v"} and out["n"] == 3
+    capped = state_capture.serialize_locals({f"v{i}": i for i in range(50)}, max_locals=5)
+    assert "__truncated__" in capped
 
 
 if __name__ == "__main__":

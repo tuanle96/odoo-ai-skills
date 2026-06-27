@@ -35,7 +35,7 @@ Left to memory, LLMs invent Odoo field and model names, reach for APIs that were
 ### Tier 0 — Foundation (the ground-truth engine)
 | Skill | What it does |
 |-------|--------------|
-| **odoo-introspect** | The engine every other skill calls first. Four JSON layers (A: fields+MRO+super+security · B: views/buttons · C: menu/data/reports · D: real runtime trace), plus two focused scanners — **refs** (reverse field impact) and **preflight** (is it even loaded?) — and the `odoo-ai` CLI. |
+| **odoo-introspect** | The engine every other skill calls first. Four JSON layers (A: fields+MRO+super+security · B: views/buttons · C: menu/data/reports · D: real runtime trace), plus focused scanners — **refs** (reverse field impact), **preflight** (is it even loaded?), and **state_capture** (Layer F: runtime values at a breakpoint + exception post-mortem) — and the `odoo-ai` CLI. |
 
 ### Tier 1 — Core loop
 | Skill | What it does |
@@ -88,6 +88,11 @@ scripts/odoo-ai --db <DB> all sale.order --methods action_confirm \
 # focused scanners:
 scripts/odoo-ai --db <DB> refs sale.order commitment_date   # who breaks if I change this field
 scripts/odoo-ai --db <DB> preflight my_module               # installed? loaded from where? shadowed?
+
+# runtime values (Layer F) — the JSON analog of an IDE's "inspect variables":
+scripts/odoo-ai --db <DB> state sale.order 42 action_confirm \
+    --break sale.order._action_confirm --fields state,amount_total   # args/locals/self at the breakpoint
+scripts/odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception   # full stack + locals if it raises
 ```
 
 See `skills/odoo-introspect/` for the JSON shape of each layer and the SaaS RPC fallback.

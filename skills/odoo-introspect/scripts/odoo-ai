@@ -18,6 +18,7 @@ Commands:
     odoo-ai entrypoints <model> [--views form,list]
     odoo-ai metadata    <model>
     odoo-ai trace       <model> <record_id> <method> [--commit]
+    odoo-ai state       <model> <record_id> <method> [--break model.method] [--line N] [--fields a,b] [--on-exception]
     odoo-ai all         <model> [--methods a,b] [--source] [--record-id N --method M]
 
 Examples:
@@ -25,6 +26,7 @@ Examples:
     odoo-ai --db dev --conf /etc/odoo.conf all sale.order \
         --methods action_confirm --record-id 42 --method action_confirm
     odoo-ai --db dev trace sale.order 42 action_confirm
+    odoo-ai --db dev state sale.order 42 action_confirm --break sale.order._action_confirm --fields state,amount_total
 """
 import argparse
 import json
@@ -41,6 +43,7 @@ SCRIPTS = {
     "trace":       (HERE / "trace_flow.py",  "===ODOO_TRACE_START===", "===ODOO_TRACE_END==="),
     "refs":        (HERE / "field_refs.py",  "===ODOO_REFS_START===",  "===ODOO_REFS_END==="),
     "preflight":   (HERE / "preflight.py",   "===ODOO_PREFLIGHT_START===", "===ODOO_PREFLIGHT_END==="),
+    "state":       (HERE / "state_capture.py", "===ODOO_STATE_START===", "===ODOO_STATE_END==="),
 }
 
 
@@ -110,6 +113,10 @@ def _summ(step, d):
             m = d.get("module") or {}
             return f"(module found={m.get('found')}, state={m.get('state')}, "\
                    f"{len(d.get('shadow_warnings', []))} shadow warnings)"
+        if step == "state":
+            return f"({d.get('breakpoint_hits', 0)} snapshots, "\
+                   f"{len(d.get('exception_stack', []))} exc frames, "\
+                   f"error={'yes' if d.get('error') else 'no'})"
     except Exception:
         return ""
     return ""
@@ -130,6 +137,7 @@ def main():
     st = sub.add_parser("trace"); st.add_argument("model"); st.add_argument("record_id"); st.add_argument("method"); st.add_argument("--commit", action="store_true")
     sr = sub.add_parser("refs"); sr.add_argument("model"); sr.add_argument("field")
     sp = sub.add_parser("preflight"); sp.add_argument("module", nargs="?")
+    ss = sub.add_parser("state"); ss.add_argument("model"); ss.add_argument("record_id"); ss.add_argument("method"); ss.add_argument("--break", dest="break_at", default=""); ss.add_argument("--line", dest="break_line"); ss.add_argument("--fields", default=""); ss.add_argument("--on-exception", action="store_true"); ss.add_argument("--max-hits", default="3"); ss.add_argument("--commit", action="store_true")
     sa = sub.add_parser("all"); sa.add_argument("model"); sa.add_argument("--methods", default=""); sa.add_argument("--source", action="store_true"); sa.add_argument("--views", default="form,list"); sa.add_argument("--record-id"); sa.add_argument("--method")
 
     a = p.parse_args()
@@ -154,6 +162,17 @@ def main():
         do_step("refs", {"MODEL": a.model, "FIELD": a.field}, cfg, out_dir, f"{a.model}.{a.field}")
     elif a.cmd == "preflight":
         do_step("preflight", {"MODULE": a.module or ""}, cfg, out_dir, str(label))
+    elif a.cmd == "state":
+        env_extra = {
+            "MODEL": a.model, "RECORD_ID": a.record_id, "METHOD": a.method,
+            "BREAK_AT": a.break_at, "FIELDS": a.fields, "MAX_HITS": a.max_hits,
+            "COMMIT": "1" if a.commit else "",
+        }
+        if a.break_line:
+            env_extra["BREAK_LINE"] = a.break_line
+        if a.on_exception:
+            env_extra["ON_EXCEPTION"] = "1"
+        do_step("state", env_extra, cfg, out_dir, a.model)
     elif a.cmd == "all":
         do_step("brief", {"MODEL": a.model, "METHODS": a.methods, "SOURCE": "1" if a.source else ""}, cfg, out_dir, a.model)
         do_step("entrypoints", {"MODEL": a.model, "VIEWS": a.views}, cfg, out_dir, a.model)

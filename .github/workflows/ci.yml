@@ -21,7 +21,8 @@ jobs:
             skills/odoo-introspect/scripts/metadata.py \
             skills/odoo-introspect/scripts/trace_flow.py \
             skills/odoo-introspect/scripts/field_refs.py \
-            skills/odoo-introspect/scripts/preflight.py
+            skills/odoo-introspect/scripts/preflight.py \
+            skills/odoo-introspect/scripts/state_capture.py
 
       - name: Install test deps
         run: pip install pytest
