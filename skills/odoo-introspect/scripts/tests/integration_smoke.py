@@ -60,6 +60,8 @@ SENTINELS = {
     "env_diff.py":      ("===ODOO_ENVFP_START===", "===ODOO_ENVFP_END==="),
     "upgrade_check.py": ("===ODOO_UPG_START===", "===ODOO_UPG_END==="),
     "claim_verify.py":  ("===ODOO_CLAIMS_START===", "===ODOO_CLAIMS_END==="),
+    "trace_flow.py":    ("===ODOO_TRACE_START===", "===ODOO_TRACE_END==="),
+    "preflight.py":     ("===ODOO_PREFLIGHT_START===", "===ODOO_PREFLIGHT_END==="),
 }
 
 
@@ -483,6 +485,55 @@ def smoke_claim_verify():
           "needs_human" in d.get("summary", {}), str(d.get("summary")))
 
 
+def smoke_preflight():
+    """Module load-state preflight (base is always installed; a made-up module
+    is reported not-found)."""
+    print("preflight — module load state")
+    d = _shell("preflight.py", {"MODULE": "base"})
+    mod = d.get("module") or {}
+    check("preflight.base found + installed",
+          mod.get("found") is True and mod.get("state") == "installed", str(mod))
+    nd = _shell("preflight.py", {"MODULE": "zz_no_such_module"})
+    check("preflight.missing module flagged not-found",
+          (nd.get("module") or {}).get("found") is False, str(nd.get("module")))
+
+
+def smoke_trace():
+    """Layer D runtime trace. Needs an app with a no-arg flow method, so it uses
+    sale.order.action_confirm when sale is installed (the integration job installs
+    base,sale); on a base-only DB it skips cleanly rather than failing."""
+    print("Layer D — trace (runtime call graph)")
+    if "===SALE=== True" not in _shell_code('print("===SALE===", "sale.order" in env)\n'):
+        check("trace skipped (sale not installed — base-only DB)", True)
+        return
+    # Build a confirmable order and commit so the trace subprocess can browse it.
+    setup = (
+        "p = env['res.partner'].create({'name': 'Smoke Trace Partner'})\n"
+        "prod = env['product.product'].create({'name': 'Smoke Trace Product', 'list_price': 50.0})\n"
+        "o = env['sale.order'].create({'partner_id': p.id, "
+        "'order_line': [(0, 0, {'product_id': prod.id, 'product_uom_qty': 1})]})\n"
+        "env.cr.commit()\n"
+        "print('===OID===', o.id)\n")
+    out = _shell_code(setup)
+    m = re.search(r"===OID===\s+(\d+)", out)
+    if not m:
+        check("trace.setup created a sale.order", False,
+              "\n".join((out or "").strip().splitlines()[-4:]))
+        return
+    oid = m.group(1)
+    d = _shell("trace_flow.py", {"MODEL": "sale.order", "RECORD_ID": oid, "METHOD": "action_confirm"})
+    check("trace.root matches the call",
+          (d.get("root") or "").startswith(f"sale.order({oid}).action_confirm"), str(d.get("root")))
+    # the tracer captures addon frames whether or not the flow raises (we test the
+    # TRACE engine, not sale's confirmability), so don't assert error is None
+    check("trace executed real addon frames", d.get("total_addon_calls", 0) > 0,
+          str(d.get("total_addon_calls")))
+    check("trace.distinct_steps is a list", isinstance(d.get("distinct_steps"), list))
+    check("trace.summary.writes_by_model present",
+          isinstance((d.get("summary") or {}).get("writes_by_model"), dict))
+    check("trace rolled back by default", d.get("committed") is False, str(d.get("committed")))
+
+
 def main():
     if not DB:
         print("SKIP integration_smoke: ODOO_DB not set (pure-function CI is unaffected).")
@@ -491,7 +542,8 @@ def main():
     for fn in (smoke_brief, smoke_entrypoints, smoke_metadata, smoke_refs,
                smoke_security, smoke_security_multicompany, smoke_state,
                smoke_capabilities, smoke_native_check,
-               smoke_layer_i, smoke_native_check_probe_kinds, smoke_claim_verify):
+               smoke_layer_i, smoke_native_check_probe_kinds, smoke_claim_verify,
+               smoke_preflight, smoke_trace):
         try:
             fn()
         except Exception as e:  # noqa: BLE001
