@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.1]
+
 ### Added
 - **Worked example** (`examples/sale_confirm_guard/` + `examples/sale-order-walkthrough.md`):
   a real `sale.order` change taken through introspect → plan → patch → test,
@@ -87,6 +89,7 @@ against a live Odoo 18 instance.
 - Pure-function unit tests and a compile/test CI workflow.
 - Odoo version coverage extended to 19 (current LTS).
 
-[Unreleased]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/tuanle96/odoo-ai-skills/releases/tag/v0.2.0
