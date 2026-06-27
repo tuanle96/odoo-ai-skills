@@ -25,10 +25,12 @@ Config (env):
     ODOO_BIN     (opt)       odoo binary / wrapper            (default: odoo)
     ODOO_CONF    (opt)       path to odoo.conf
     SMOKE_MODEL  (opt)       model to introspect              (default: res.partner)
-    SMOKE_RECORD_ID (opt)    record id → also smoke Layer F (state) redaction
+    SMOKE_RECORD_ID (opt)    record id for Layer F (state); auto-resolved from
+                             the DB when unset, so redaction is always exercised
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -64,6 +66,25 @@ def _shell(script_name, env_extra):
         raise AssertionError(f"{script_name}: no JSON between sentinels. Tail:\n{tail}")
     body = out.split(start, 1)[1].rsplit(end, 1)[0].strip()
     return json.loads(body)
+
+
+def _shell_code(code):
+    """Run a short inline snippet in `odoo shell` (stdin) and return stdout."""
+    cmd = [ODOO_BIN, "shell", "-d", DB, "--no-http", "--log-level=error"]
+    if CONF:
+        cmd += ["-c", CONF]
+    proc = subprocess.run(cmd, input=code, env=os.environ,
+                          capture_output=True, text=True, timeout=TIMEOUT)
+    return proc.stdout
+
+
+def resolve_record_id():
+    """Pick any existing record of MODEL so Layer F (state) can run unattended."""
+    out = _shell_code(
+        f'r = env["{MODEL}"].search([], limit=1)\n'
+        f'print("===RID===", r.id if r else 0)\n')
+    m = re.search(r"===RID===\s+(\d+)", out)
+    return int(m.group(1)) if m and int(m.group(1)) > 0 else None
 
 
 RESULTS = []
@@ -116,10 +137,14 @@ def smoke_metadata():
 
 
 def smoke_state():
+    global RECORD_ID
     if not RECORD_ID:
-        print("Layer F — state (skipped: set SMOKE_RECORD_ID to enable)")
+        RECORD_ID = resolve_record_id()
+    if not RECORD_ID:
+        print("Layer F — state (skipped: no record of "
+              f"{MODEL} found and SMOKE_RECORD_ID unset)")
         return
-    print("Layer F — state (redaction)")
+    print(f"Layer F — state (redaction) on {MODEL}({RECORD_ID})")
     d = _shell("state_capture.py", {
         "MODEL": MODEL, "RECORD_ID": RECORD_ID, "METHOD": "_compute_display_name",
         "BREAK_AT": f"{MODEL}._compute_display_name",

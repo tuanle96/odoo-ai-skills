@@ -6,6 +6,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Worked example** (`examples/sale_confirm_guard/` + `examples/sale-order-walkthrough.md`):
+  a real `sale.order` change taken through introspect → plan → patch → test,
+  with every decision grounded in the live registry. Its tests run in CI (the
+  `example` job in `integration.yml`).
+- **Demo GIF** rendered from a committed VHS tape (`examples/demo.tape`),
+  embedded in the README.
+- Layer F is now exercised in the integration smoke test by **auto-resolving a
+  record id** when `SMOKE_RECORD_ID` is unset (15 checks instead of 12), so
+  redaction is covered in CI.
+
+### Fixed
+- Integration CI: pass `HOST`/`PORT`/`USER`/`PASSWORD` so the official Odoo
+  image connects to the Postgres service instead of the entrypoint's default
+  `db` host.
+
 ## [0.3.0]
 
 Hardening pass driven by a review of the introspection engine and validated

@@ -53,10 +53,45 @@ jobs:
           # the smoke test's subprocess env reaches the `odoo shell` child
           # directly — no docker env-forwarding needed. The entrypoint passes a
           # non-`odoo` command (python3) straight through, so db args come from
-          # the conf (db_host=localhost).
+          # the conf (db_host=localhost). Layer F auto-resolves a record id, so
+          # redaction is exercised too (15 checks, not 12).
           docker run --rm --network host -v "$PWD":/repo -w /repo \
             -e ODOO_DB=ci \
             -e ODOO_CONF=/repo/.github/ci-odoo.conf \
             -e SMOKE_MODEL=res.partner \
             odoo:${{ matrix.odoo }} \
             python3 skills/odoo-introspect/scripts/tests/integration_smoke.py
+
+  example:
+    # Proves the worked example end-to-end: install examples/sale_confirm_guard
+    # (pulls `sale`) and run its tests on a clean DB.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install example module + run its tests
+        run: |
+          # Mount examples/ as an addons dir; install the module (pulls sale)
+          # and run only its tagged tests. Odoo exits non-zero if a test fails.
+          docker run --rm --network host -v "$PWD/examples":/mnt/extra-addons \
+            -e HOST=localhost -e PORT=5432 -e USER=odoo -e PASSWORD=odoo \
+            odoo:18.0 \
+            odoo -d ci_example \
+                 --addons-path=/mnt/extra-addons,/usr/lib/python3/dist-packages/odoo/addons \
+                 -i sale_confirm_guard \
+                 --test-enable --test-tags /sale_confirm_guard \
+                 --stop-after-init --log-level=test

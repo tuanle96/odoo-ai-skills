@@ -14,6 +14,10 @@ Odoo composes every model, view, security rule, and automation **at runtime** fr
 
 > **Read ground truth from the running instance first → build the smallest correct change → prove it with a test → review it before it merges.**
 
+![odoo-ai workflow demo](examples/demo.gif)
+
+See the full [worked example](examples/sale-order-walkthrough.md) — a real `sale.order` change taken through introspect → patch → test, with its module tested in CI.
+
 ## Why this exists
 
 Left to memory, LLMs invent Odoo field and model names, reach for APIs that were removed (`attrs`/`states`, `<tree>`, `name_get`), call `super()` at the wrong MRO layer, sprinkle `sudo()` to silence access errors, and ship stored computes with an incomplete `@api.depends`. These fail **silently at runtime**, not at lint time — exactly where confidence is most dangerous. This suite closes that gap by making the agent read the live registry before it writes, and by encoding the Odoo-specific contracts (security, MRO, manifest wiring, version deltas) that a generic model doesn't know.
