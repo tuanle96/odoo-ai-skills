@@ -66,6 +66,7 @@ scripts/odoo-ai --db <DB> all sale.order --methods action_confirm \
 
 # individual layers / a single trace:
 scripts/odoo-ai --db <DB> brief sale.order --methods action_confirm --source
+scripts/odoo-ai --db <DB> brief sale.order --code-preview   # opt in to a short head slice of server-action/cron code (default: gated)
 scripts/odoo-ai --db <DB> trace sale.order 42 action_confirm   # --commit to persist (dev DB only)
 
 # reverse impact before a rename, and the "did my edit even load?" preflight:
@@ -75,7 +76,8 @@ scripts/odoo-ai --db <DB> preflight my_module                  # installed? load
 
 # effective security for a specific user (combined ACL + record rules + restricted fields):
 scripts/odoo-ai --db <DB> security sale.order --user salesperson@acme.com   # what can THIS user do / see
-scripts/odoo-ai --db <DB> security sale.order --user 7 --company 2          # ...in a specific company
+scripts/odoo-ai --db <DB> security sale.order --user 7 --company 2          # ...with company 2 active
+scripts/odoo-ai --db <DB> security sale.order --user 7 --company 2 --allowed-companies 1,2  # ...with both companies toggled on
 
 # runtime VALUES (Layer F): break when execution enters a method and dump its state,
 # or capture the full stack-with-locals if it raises:
@@ -86,7 +88,7 @@ scripts/odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception   # 
 
 > **Layer F redacts sensitive data by default.** Locals, dict keys, and field names that look like secrets (`password`, `token`, `secret`, `api_key`, `authorization`, `session`, …) are emitted as `<redacted>`. Add more with `--redact-extra ssn,iban`; turn it off with `--no-redact` on a trusted dev box only. Redaction is key-name based — it won't catch a secret stored under a benign name, and source bodies (`--source`) / explicit `--fields` values are **not** redacted. Don't paste raw `state`/source JSON into an external LLM unless reviewed.
 
-> **Code bodies are gated, not dumped.** `brief` returns server-action and cron `code` as `code_present` / `code_len` only — `code_preview` is `null` by default, because even a head-only slice can carry a token, webhook URL, or API key. Set `CODE_PREVIEW=1` for a short head slice, or `CODE=1` for full bodies (and `--source` for method source) — all trusted context only, and review before pasting into an external LLM.
+> **Code bodies are gated, not dumped.** `brief` returns server-action and cron `code` as `code_present` / `code_len` only — `code_preview` is `null` by default, because even a head-only slice can carry a token, webhook URL, or API key. Pass `--code-preview` for a short head slice or `--code` for full bodies (env `CODE_PREVIEW=1` / `CODE=1` work too), and `--source` for method source — all trusted context only, and review before pasting into an external LLM.
 
 > **`all` scope.** `odoo-ai all` runs `brief + entrypoints + metadata` (plus `trace` when you pass `--record-id` and `--method`). It does **not** run `refs`, `preflight`, or `state` — run those explicitly when you need reverse-impact, load-verification, or runtime values.
 
@@ -109,6 +111,7 @@ See `references/sample-output.md` for the JSON shape each layer returns.
 - **Wrong `depends` → wrong MRO layer.** Depend on the addon that owns the method you extend, or your override silently sits below the one that matters and "never runs".
 - **API renames bite across versions** — `name_get`→`_compute_display_name`, `fields_view_get`→`get_view`, `attrs`/`states` removed. See `references/version-matrix.md`.
 - **Empty `_warnings` ≠ nothing wrong**, but a non-empty one (e.g. `field_modules lookup failed`) means a layer is partial — read it.
+- **`writes_by_model` (Layer D) is addon-scoped.** It captures create/write field names from traced `odoo.addons.*` frames only. A `record.write(vals)` on a model that doesn't override `write` in an addon runs in core `odoo.models` and won't appear — read it as "writes seen in addon code", not "every ORM write the flow made" (see `summary._writes_caveat`).
 
 ## References & scripts
 

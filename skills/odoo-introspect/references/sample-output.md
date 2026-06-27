@@ -297,6 +297,7 @@ Abbreviated, realistic JSON for each script (model: `sale.order`, Odoo 18), trim
            "is_superuser": false, "groups_count": 14},
   "company": {
     "acting_company": {"id": 1, "name": "Acme"},
+    "simulated_allowed_company_ids": null,
     "user_allowed_companies": [{"id": 1, "name": "Acme"}, {"id": 2, "name": "Acme EU"}],
     "model_has_company_id": true
   },

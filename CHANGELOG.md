@@ -6,6 +6,56 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-06-27
+
+A follow-up hygiene patch on 0.4.1: surface the code-gating policy on the CLI,
+lock the company-aware Layer G fix with a real regression test, document a
+Layer D capture boundary, and finish the 17/18/19 docs sync.
+
+### Added
+- **`odoo-ai brief` / `all` gain `--code-preview` and `--code` flags.** The
+  code-gating policy (server-action / cron bodies are summarized, not dumped)
+  was previously reachable only via the `CODE_PREVIEW=1` / `CODE=1` env vars.
+  The flags make the opt-in explicit on the CLI; the env vars still work and the
+  default stays gated (no preview).
+- **`odoo-ai security` gains `--allowed-companies`** (env `AS_ALLOWED_COMPANIES`).
+  Layer G previously scoped the rule engine to a single active company
+  (`AS_COMPANY`); this models a user with several companies toggled ON, so
+  `company_ids` in a record-rule domain resolves to the full allowed set (Odoo's
+  `env.companies`), not just one. Default stays `[AS_COMPANY]`. The simulated set
+  is reported as `company.simulated_allowed_company_ids`.
+- **Multi-company Layer G regression test** (`integration_smoke.py`). Sets up
+  two companies, a user allowed in both, and a company-scoped record rule, then
+  runs `security_sim.py` against each company and asserts the effective
+  read-domain scopes to the *simulated* company (and that the two domains
+  differ) — locking the 0.4.1 `_compute_domain` company-binding fix. It also
+  checks that `--allowed-companies A,B` widens the domain to cover both. The
+  setup is rolled back, so it never persists, even against a dev DB.
+
+### Fixed
+- **Layer G (`security_sim.py`) now runs on Odoo 19.** Two v19 changes broke it,
+  both caught by running the smoke test against the official `odoo:19.0` image:
+  - `res.users.groups_id` was renamed to **`group_ids`** (`ir.rule.groups` was
+    not). Reading `user.groups_id` raised `AttributeError`; the script now
+    resolves the field name from the registry, so it works on 17 → 19.
+  - `ir.rule._compute_domain` now returns an **`odoo.orm.domains.Domain`**
+    object (the new Domain API), which `json.dumps(default=str)` silently
+    stringified — `effective_domain` came out as a string instead of a
+    structured list. A new `normalize_domain` helper converts the Domain to the
+    classic prefix-list form, keeping the output machine-readable across
+    versions.
+  Both deltas are now documented in `references/version-matrix.md`.
+- **`introspection.md` integration-matrix note synced to 17/18/19.** The final
+  line still read `odoo:17.0`/`18.0`; CI runs `17.0` / `18.0` / `19.0`.
+
+### Changed
+- **`writes_by_model` (Layer D) documents its capture boundary.** The trace
+  summary now carries a `_writes_caveat`: field names are captured from traced
+  `odoo.addons.*` frames only, so a `write` on a model that doesn't override
+  `write` in an addon (running in core `odoo.models`) isn't counted. The
+  `odoo-introspect` SKILL gotchas note the same, so the write map is read as
+  "writes seen in addon code", not "every ORM write the flow made".
+
 ## [0.4.1] - 2026-06-27
 
 A correctness and hygiene patch on top of 0.4.0: company-aware record-rule
@@ -220,7 +270,8 @@ against a live Odoo 18 instance.
 - Pure-function unit tests and a compile/test CI workflow.
 - Odoo version coverage extended to 19 (current LTS).
 
-[Unreleased]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.3.1...v0.3.2

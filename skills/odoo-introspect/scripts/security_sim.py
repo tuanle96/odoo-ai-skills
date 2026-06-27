@@ -26,10 +26,15 @@ Usage
 -----
     MODEL=sale.order AS_USER=demo odoo-bin shell -d <DB> --no-http < security_sim.py
     MODEL=sale.order AS_USER=7 AS_COMPANY=2 odoo-bin shell -d <DB> < security_sim.py
+    MODEL=sale.order AS_USER=7 AS_COMPANY=2 AS_ALLOWED_COMPANIES=1,2 \
+        odoo-bin shell -d <DB> < security_sim.py
 
 NOTE: pass the user via AS_USER (login or numeric id) — NOT USER, which the
-shell already sets to the OS account. AS_COMPANY is an id or company name; it
-defaults to the user's company.
+shell already sets to the OS account. AS_COMPANY is an id or company name (the
+single ACTIVE company); it defaults to the user's company. AS_ALLOWED_COMPANIES
+is a comma-separated id/name list — the companies toggled ON (env.companies),
+which is what `company_ids` resolves to in a rule domain; it defaults to just
+AS_COMPANY.
 
 Output: pure JSON wrapped in ===ODOO_SECURITY_START=== / ===ODOO_SECURITY_END===.
 """
@@ -56,6 +61,33 @@ def effective_acl(acl_rows):
         eff["create"] = eff["create"] or bool(r.get("perm_create"))
         eff["unlink"] = eff["unlink"] or bool(r.get("perm_unlink"))
     return eff
+
+
+def parse_id_list(spec):
+    """Split a comma-separated id/name spec into trimmed, non-empty tokens.
+
+    Used for AS_ALLOWED_COMPANIES (--allowed-companies): "1, 2 ,Acme" →
+    ["1", "2", "Acme"]. Returns [] for empty/None.
+    """
+    return [t.strip() for t in (spec or "").split(",") if t.strip()]
+
+
+def normalize_domain(dom):
+    """Return a record-rule domain in the classic prefix-list form.
+
+    Odoo 19's `ir.rule._compute_domain` returns an `odoo.orm.domains.Domain`
+    object (the new Domain API); 17/18 return a plain list. A Domain is iterable
+    into the classic `['&', (leaf), ...]` list, so converting it keeps
+    `effective_domain` machine-readable — otherwise `json.dumps(default=str)`
+    stringifies the object and the consumer loses the structure. list / tuple /
+    dict (the `{"_error": ...}` case) / None pass through unchanged.
+    """
+    if dom is None or isinstance(dom, (list, tuple, dict)):
+        return dom
+    try:
+        return list(dom)
+    except TypeError:
+        return dom
 
 
 def parse_field_groups(group_spec):
@@ -98,6 +130,7 @@ def run():
         raise SystemExit("Set MODEL, e.g. MODEL=sale.order")
     AS_USER = os.environ.get("AS_USER")
     AS_COMPANY = os.environ.get("AS_COMPANY")
+    AS_ALLOWED = os.environ.get("AS_ALLOWED_COMPANIES")
 
     Users = env["res.users"]                       # noqa: F821
     if AS_USER:
@@ -120,22 +153,47 @@ def run():
             WARNINGS.append(f"company {AS_COMPANY!r} not found; using the user's default company")
             company = None
 
+    # Allowed (active) companies toggled ON for the simulated user. Odoo derives
+    # `company_ids` in a record-rule domain from env.companies (the allowed set)
+    # and `company_id` from env.company (the single active one) — a user with
+    # several companies switched on can see a WIDER effective domain than one
+    # with a single active company. AS_ALLOWED_COMPANIES models that; default is
+    # just the active company.
+    Comp = env["res.company"]                      # noqa: F821
+    allowed_ids = []
+    for tok in parse_id_list(AS_ALLOWED):
+        c = (Comp.browse(int(tok)).exists() if tok.isdigit()
+             else Comp.search([("name", "=", tok)], limit=1))
+        if c:
+            allowed_ids.append(c.id)
+        else:
+            WARNINGS.append(f"allowed company {tok!r} not found; skipped")
+    # Odoo invariant: the active company must be inside allowed_company_ids.
+    if company and company.id not in allowed_ids:
+        allowed_ids.insert(0, company.id)
+    # --allowed-companies given without --company → first allowed is the active one.
+    if allowed_ids and company is None:
+        company = Comp.browse(allowed_ids[0]).exists()
+
     is_superuser = uid == 1   # odoo.SUPERUSER_ID
     if is_superuser:
         WARNINGS.append("acting user is the SUPERUSER (id 1) — ACL and record rules are "
                         "BYPASSED at runtime; this simulation is NOT representative. "
                         "Pass AS_USER=<a real login/id>.")
 
-    # The simulated recordset: bound to the target user (and company).
+    # The simulated recordset: bound to the target user (and company/allowed set).
     model_as = env[MODEL].with_user(user)          # noqa: F821
     if company:
         model_as = model_as.with_company(company)
+    if allowed_ids:
+        model_as = model_as.with_context(allowed_company_ids=allowed_ids)
 
-    user_group_ids = set(user.groups_id.ids)
+    user_groups = user.group_ids if "group_ids" in user._fields else user.groups_id
+    user_group_ids = set(user_groups.ids)
     # Map the user's groups to xmlids for field-visibility explanation.
     user_group_xmlids = set()
     try:
-        for gid, xmlid in user.groups_id.get_external_id().items():
+        for gid, xmlid in user_groups.get_external_id().items():
             if xmlid:
                 user_group_xmlids.add(xmlid)
     except Exception as e:
@@ -186,15 +244,16 @@ def run():
     }
 
     # --- 2. Record rules: effective domain via Odoo's own combiner -----------
-    # Bind the rule engine to the SAME user AND company as the simulated
-    # recordset; otherwise _compute_domain() resolves company-dependent rules
-    # (user.company_id / allowed_company_ids in the domain_force) against the
-    # user's default company, and the effective domain would silently diverge
-    # from what AS_COMPANY actually sees at runtime.
+    # Bind the rule engine to the SAME user AND company/allowed-set as the
+    # simulated recordset; otherwise _compute_domain() resolves company-dependent
+    # rules (user.company_id / company_ids in the domain_force) against the user's
+    # default company, and the effective domain would silently diverge from what
+    # AS_COMPANY / AS_ALLOWED_COMPANIES actually sees at runtime.
     Rule = env["ir.rule"].with_user(user)          # noqa: F821
     if company:
-        Rule = Rule.with_company(company).with_context(
-            allowed_company_ids=[company.id])
+        Rule = Rule.with_company(company)
+    if allowed_ids:
+        Rule = Rule.with_context(allowed_company_ids=allowed_ids)
     rule_recs = env["ir.rule"].sudo().search(      # noqa: F821
         [("model_id.model", "=", MODEL), ("active", "=", True)])
 
@@ -219,6 +278,7 @@ def run():
         except Exception as e:
             effective_domain = {"_error": f"{type(e).__name__}: {e}"}
             WARNINGS.append(f"_compute_domain({mode}) failed ({type(e).__name__}: {e})")
+        effective_domain = normalize_domain(effective_domain)
         return {
             "effective_domain": effective_domain,   # None = no row restriction (all rows)
             "global_rules": glob,                    # ANDed (every one must pass)
@@ -243,6 +303,7 @@ def run():
     acting_company = company or user.company_id
     multi_company = {
         "acting_company": {"id": acting_company.id, "name": acting_company.name} if acting_company else None,
+        "simulated_allowed_company_ids": allowed_ids or None,
         "user_allowed_companies": [{"id": c.id, "name": c.name} for c in user.company_ids],
         "model_has_company_id": "company_id" in env[MODEL]._fields,   # noqa: F821
     }

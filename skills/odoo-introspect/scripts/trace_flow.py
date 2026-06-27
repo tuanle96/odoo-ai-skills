@@ -260,6 +260,13 @@ def run():
 
     summary = summarize_calls(calls)
     summary["writes_by_model"] = aggregate_writes(write_events)
+    summary["_writes_caveat"] = (
+        "writes_by_model counts create/write field NAMES observed in traced "
+        "ADDON frames (odoo.addons.*) only. A record.write(vals) on a model that "
+        "does NOT override write in an addon runs in core odoo.models and is not "
+        "captured here — so treat this as 'writes seen in addon code', not 'every "
+        "ORM write the flow performed'. Confirm side effects on a model with "
+        "Layer A / a targeted Layer F breakpoint when completeness matters.")
     summary["exception_origin"] = exc_origin or None
 
     result = {

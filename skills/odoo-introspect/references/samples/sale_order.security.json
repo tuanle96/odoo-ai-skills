@@ -12,6 +12,7 @@
             "id": 1,
             "name": "Acme"
         },
+        "simulated_allowed_company_ids": null,
         "user_allowed_companies": [
             {
                 "id": 1,

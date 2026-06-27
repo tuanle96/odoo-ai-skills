@@ -21,7 +21,7 @@ Effective access on a model is **composed at runtime** from every installed addo
 ```bash
 odoo-ai --db <DB> brief <model>     # security{} = access_rights (ACL) + record_rules
 odoo-ai --db <DB> all  <model>      # + entrypoints / metadata / trace
-odoo-ai --db <DB> security <model> --user <login|id> [--company <id|name>]  # EFFECTIVE access for one user
+odoo-ai --db <DB> security <model> --user <login|id> [--company <id|name>] [--allowed-companies <a,b>]  # EFFECTIVE access for one user
 ```
 
 Inspect `security.access_rights` (the ACL union) and `security.record_rules` (global vs group, `domain_force`, `perm_*`) before changing anything. When the question is "what can **this specific user** actually do / see" (the classic *admin OK, user 403s*), run **`security` (Layer G)**: it combines the ACL additively and resolves the record-rule `effective_domain` with Odoo's own combiner under `with_user`, lists the group-restricted fields, and cross-checks against `check_access`.

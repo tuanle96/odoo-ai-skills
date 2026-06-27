@@ -376,6 +376,33 @@ def test_parse_field_groups():
     assert security_sim.parse_field_groups(None) == {"positive": [], "negative": []}
 
 
+def test_parse_id_list():
+    assert security_sim.parse_id_list("1, 2 ,Acme") == ["1", "2", "Acme"]
+    assert security_sim.parse_id_list("") == []
+    assert security_sim.parse_id_list(None) == []
+    assert security_sim.parse_id_list(" , ,") == []
+
+
+def test_normalize_domain():
+    # list / tuple / None / dict pass through unchanged
+    assert security_sim.normalize_domain(None) is None
+    dom = ["&", ("a", "=", 1), ("b", "=", 2)]
+    assert security_sim.normalize_domain(dom) == dom
+    assert security_sim.normalize_domain({"_error": "boom"}) == {"_error": "boom"}
+
+    # an odoo.Domain-like object (iterable into the prefix list) is converted
+    class _FakeDomain:
+        def __iter__(self):
+            return iter(["&", ("company_id", "in", [1]), ("active", "=", True)])
+
+    assert security_sim.normalize_domain(_FakeDomain()) == [
+        "&", ("company_id", "in", [1]), ("active", "=", True)]
+
+    # a non-iterable oddball is returned as-is (no crash)
+    sentinel = object()
+    assert security_sim.normalize_domain(sentinel) is sentinel
+
+
 def test_field_visible_positive_groups():
     # no spec → always visible
     assert security_sim.field_visible(None, []) is True

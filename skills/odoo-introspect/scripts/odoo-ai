@@ -14,18 +14,23 @@ Config (flags override env):
     --out-dir                 where JSON is written   (default: /tmp/odoo-ai/<model>)
 
 Commands:
-    odoo-ai brief       <model> [--methods a,b] [--source]
+    odoo-ai brief       <model> [--methods a,b] [--source] [--code-preview] [--code]
     odoo-ai entrypoints <model> [--views form,list] [--view-id N] [--view-xmlid m.view]
     odoo-ai metadata    <model>
     odoo-ai trace       <model> <record_id> <method> [--commit]
     odoo-ai state       <model> <record_id> <method> [--break model.method] [--line N] [--fields a,b] [--on-exception] [--redact-extra a,b] [--no-redact]
-    odoo-ai security    <model> [--user login_or_id] [--company id_or_name]
-    odoo-ai all         <model> [--methods a,b] [--source] [--record-id N --method M]
+    odoo-ai security    <model> [--user login_or_id] [--company id_or_name] [--allowed-companies a,b]
+    odoo-ai all         <model> [--methods a,b] [--source] [--code-preview] [--code] [--record-id N --method M]
 
 `all` = brief + entrypoints + metadata (+ optional trace when --record-id and
 --method are given). It does NOT run refs, preflight, or state — run those
 explicitly (refs before a field change, preflight to confirm your code loads,
 state for post-mortem locals).
+
+Server-action / cron code bodies are GATED by default (only present/len, no
+preview) because even a head-only slice can carry a token, webhook URL, or API
+key. Opt in with --code-preview (short head slice) or --code (full bodies) —
+trusted context only, and review before pasting into an external LLM.
 
 Examples:
     odoo-ai --db dev all sale.order --methods action_confirm,write,create
@@ -147,15 +152,15 @@ def main():
     p.add_argument("--timeout", type=int, default=600)
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sb = sub.add_parser("brief"); sb.add_argument("model"); sb.add_argument("--methods", default=""); sb.add_argument("--source", action="store_true")
+    sb = sub.add_parser("brief"); sb.add_argument("model"); sb.add_argument("--methods", default=""); sb.add_argument("--source", action="store_true"); sb.add_argument("--code-preview", dest="code_preview", action="store_true", help="include a short head-only slice of server-action/cron code (potentially sensitive)"); sb.add_argument("--code", action="store_true", help="include FULL server-action/cron code bodies (may contain secrets — trusted context only)")
     se = sub.add_parser("entrypoints"); se.add_argument("model"); se.add_argument("--views", default="form,list"); se.add_argument("--view-id", dest="view_id", default=""); se.add_argument("--view-xmlid", dest="view_xmlid", default="")
     sm = sub.add_parser("metadata"); sm.add_argument("model")
     st = sub.add_parser("trace"); st.add_argument("model"); st.add_argument("record_id"); st.add_argument("method"); st.add_argument("--commit", action="store_true")
     sr = sub.add_parser("refs"); sr.add_argument("model"); sr.add_argument("field"); sr.add_argument("--resolve-paths", dest="resolve_paths", action="store_true", help="graph-resolve dotted depends/related through comodel_name (fewer false positives)")
     sp = sub.add_parser("preflight"); sp.add_argument("module", nargs="?")
-    sg = sub.add_parser("security", help="effective ACL + record rules + restricted fields for a user/company"); sg.add_argument("model"); sg.add_argument("--user", default="", help="login or id to simulate (default: current shell user)"); sg.add_argument("--company", default="", help="company id or name (default: user's company)")
+    sg = sub.add_parser("security", help="effective ACL + record rules + restricted fields for a user/company"); sg.add_argument("model"); sg.add_argument("--user", default="", help="login or id to simulate (default: current shell user)"); sg.add_argument("--company", default="", help="ACTIVE company id or name (default: user's company)"); sg.add_argument("--allowed-companies", dest="allowed_companies", default="", help="comma-separated company ids/names toggled ON (env.companies; what company_ids resolves to in a rule domain). Default: just --company")
     ss = sub.add_parser("state"); ss.add_argument("model"); ss.add_argument("record_id"); ss.add_argument("method"); ss.add_argument("--break", dest="break_at", default=""); ss.add_argument("--line", dest="break_line"); ss.add_argument("--fields", default=""); ss.add_argument("--on-exception", action="store_true"); ss.add_argument("--max-hits", default="3"); ss.add_argument("--commit", action="store_true"); ss.add_argument("--no-redact", action="store_true", help="disable default redaction of password/token/secret/... (trusted dev box only)"); ss.add_argument("--redact-extra", default="", help="comma-separated extra key names to redact")
-    sa = sub.add_parser("all", help="brief + entrypoints + metadata (+ optional trace); NOT refs/preflight/state"); sa.add_argument("model"); sa.add_argument("--methods", default=""); sa.add_argument("--source", action="store_true"); sa.add_argument("--views", default="form,list"); sa.add_argument("--record-id"); sa.add_argument("--method")
+    sa = sub.add_parser("all", help="brief + entrypoints + metadata (+ optional trace); NOT refs/preflight/state"); sa.add_argument("model"); sa.add_argument("--methods", default=""); sa.add_argument("--source", action="store_true"); sa.add_argument("--code-preview", dest="code_preview", action="store_true", help="include a short head-only slice of server-action/cron code (potentially sensitive)"); sa.add_argument("--code", action="store_true", help="include FULL server-action/cron code bodies (may contain secrets — trusted context only)"); sa.add_argument("--views", default="form,list"); sa.add_argument("--record-id"); sa.add_argument("--method")
 
     a = p.parse_args()
     if not a.db:
@@ -168,7 +173,8 @@ def main():
     print(f"odoo-ai · db={a.db} · target={label} · out={out_dir}")
 
     if a.cmd == "brief":
-        do_step("brief", {"MODEL": a.model, "METHODS": a.methods, "SOURCE": "1" if a.source else ""}, cfg, out_dir, a.model)
+        do_step("brief", {"MODEL": a.model, "METHODS": a.methods, "SOURCE": "1" if a.source else "",
+                          "CODE_PREVIEW": "1" if a.code_preview else "", "CODE": "1" if a.code else ""}, cfg, out_dir, a.model)
     elif a.cmd == "entrypoints":
         env_extra = {"MODEL": a.model, "VIEWS": a.views}
         if a.view_id:
@@ -190,6 +196,8 @@ def main():
             env_extra["AS_USER"] = a.user
         if a.company:
             env_extra["AS_COMPANY"] = a.company
+        if a.allowed_companies:
+            env_extra["AS_ALLOWED_COMPANIES"] = a.allowed_companies
         do_step("security", env_extra, cfg, out_dir, a.model)
     elif a.cmd == "state":
         env_extra = {
@@ -207,7 +215,8 @@ def main():
             env_extra["REDACT_EXTRA"] = a.redact_extra
         do_step("state", env_extra, cfg, out_dir, a.model)
     elif a.cmd == "all":
-        do_step("brief", {"MODEL": a.model, "METHODS": a.methods, "SOURCE": "1" if a.source else ""}, cfg, out_dir, a.model)
+        do_step("brief", {"MODEL": a.model, "METHODS": a.methods, "SOURCE": "1" if a.source else "",
+                          "CODE_PREVIEW": "1" if a.code_preview else "", "CODE": "1" if a.code else ""}, cfg, out_dir, a.model)
         do_step("entrypoints", {"MODEL": a.model, "VIEWS": a.views}, cfg, out_dir, a.model)
         do_step("metadata", {"MODEL": a.model}, cfg, out_dir, a.model)
         if a.record_id and a.method:

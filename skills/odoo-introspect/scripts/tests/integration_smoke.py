@@ -7,7 +7,8 @@ asserts structural invariants on the JSON they emit. Unlike test_pure_functions
 It validates the env-bound paths the unit tests can't reach: selection-literal
 extraction, the manifest by-location split, the view inheritance chain, seeded
 `noupdate` records, the graph-resolved field reverse-impact (Layer E), the
-effective-security simulation (Layer G), and Layer F redaction.
+effective-security simulation (Layer G) — including the multi-company
+`AS_COMPANY` record-rule scoping (the v0.4.1 fix) — and Layer F redaction.
 
 How it shells out
 -----------------
@@ -97,6 +98,86 @@ def resolve_nonsuper_uid():
         'print("===UID===", u.id if u else 0)\n')
     m = re.search(r"===UID===\s+(\d+)", out)
     return int(m.group(1)) if m and int(m.group(1)) > 0 else None
+
+
+# Multi-company Layer G regression. Sets up two companies, a user allowed in
+# both, and a company-scoped record rule, then runs the REAL security_sim.py
+# in-process against each company and reports the effective read-domain. Locks
+# the v0.4.1 fix: _compute_domain must resolve `company_ids` against the
+# SIMULATED company (with_company + allowed_company_ids), not the user's default
+# company. Everything is rolled back in `finally`, so it never persists — safe
+# to run against a dev DB too.
+_MC_SNIPPET = '''
+import os, io, json, contextlib
+res = {"error": None}
+try:
+    Comp = env["res.company"]
+    cA = Comp.create({"name": "Smoke MC A"})
+    cB = Comp.create({"name": "Smoke MC B"})
+    grp = env.ref("base.group_user").id
+    Users = env["res.users"]
+    groups_field = "group_ids" if "group_ids" in Users._fields else "groups_id"
+    user = Users.create({
+        "name": "Smoke MC User", "login": "smoke_mc_user_%d" % cA.id,
+        "company_id": cA.id, "company_ids": [(6, 0, [cA.id, cB.id])],
+        groups_field: [(6, 0, [grp])],
+    })
+    model_id = env["ir.model"].search([("model", "=", "res.partner")], limit=1).id
+    env["ir.rule"].create({
+        "name": "Smoke MC partner rule",
+        "model_id": model_id,
+        "domain_force": "[('company_id','in',company_ids)]",
+        "global": True,
+    })
+
+    def _eff_domain(company_id, allowed=None):
+        # Fresh registry cache so the first company's eval can't leak into the
+        # second via any cached rule/domain state.
+        try:
+            env.registry.clear_cache()
+        except Exception:
+            try:
+                env.registry.clear_caches()
+            except Exception:
+                pass
+        os.environ["MODEL"] = "res.partner"
+        os.environ["AS_USER"] = str(user.id)
+        os.environ["AS_COMPANY"] = str(company_id)
+        if allowed:
+            os.environ["AS_ALLOWED_COMPANIES"] = ",".join(str(i) for i in allowed)
+        else:
+            os.environ.pop("AS_ALLOWED_COMPANIES", None)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            exec(open(SECPATH).read(), {"env": env})
+        raw = buf.getvalue()
+        body = raw.split("===ODOO_SECURITY_START===", 1)[1].rsplit("===ODOO_SECURITY_END===", 1)[0]
+        data = json.loads(body)
+        return data["record_rules"]["read"]["effective_domain"]
+
+    res["dom_A"] = _eff_domain(cA.id)
+    res["dom_B"] = _eff_domain(cB.id)
+    res["dom_AB"] = _eff_domain(cA.id, allowed=[cA.id, cB.id])
+    res["cA"], res["cB"] = cA.id, cB.id
+except Exception as e:
+    res["error"] = "%s: %s" % (type(e).__name__, e)
+finally:
+    env.cr.rollback()
+print("===MC===", json.dumps(res))
+'''
+
+
+def _flatten_ints(obj):
+    """Collect every int found anywhere in a (possibly nested) domain list."""
+    found = []
+    if isinstance(obj, bool):
+        return found
+    if isinstance(obj, int):
+        return [obj]
+    if isinstance(obj, (list, tuple)):
+        for x in obj:
+            found.extend(_flatten_ints(x))
+    return found
 
 
 RESULTS = []
@@ -212,12 +293,48 @@ def smoke_state():
           "display_name not masked")
 
 
+def smoke_security_multicompany():
+    print("Layer G — security multi-company (AS_COMPANY effective_domain)")
+    secpath = (SCRIPTS / "security_sim.py")
+    code = ("SECPATH = %r\n" % str(secpath)) + _MC_SNIPPET
+    out = _shell_code(code)
+    m = re.search(r"===MC===\s+(\{.*\})", out)
+    if not m:
+        tail = "\n".join(out.strip().splitlines()[-12:])
+        check("security_mc.snippet ran", False, f"no ===MC=== marker. Tail:\n{tail}")
+        return
+    res = json.loads(m.group(1))
+    if res.get("error"):
+        check("security_mc.setup ok", False, res["error"])
+        return
+    dom_a, dom_b = res.get("dom_A"), res.get("dom_B")
+    dom_ab = res.get("dom_AB")
+    ca, cb = res.get("cA"), res.get("cB")
+    ints_a, ints_b = _flatten_ints(dom_a), _flatten_ints(dom_b)
+    ints_ab = _flatten_ints(dom_ab)
+    # The company-scoped rule resolves `company_ids` to the SIMULATED company,
+    # so each effective domain must reference its own company and not the other.
+    check("security_mc.AS_COMPANY=A scopes to company A",
+          ca in ints_a and cb not in ints_a, f"dom_A={dom_a} (cA={ca}, cB={cb})")
+    check("security_mc.AS_COMPANY=B scopes to company B",
+          cb in ints_b and ca not in ints_b, f"dom_B={dom_b} (cA={ca}, cB={cb})")
+    # The whole point of the v0.4.1 fix: the two companies yield DIFFERENT
+    # effective domains (pre-fix both collapsed to the user's default company).
+    check("security_mc.domains differ per company", dom_a != dom_b,
+          f"dom_A == dom_B == {dom_a}")
+    # --allowed-companies widens env.companies, so company_ids resolves to the
+    # whole toggled-on set: the effective domain covers BOTH companies.
+    check("security_mc.--allowed-companies covers the full set",
+          ca in ints_ab and cb in ints_ab, f"dom_AB={dom_ab} (cA={ca}, cB={cb})")
+
+
 def main():
     if not DB:
         print("SKIP integration_smoke: ODOO_DB not set (pure-function CI is unaffected).")
         return 0
     print(f"integration_smoke · db={DB} · model={MODEL} · odoo_bin={ODOO_BIN}\n")
-    for fn in (smoke_brief, smoke_entrypoints, smoke_metadata, smoke_refs, smoke_security, smoke_state):
+    for fn in (smoke_brief, smoke_entrypoints, smoke_metadata, smoke_refs,
+               smoke_security, smoke_security_multicompany, smoke_state):
         try:
             fn()
         except Exception as e:  # noqa: BLE001

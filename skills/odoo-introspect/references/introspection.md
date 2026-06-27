@@ -88,7 +88,7 @@ explicitly with `-e`:
 # /usr/local/bin/odoo-docker  (chmod +x)
 #!/bin/sh
 EFLAGS=""
-for v in MODEL METHODS SOURCE CODE CODE_PREVIEW OUT VIEWS VIEW_ID VIEW_XMLID FIELD RESOLVE_PATHS MODULE AS_USER AS_COMPANY \
+for v in MODEL METHODS SOURCE CODE CODE_PREVIEW OUT VIEWS VIEW_ID VIEW_XMLID FIELD RESOLVE_PATHS MODULE AS_USER AS_COMPANY AS_ALLOWED_COMPANIES \
          RECORD_ID METHOD COMMIT BREAK_AT BREAK_LINE FIELDS MAX_HITS ON_EXCEPTION \
          NO_REDACT REDACT_EXTRA MAX_DEPTH MAX_STRING MAX_RECORDS DATA_LIMIT; do
   EFLAGS="$EFLAGS -e $v"
@@ -122,5 +122,5 @@ docker exec -e ODOO_DB=<DB> -e ODOO_CONF=/etc/odoo/odoo.conf <container> \
     python3 /path/to/scripts/tests/integration_smoke.py
 ```
 
-CI runs the same script against the official `odoo:17.0`/`18.0` images
-(`.github/workflows/integration.yml`) on a clean `base`-only DB.
+CI runs the same script against the official `odoo:17.0` / `18.0` / `19.0`
+images (`.github/workflows/integration.yml`) on a clean `base`-only DB.
