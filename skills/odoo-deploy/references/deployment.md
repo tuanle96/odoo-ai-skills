@@ -1,6 +1,6 @@
 # Deployment — reference
 
-Targets Odoo 17/18. Per-version option renames: `skills/odoo-introspect/references/version-matrix.md`.
+Targets Odoo 17/18, through Odoo 19 (current LTS). Per-version option renames: `skills/odoo-introspect/references/version-matrix.md`.
 
 ## Full annotated odoo.conf (production)
 

@@ -1,6 +1,8 @@
 # Odoo security authoring
 
-Read alongside the `model_brief` `security{}` dossier. Every claim here is verifiable against the dumped `access_rights` / `record_rules`.
+Read alongside the `model_brief` `security{}` dossier. Every claim here is verifiable against the dumped `access_rights` / `record_rules`. Targets Odoo 17/18, through Odoo 19 (current LTS).
+
+> **v18 → 19 API:** check access in code with **`check_access(op)`** (raises), **`has_access(op)`** (bool), or **`_filtered_access(op)`** (returns the allowed subset) — the old `check_access_rights()` + `check_access_rule()` pair is superseded (v18) / deprecated (v19). And from **v18.2** public model methods are RPC-callable by default; mark internal ones **`@api.private`** so they aren't a remote surface (a leading underscore is convention, not enforcement).
 
 ## ACL — `ir.model.access.csv`
 

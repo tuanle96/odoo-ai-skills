@@ -1,7 +1,7 @@
 ---
 name: odoo-owl
 description: >-
-  Building or extending the Odoo 17/18 web client — OWL 2 components, custom
+  Building or extending the Odoo 17/18/19 web client — OWL 2 components, custom
   field widgets (widget="..."), view widgets, client actions, systray items,
   patching core web components, ORM/notification/dialog/action services, and the
   assets bundles that load them. Use whenever writing JavaScript/XML under
@@ -14,11 +14,11 @@ description: >-
 
 # Odoo web frontend (OWL 2)
 
-Odoo 17/18's web client is **OWL 2** (Odoo's own React-like framework) — not jQuery, not the legacy `web.widget`. The frontend has the same failure mode as the backend: the APIs you "remember" are wrong because they were renamed across versions, and the wiring (which view uses your widget, which bundle loads your file) lives in **this** instance, not in your head.
+Odoo 17/18/19's web client is **OWL 2** (Odoo's own React-like framework) — not jQuery, not the legacy `web.widget`. The frontend has the same failure mode as the backend: the APIs you "remember" are wrong because they were renamed across versions, and the wiring (which view uses your widget, which bundle loads your file) lives in **this** instance, not in your head.
 
 **The rule: read the canonical source for the thing you're extending, then write the smallest component.** Odoo ships the reference implementation of every field widget under `web/static/src/views/fields/`. Read one before you write one.
 
-**Version floor: Odoo 17/18.** The snippets here are verified against the 18.0 source. v16/17 differ (`props.value`/`props.update` and 3-arg `patch` are v16; `useService("user"/"rpc")` is v17, replaced by direct imports in v18). For older targets see `skills/odoo-introspect/references/version-matrix.md`.
+**Version floor: Odoo 17/18, through Odoo 19 (current LTS).** The snippets here are verified against the 18.0 source. v16/17 differ (`props.value`/`props.update` and 3-arg `patch` are v16; `useService("user"/"rpc")` is v17, replaced by direct imports in v18). v19 continues the OWL 2 component model and the v17 field-value API below, but Odoo keeps refining OWL internals between majors — **read the canonical widget source in the target version** rather than trusting these snippets verbatim. For older targets see `skills/odoo-introspect/references/version-matrix.md`.
 
 ## Discover before you code (introspect-first)
 

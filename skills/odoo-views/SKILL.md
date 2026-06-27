@@ -20,7 +20,7 @@ The view you edit is **not** the view that renders. Odoo merges the base arch wi
 
 **Read ground truth first.** Run the `odoo-introspect` skill's **entrypoints (Layer B)** on the model: it dumps the inheritance-resolved arch, the buttons (which method/action each fires), and the view-level field modifiers (readonly/invisible/required). Now your xpath targets exist and you won't duplicate a field.
 
-**Version floor: Odoo 17/18.** Pre-17 deltas → `skills/odoo-introspect/references/version-matrix.md`.
+**Version floor: Odoo 17/18, through Odoo 19 (current LTS).** Pre-17 deltas and the v18.1 → 19 changes → `skills/odoo-introspect/references/version-matrix.md`.
 
 ## v17/18 breaking syntax — get this right
 
@@ -32,6 +32,7 @@ The view you edit is **not** the view that renders. Odoo merges the base arch wi
 | `invisible` to hide a **list column** | `column_invisible="<expr>"` (plain `invisible` hides only the cell) | 17.0 |
 | `<tree>` root + `view_mode="tree,form"` | `<list>` root + `view_mode="list,form"` | **18.0** |
 | `<div class="oe_chatter"><field …/></div>` | `<chatter/>` (self-closing; `<chatter>…fields…</chatter>` to customize) | **18.0** |
+| `t-esc` / `t-raw` in kanban/QWeb templates | `t-out` (escapes by default; `t-raw` **removed**) | **17.0** |
 
 `attrs`/`states` in a v17+ view is a **hard parse error** at load. `<tree>` in v18 raises `ValueError: Wrong value for ir.ui.view.type: 'tree'`. Modifier values are **Python expressions** over field values + `parent` / `context` / `uid` — not domains.
 

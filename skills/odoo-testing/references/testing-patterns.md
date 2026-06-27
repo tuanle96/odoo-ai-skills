@@ -1,6 +1,6 @@
 # Odoo testing patterns
 
-Runnable skeletons for the cases in `SKILL.md`. Targets Odoo 17/18 (`odoo.tests.common`; `odoo.tests` re-exports it). Copy, rename, fill the asserts. Each snippet assumes `self.partner` / `self.product` are set up like the first one.
+Runnable skeletons for the cases in `SKILL.md`. Targets Odoo 17/18, through Odoo 19 (current LTS) (`odoo.tests.common`; `odoo.tests` re-exports it). Copy, rename, fill the asserts. Each snippet assumes `self.partner` / `self.product` are set up like the first one.
 
 ## TransactionCase skeleton (the default)
 

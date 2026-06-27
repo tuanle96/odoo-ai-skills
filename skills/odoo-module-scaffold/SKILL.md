@@ -17,7 +17,7 @@ description: >-
 
 A module installs only when its declared structure matches what the registry expects: every Python file imported, every data file listed in `__manifest__.py`, and listed **in dependency order**. A model file you forgot to import, or a security file loaded after the view that needs its group, fails — sometimes loudly, often silently (the element just never appears).
 
-**Version floor: Odoo 17/18.** Layout/manifest below is current; pre-17 deltas → `skills/odoo-introspect/references/version-matrix.md`.
+**Version floor: Odoo 17/18, through Odoo 19 (current LTS).** Layout/manifest below is current; pre-17 deltas → `skills/odoo-introspect/references/version-matrix.md`.
 
 ## `depends` decides your MRO layer — introspect first
 

@@ -17,7 +17,7 @@ Data files are code: records load on `-i` and, unless protected, are **re-assert
 
 **The rule: before adding or editing shipped data, read what's already seeded and its `noupdate` flag from `ir.model.data` — don't guess.**
 
-Targets Odoo 17/18. For older versions check `skills/odoo-introspect/references/version-matrix.md`.
+Targets Odoo 17/18, through Odoo 19 (current LTS). For older versions check `skills/odoo-introspect/references/version-matrix.md`.
 
 ## Discover first (introspect, don't grep)
 

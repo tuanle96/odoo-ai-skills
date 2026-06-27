@@ -1,7 +1,7 @@
 # odoo.sh & Odoo Online — managed hosting
 
 Self-hosted deployment (the rest of `odoo-deploy`) doesn't apply unchanged on
-Odoo's managed platforms. This covers what does. Targets Odoo 17/18.
+Odoo's managed platforms. This covers what does. Targets Odoo 17/18, through Odoo 19 (current LTS).
 
 ## odoo.sh — git is the deploy mechanism
 

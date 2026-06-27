@@ -9,7 +9,7 @@ description: >-
   whenever an Odoo page/list/report/cron is slow, an N+1 query pattern appears,
   you're about to add store=True or an index, or you're writing a loop that
   search()es or browses one record at a time. Measure real SQL counts from the
-  running instance — don't guess. Targets Odoo 17/18.
+  running instance — don't guess. Targets Odoo 17/18/19.
 ---
 
 # Odoo performance
@@ -20,7 +20,7 @@ In Odoo, wall-clock is dominated by **SQL query count**, not Python. The ORM alr
 odoo-ai --db <DB> trace <model> <record_id> <method>   # total_sql + sql_count per call
 ```
 
-**Version floor: Odoo 17/18.** The `_read_group` tuple API and the `flush_*` / `invalidate_*` cache methods are v16/17+; pre-16 uses `read_group` (dicts) and `flush()` / `invalidate_cache()` — see `skills/odoo-introspect/references/version-matrix.md`.
+**Version floor: Odoo 17/18, through Odoo 19 (current LTS).** The `_read_group` tuple API and the `flush_*` / `invalidate_*` cache methods are v16/17+; pre-16 uses `read_group` (dicts) and `flush()` / `invalidate_cache()`. Note `read_group` is **deprecated in 18.2** (use `_read_group`, or `formatted_read_group` for formatted public output), and the field aggregate attribute `group_operator` was renamed **`aggregator` in 17.2** — see `skills/odoo-introspect/references/version-matrix.md`.
 
 ## Use the built-in, don't hand-roll it
 
@@ -79,7 +79,7 @@ Raw SQL bypasses ACL, record rules, computes, and constraints — you now own al
 - **N+1 hidden behind a compute** — a *non-stored* compute that `search`es makes every row in a list view its own query. Catch it with `--log-handler=odoo.sql_db:DEBUG` or `trace_flow`.
 - **`mapped()` on a non-stored field still computes it** — `mapped` avoids *queries* for stored/related fields but runs a non-stored compute per record; know which you have.
 - **Raw SQL without `invalidate_recordset`** — ORM serves stale cached values, then `CacheMiss` (see `odoo-debug`).
-- **`_read_group` return shape (v17)** — tuples, not dicts; old `[d['field'] for d in res]` code silently breaks after upgrade.
+- **`_read_group` return shape (v17)** — tuples, not dicts; old `[d['field'] for d in res]` code silently breaks after upgrade. Also: public `read_group` is deprecated in 18.2 (prefer `_read_group` / `formatted_read_group`), and a stored compute/searchable field's aggregate attribute is `aggregator=` since 17.2 (`group_operator=` is the old name).
 
 ## References & related skills
 

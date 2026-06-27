@@ -1,6 +1,6 @@
 # Minimal module skeleton (copy-paste)
 
-A complete `library` module that installs clean on **Odoo 17/18**: one model,
+A complete `library` module that installs clean on **Odoo 17/18/19**: one model,
 its ACL, and a menu → action → form/list view. Replace `library` /
 `library.book` throughout.
 

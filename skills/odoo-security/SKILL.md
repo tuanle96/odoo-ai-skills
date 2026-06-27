@@ -9,7 +9,7 @@ description: >-
   permissions, you're about to reach for sudo(), or you'd otherwise GUESS which
   groups grant what or why a user sees too many / too few rows. Effective
   access is composed at runtime from every installed addon — read the real ACL
-  + rule dossier first, never guess. Targets Odoo 17/18.
+  + rule dossier first, never guess. Targets Odoo 17/18/19.
 ---
 
 # Odoo security
@@ -25,7 +25,7 @@ odoo-ai --db <DB> all  <model>      # + entrypoints / metadata / trace
 
 Inspect `security.access_rights` (the ACL union) and `security.record_rules` (global vs group, `domain_force`, `perm_*`) before changing anything.
 
-**Version floor: Odoo 17/18.** ACL/record-rule *semantics* are stable back to v14, but group external IDs and the introspection tooling assume 17/18 — see `skills/odoo-introspect/references/version-matrix.md`.
+**Version floor: Odoo 17/18, through Odoo 19 (current LTS).** ACL/record-rule *semantics* are stable back to v14, but group external IDs and the introspection tooling assume 17/18+. Two recent security-relevant renames AI gets wrong: the access-check API was unified (**`check_access`** raises / **`has_access`** returns bool / **`_filtered_access`** filters a recordset) in v18 and the old `check_access_rights`/`check_access_rule` pair is superseded → v19; and from **v18.2 public model methods are RPC-callable by default** — see the `@api.private` note below. Details in `skills/odoo-introspect/references/version-matrix.md`.
 
 ## How access is actually evaluated — two gates, in order
 
@@ -55,6 +55,13 @@ Inspect `security.access_rights` (the ACL union) and `security.record_rules` (gl
 | Act as a specific user | `with_user(user)` (rules still apply) | `sudo()` then set `create_uid` |
 | Write into another company | `with_company(c)` + check `env.companies` | hardcoded `company_id` |
 
+## RPC exposure & access checks (v18.2 / v19)
+
+Two recent changes are easy to ship wrong because older code never had to think about them:
+
+- **`@api.private` — public methods are RPC-callable by default (v18.2).** Any public method on a model can be invoked over RPC (`call_kw`) by a user who can reach the model. An internal helper you left public (e.g. `def _do_charge` is fine, but `def do_charge` without the underscore *and* without the decorator) is now a remote-callable surface. Mark methods that must **not** be exposed with `@api.private`; keep genuine endpoints public deliberately. A leading underscore is convention, not enforcement — the decorator is.
+- **Use `check_access` / `has_access`, not the old pair.** `check_access(operation)` raises on denial; `has_access(operation)` returns a bool; `_filtered_access(operation)` returns the subset of a recordset the user may touch. The v≤17 `check_access_rights()` + `check_access_rule()` two-call pattern is superseded (v18) and deprecated (v19) — AI emits it constantly from training data. Confirm the version before writing either.
+
 ## sudo() discipline
 
 `sudo()` bypasses **all** ACL + record rules. Use it only with an explicit one-line reason in a comment, only for the narrowest sub-call, never to silence an `AccessError` you don't understand — that error is usually a *correct* record rule. Prefer `with_user(user)` when you need a real identity (rules still apply). `sudo()` does **not** change company scope — use `with_company`.
@@ -71,6 +78,7 @@ Company isolation is enforced by **global record rules** with `company_id in com
 - **`perm_create` / `perm_unlink` left 0** — each ACL perm defaults to 0; a line with only read+write silently blocks create. Set all four columns deliberately.
 - **`sudo()` keeps the current company** — it widens *records*, not company scope; cross-company still needs `with_company`.
 - **Rule `domain_force` context** — evaluated with `user` bound to the **current** user and `company_ids`/`company_id` to their companies. Reference `user.x`, never `self` or `self.env.user`.
+- **Public method = RPC endpoint (v18.2+)** — a non-underscore method with no `@api.private` is reachable via `call_kw` by anyone who can call the model. Silent until someone scripts it; mark internal logic `@api.private`.
 
 ## References & related skills
 

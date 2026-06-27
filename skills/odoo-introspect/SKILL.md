@@ -12,7 +12,7 @@ description: >-
   is knowable from memory or source-grep — only from the live registry. Produces
   four JSON layers via `odoo-bin shell` scripts, or one `odoo-ai all <model>`
   command; RPC fallback for Odoo Online/SaaS. The foundation every other Odoo skill
-  builds on. Version floor: Odoo 17/18.
+  builds on. Version floor: Odoo 17/18, through Odoo 19 (current LTS).
 ---
 
 # Odoo introspection — read ground truth, then customize

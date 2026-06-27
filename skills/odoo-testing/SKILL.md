@@ -8,14 +8,14 @@ description: >-
   deciding the base class, at_install vs post_install tags, or how to test
   non-admin / multi-company / batch / onchange behavior. A patch isn't done until
   a test fails before it and passes after. The test gate for the odoo-dev skill.
-  Targets Odoo 17/18.
+  Targets Odoo 17/18/19.
 ---
 
 # Odoo testing — the gate
 
 The `odoo-introspect` skill stops the agent guessing; this stops the patch silently breaking something else. **A customization isn't done until it's proven.** Require all of this before submitting or merging.
 
-**Version floor: Odoo 17/18.** The class/decorator names below are v17/18; for v16 and older see `skills/odoo-introspect/references/version-matrix.md`.
+**Version floor: Odoo 17/18, through Odoo 19 (current LTS).** The class/decorator names below are v17/18; for v16 and older see `skills/odoo-introspect/references/version-matrix.md`. Note newer **online** versions don't load demo data by default — don't rely on a demo record existing in a test; create what you assert on.
 
 ## Where tests live
 

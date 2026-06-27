@@ -1,6 +1,6 @@
 # Odoo override surface
 
-**Targets Odoo 18** (v17 shares these names; for v16 and older, confirm against `skills/odoo-introspect/references/version-matrix.md` — several of the renames below landed in v17). Read before overriding a method you haven't overridden before. The MRO chain from the `model_brief` (Layer A) tells you *where* a method lives; this tells you *whether you should touch it* and *how its signature behaves in v18*.
+**Targets Odoo 18, through Odoo 19 (current LTS)** (v17 shares most names; for v16 and older, confirm against `skills/odoo-introspect/references/version-matrix.md` — several renames landed in v17, and more in v17.2 → 19, see §4b below). Read before overriding a method you haven't overridden before. The MRO chain from the `model_brief` (Layer A) tells you *where* a method lives; this tells you *whether you should touch it* and *how its signature behaves in v18*.
 
 ## Table of contents
 1. CRUD
@@ -47,10 +47,24 @@
 
 | v18 | Old name (don't use) | Notes |
 |-----|----------------------|-------|
-| `_compute_display_name` (`@api.depends(...)`) | `name_get` | v17+ — set `self.display_name`. `name_get` is gone. |
-| `get_view(view_id=None, view_type='form', **options)` | `fields_view_get` | v18 — postprocess arch/architecture here. |
+| `_compute_display_name` (`@api.depends(...)`) | `name_get` | v16.4+ deprecated, removed v17 — set `self.display_name`. `name_get` is gone. |
+| `get_view(view_id=None, view_type='form', **options)` | `fields_view_get` | v16 — postprocess arch/architecture here. |
 | `get_views(views, options=None)` | — | Batch multi-view loader; rarely overridden. |
 | `fields_get(allfields=None, attributes=None)` | (same) | Adjust field metadata exposed to the client. |
+
+## 4b. v17.2 → 19 renames — confirm the target version
+
+These landed after v18.0 and are the highest-risk "looks right, silently wrong" set (training data predates them). Confirm against the instance / `version-matrix.md`.
+
+| Use (v18.1 → 19) | Old / don't use | Landed | Notes |
+|------------------|-----------------|--------|-------|
+| `check_access(op)` / `has_access(op)` / `_filtered_access(op)` | `check_access_rights(op)` + `check_access_rule(op)` | v18 / v19 | unified; `check_access` raises, `has_access` bool, `_filtered_access` filters a recordset. |
+| `@api.private` on internal methods | (public was non-RPC by default) | v18.2 | public methods are RPC-callable by default now; mark internal ones private. **Security-relevant.** |
+| `_read_group(...)` / `formatted_read_group(...)` | `read_group(...)` | v17 / 18.2 | `read_group` deprecated 18.2; `_read_group` returns tuples. |
+| field `aggregator='sum'` | field `group_operator='sum'` | v17.2 | attribute renamed. |
+| `self.env.cr` / `.context` / `.uid` | `self._cr` / `._context` / `._uid` | v19 | `_`-prefixed shortcuts deprecated. |
+| `odoo.Domain` / `odoo.domain` API | `from odoo.osv import expression` | v18.1 / v19 | `odoo.osv` deprecated. |
+| constraints/indexes as model attributes | only `_sql_constraints` tuples | v18.1 | new declarative form alongside the tuple form. |
 
 ## 5. Override rarely / never
 

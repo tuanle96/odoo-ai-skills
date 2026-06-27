@@ -11,7 +11,7 @@ description: >-
   client (that's odoo-owl). Routes run with real auth and CSRF and against real
   record rules — read the wiring and security from the running instance first,
   never guess the route, the template id, or who can reach it. Targets Odoo
-  17/18.
+  17/18/19.
 ---
 
 # Odoo public web (controllers · website · portal)
@@ -29,8 +29,7 @@ frontend-JS rewrite** (`publicWidget` is being replaced by Interactions).
 the running instance first, then write the smallest controller/template — never
 guess the URL, the QWeb id, or the auth level.**
 
-**Version floor: Odoo 17/18.** Frontend JS is mid-migration — see the
-`publicWidget` vs Interactions note below and `skills/odoo-introspect/references/version-matrix.md`.
+**Version floor: Odoo 17/18, through Odoo 19 (current LTS).** Frontend JS is mid-migration (`publicWidget`→Interactions, below). Two recent server-side renames bite here too: controller **`type='json'` → `type='jsonrpc'` (v18.1)**, and from **v18.2 public controller/model methods are RPC-callable unless marked `@api.private`** (→ `odoo-security`). See the note below and `skills/odoo-introspect/references/version-matrix.md`.
 
 ## Discover before you code (introspect-first)
 
@@ -77,15 +76,17 @@ class Library(http.Controller):
         books = request.env['library.book'].search([('public', '=', True)])
         return request.render('library.books_page', {'books': books})
 
-    @http.route('/library/api/book/<int:book_id>', type='json', auth='user', methods=['POST'])
+    @http.route('/library/api/book/<int:book_id>', type='jsonrpc', auth='user', methods=['POST'])
     def book_json(self, book_id, **kw):
         book = request.env['library.book'].browse(book_id).exists()
         return {'name': book.name, 'available': book.available}
 ```
 
 - **`type='http'`** returns a `Response` / `request.render(...)` / `request.redirect(...)`.
-  **`type='json'`** takes & returns JSON (args come from the JSON body, not the
-  query string) — used by OWL's `rpc`/`orm` and by external callers.
+  **`type='jsonrpc'`** takes & returns JSON (args come from the JSON body, not the
+  query string) — used by OWL's `rpc`/`orm` and by external callers. **The type
+  was named `'json'` through v18.0 and renamed `'jsonrpc'` in v18.1** — on 18.1+/19
+  emit `'jsonrpc'`; on 17/18.0 it's still `'json'`. Confirm the target version.
 - **`website=True`** wires the page into the website (multi-website, language,
   the `website` record on `request`); **`sitemap=True`** lists it in `/sitemap.xml`.
 - **`csrf`**: `type='http'` **POST** needs a CSRF token (forms get it from
@@ -165,6 +166,34 @@ publicWidget.registry.LibraryCard = publicWidget.Widget.extend({
   (`@web/public/interaction`) registered via `registry.category("public.interactions")`.
   Check which the target version/addon uses by reading the addon source before
   writing (→ the OWL skill's "read the canonical source" rule applies here too).
+
+```js
+/** @odoo-module **/
+import { Interaction } from "@web/public/interaction";
+import { registry } from "@web/core/registry";
+
+export class LibraryCard extends Interaction {
+    static selector = ".library_card";
+    dynamicContent = {
+        _root: { "t-on-click": this.onClick },     // declarative handler, no jQuery
+        ".badge": { "t-att-class": () => ({ "d-none": this.hidden }) },
+    };
+    setup() { this.hidden = false; }               // sync init
+    onClick(ev) { this.hidden = true; }            // dynamicContent re-applies after
+}
+registry.category("public.interactions").add("library.LibraryCard", LibraryCard);
+```
+
+  - **No jQuery.** Use `this.el` / `el.querySelector(...)`, not `this.$el` / `this.$(...)`.
+  - **Handlers/attrs are declarative** via `dynamicContent` (`t-on-*`, `t-att-*`),
+    re-applied automatically — not an `events: {}` map bound once.
+  - **Lifecycle is `setup → willStart → start → destroy`**, and `start` is now
+    **synchronous** (do async work in `willStart`). Handlers attach after
+    `willStart`, so binding in `setup` and expecting immediate DOM events is a
+    silent timing bug.
+  - Use the built-in helpers for safe async/cleanup — `waitFor`, `debounced`,
+    `locked`, `this.addListener(...)` — instead of hand-managing timers/listeners
+    (they're torn down on `destroy`, avoiding leaks on SPA navigation).
 - Both load via `web.assets_frontend` in `__manifest__['assets']` — **not**
   `web.assets_backend` (that's the OWL client). Wrong bundle ⇒ script never runs,
   no error.
@@ -191,6 +220,11 @@ publicWidget.registry.LibraryCard = publicWidget.Widget.extend({
 - **Portal page bypassing the access token** — building `/my/<doc>` without
   validating `access_token` either 403s legitimate email links or, worse, leaks
   another customer's document.
+- **`type='json'` on v18.1+/19** — silently the wrong type after the `'jsonrpc'`
+  rename; the route may not register as expected. Match the target version.
+- **Unmarked public controller/model method (v18.2+)** — RPC-callable by default;
+  an internal helper exposed by accident is a remote surface. Mark it `@api.private`
+  (→ `odoo-security`).
 
 ## References & related skills
 

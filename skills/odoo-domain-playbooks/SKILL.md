@@ -16,7 +16,7 @@ description: >-
 
 # Odoo domain playbooks
 
-**Version floor: Odoo 17 / 18.** Method and field names below are the v17/18 standard; v16 and earlier differ (notably the v17 `stock.move.line` field rename — see `references/stock.md`).
+**Version floor: Odoo 17 / 18, through Odoo 19 (current LTS).** Method and field names below are the v17/18 standard; v16 and earlier differ (notably the v17 `stock.move.line` field rename — see `references/stock.md`), and v18.1 → 19 renamed several APIs (`check_access`/`has_access`, `_read_group`/`formatted_read_group`, `aggregator`, `record.env.*`) — confirm against the instance and `version-matrix.md`.
 
 A playbook is a **map, not the territory.** These "standard" apps are not one fixed thing — what exists in *this* database depends entirely on which modules are installed:
 

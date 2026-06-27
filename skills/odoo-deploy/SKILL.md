@@ -17,7 +17,7 @@ A wrong `odoo.conf` fails quietly: live chat hangs (no websocket route), the wro
 
 **The rule: deploy multi-worker behind a proxy with explicit limits, and verify the config the server actually loaded — don't assume a file or flag is in effect.**
 
-Targets Odoo 17/18. Cross-version option renames: `skills/odoo-introspect/references/version-matrix.md`.
+Targets Odoo 17/18, through Odoo 19 (current LTS). Cross-version option renames: `skills/odoo-introspect/references/version-matrix.md`.
 
 ## Task → command/flag
 

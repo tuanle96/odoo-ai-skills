@@ -1,7 +1,7 @@
 ---
 name: odoo-reports
 description: >-
-  Authoring or customizing Odoo 17/18 QWeb reports — the printable PDF/HTML
+  Authoring or customizing Odoo 17/18/19 QWeb reports — the printable PDF/HTML
   documents (invoices, sale orders, pickings, custom certificates). Use when
   creating an ir.actions.report, writing or inheriting a QWeb report template,
   adding a report.<module>.<name> parser to feed extra data, fixing paperformat
@@ -21,7 +21,7 @@ An Odoo report is **three layers**, and most bugs come from touching the wrong o
 | **Template** | QWeb: `web.html_container` → `web.external_layout` → your `<div class="page">` | data XML (loaded via `__manifest__['data']`) |
 | **Data** | *optional* `models.AbstractModel` named `report.<module>.<report_name>` with `_get_report_values()` | Python |
 
-PDFs are rendered from the HTML by **wkhtmltopdf** (0.12.6, qt-patched). Version floor: Odoo 17/18.
+PDFs are rendered from the HTML by **wkhtmltopdf** (0.12.6, qt-patched). Version floor: Odoo 17/18, through Odoo 19 (current LTS). Use `t-out` for output (v17+ — `t-esc` superseded, `t-raw` removed).
 
 **The rule: there is almost always an existing report — find its action, template, and parser, then *inherit*. Don't rebuild and don't guess ids.**
 

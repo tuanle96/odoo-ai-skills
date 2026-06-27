@@ -12,7 +12,7 @@ description: >-
   unwired __init__ / manifest, data-loss-on-upgrade renames, and public routes
   with the wrong auth. Pairs with odoo-testing (review finds it, tests prove it).
   Read ground truth from the running instance to confirm a suspicion — don't
-  guess whether a field or rule exists. Targets Odoo 17/18.
+  guess whether a field or rule exists. Targets Odoo 17/18/19.
 ---
 
 # Odoo code review — the second gate
@@ -28,8 +28,8 @@ the Odoo-specific contracts a linter can't see.
 (via `odoo-introspect`) or written down as an explicit assumption to verify —
 review never adds new guesses.**
 
-**Version floor: Odoo 17/18.** Deprecation checks below assume 17/18; for older
-targets see `skills/odoo-introspect/references/version-matrix.md`.
+**Version floor: Odoo 17/18, through Odoo 19 (current LTS).** Deprecation checks below assume 17/18+; for older
+targets — and for the v18.1 → 19 renames — see `skills/odoo-introspect/references/version-matrix.md`.
 
 ## How to review (in order)
 
@@ -107,6 +107,14 @@ targets see `skills/odoo-introspect/references/version-matrix.md`.
   Python expressions; `<list>` not `<tree>`; `<chatter/>` (→ `odoo-views`).
 - [ ] **No `name_get()`** — `_compute_display_name`; no removed ORM names
   (`fields_view_get`→`get_view`, etc. — → version-matrix).
+- [ ] **No superseded v18.1 → 19 APIs** (confirm target version):
+  `check_access_rights`/`check_access_rule` → `check_access`/`has_access`/`_filtered_access`;
+  `read_group` → `_read_group`/`formatted_read_group`; `group_operator` → `aggregator`;
+  `type='json'` → `type='jsonrpc'`; `self._cr`/`._context`/`._uid` → `self.env.*`;
+  `from odoo.osv import expression` → `odoo.Domain` (→ version-matrix).
+- [ ] **No unmarked public method that should be private (v18.2+)** — public
+  model methods are RPC-callable by default; internal helpers want `@api.private`
+  (→ `odoo-security`). A privilege/exposure check, not style.
 - [ ] **OWL reads `props.record.data[props.name]`** / writes via `.update(...)`;
   correct import paths; template in the bundle (→ `odoo-owl`). Public JS uses the
   right framework (`publicWidget` vs Interactions — → `odoo-web`).

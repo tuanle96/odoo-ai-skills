@@ -1,6 +1,6 @@
 # Odoo patterns & anti-patterns
 
-Read alongside the `model_brief` (Layer A from the `odoo-introspect` skill) when deciding *how* to structure a customization. Targets Odoo 17/18.
+Read alongside the `model_brief` (Layer A from the `odoo-introspect` skill) when deciding *how* to structure a customization. Targets Odoo 17/18, through Odoo 19 (current LTS).
 
 ## Inheritance: pick the right mode
 

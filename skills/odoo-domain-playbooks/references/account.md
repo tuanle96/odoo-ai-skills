@@ -1,6 +1,6 @@
 # Playbook: Accounting (`account`)
 
-**Map, not truth — Odoo 17/18.** Localizations (`l10n_*`) extend posting heavily, so introspect MRO before overriding:
+**Map, not truth — Odoo 17/18/19.** Localizations (`l10n_*`) extend posting heavily, so introspect MRO before overriding:
 
 ```bash
 odoo-ai --db <DB> all account.move --methods action_post,_post,button_draft,_compute_amount,_compute_tax_totals

@@ -1,6 +1,6 @@
 # Playbook: Sales (`sale`)
 
-**Map, not truth — Odoo 17/18.** Confirm every name against the instance first:
+**Map, not truth — Odoo 17/18/19.** Confirm every name against the instance first:
 
 ```bash
 odoo-ai --db <DB> all sale.order --methods action_confirm,_action_confirm,_create_invoices,_prepare_invoice

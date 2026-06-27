@@ -9,7 +9,7 @@ description: >-
   says the word "skill". The rule shared by every skill in this suite: Odoo
   composes each model at runtime from the installed addon graph, so READ GROUND
   TRUTH FROM THE RUNNING INSTANCE FIRST, then build — never guess fields, MRO,
-  super() chains, view arch, or security. Targets Odoo 17/18.
+  super() chains, view arch, or security. Targets Odoo 17/18/19.
 ---
 
 # Odoo — development suite (router)
@@ -18,7 +18,7 @@ Odoo builds every model, view, security rule, and automation **at runtime** from
 
 **Read ground truth first (the `odoo-introspect` skill), then build the smallest correct change, then prove it (the `odoo-testing` skill).**
 
-**Version floor: Odoo 17/18.** For v16 and older, check `skills/odoo-introspect/references/version-matrix.md` before trusting a signature or view syntax.
+**Version floor: Odoo 17/18; Odoo 19 is the current LTS (Sept 2025).** For v16 and older — and for the recent v18.1 → 19 API renames AI gets wrong (`check_access`/`has_access`, `@api.private` RPC exposure, `type='jsonrpc'`, `_read_group`/`formatted_read_group`, `aggregator`, `record.env.*`, `odoo.Domain`) — check `skills/odoo-introspect/references/version-matrix.md` before trusting a signature or view syntax.
 
 ## Always start here
 
@@ -53,6 +53,18 @@ Odoo builds every model, view, security rule, and automation **at runtime** from
 - **Tier 2 — frontend & report:** `odoo-owl` · `odoo-web` · `odoo-reports`.
 - **Tier 3 — lifecycle:** `odoo-data` · `odoo-migration` · `odoo-perf` · `odoo-deploy`.
 - **Tier 4 — domain playbooks:** `odoo-domain-playbooks`.
+
+## Context strategy — don't pour the whole codebase in
+
+Odoo core + Enterprise + OCA + the project's custom addons vastly exceed any context window, and over-stuffing context *degrades* output. Don't paste source trees. Instead, load the **smallest ground-truth artifact** for the task:
+
+- **Per task, feed the introspection JSON, not source.** `odoo-ai all <model>` produces a compact JSON brief (fields, MRO, security, depends) — that one file answers "what exists here" far more reliably than dumping addon `.py`/`.xml`. Attach only the layer(s) the task needs (A always; B for views/buttons; C for menus/data/reports; D for big flows).
+- **Read canonical source narrowly, on demand.** For OWL/JS, open the *one* reference widget you're extending (the `odoo-owl` rule), not the whole `web` addon.
+- **The skills carry the durable rules; the instance carries the facts.** Keep version/contract rules in these skills (and `version-matrix.md`); pull instance-specific names/arch from `odoo-introspect` each task rather than memorizing them into a context file that goes stale.
+
+## Odoo's own AI features ≠ this suite
+
+Odoo 19 ships built-in AI (AI Agents, natural-language search, AI server actions, Studio AI fields). That's end-user/runtime automation **inside** an Odoo instance — distinct from this suite, which is about an AI agent *writing correct Odoo source code*. When a task is "configure an in-app AI agent / AI field," that's Studio/server-action territory (→ `odoo-data`, `odoo-domain-playbooks`), not module code.
 
 ## The one anti-pattern that breaks everything
 

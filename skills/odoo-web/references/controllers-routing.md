@@ -1,13 +1,15 @@
 # Controllers & routing — the full surface
 
-Everything an Odoo controller needs that the SKILL.md summarizes. Targets Odoo 17/18.
+Everything an Odoo controller needs that the SKILL.md summarizes. Targets Odoo 17/18, through Odoo 19 (current LTS).
+
+> **v18.1 rename:** the JSON route type is `type='json'` on v17/18.0 and **`type='jsonrpc'` on v18.1+/19**. Examples below show `'json'`; emit `'jsonrpc'` on 18.1+. Also from **v18.2**, public controller/model methods are RPC-callable unless marked `@api.private` (→ `odoo-security`).
 
 ## `@http.route` options
 
 ```python
 @http.route(
     '/path/<int:rec_id>',     # one or more URL patterns (str or list)
-    type='http',              # 'http' | 'json'
+    type='http',              # 'http' | 'json' (v17/18.0) / 'jsonrpc' (v18.1+)
     auth='user',              # 'user' | 'public' | 'none'
     methods=['GET', 'POST'],  # allowed HTTP verbs (default: all)
     website=True,             # wire into website (request.website, lang, multi-site)
@@ -46,8 +48,8 @@ def search(self, q='', **kw):
     res = request.env['library.book'].search([('name', 'ilike', q)])
     return request.render('library.results', {'res': res})
 
-# type='json' — args come from the JSON body; return a plain dict/list
-@http.route('/library/api/borrow', type='json', auth='user', methods=['POST'])
+# type='jsonrpc' (v18.1+; 'json' on v17/18.0) — args come from the JSON body; return a plain dict/list
+@http.route('/library/api/borrow', type='jsonrpc', auth='user', methods=['POST'])
 def borrow(self, book_id, **kw):
     book = request.env['library.book'].browse(int(book_id)).exists()
     if not book:
@@ -58,7 +60,8 @@ def borrow(self, book_id, **kw):
 
 Responses for `type='http'`: `request.render(template, values)`,
 `request.redirect(url)`, `request.make_response(body, headers)`,
-`request.not_found()`, or `werkzeug` responses. `type='json'` just returns the
+`request.not_found()`, or `werkzeug` responses. `type='jsonrpc'` (formerly
+`'json'`) just returns the
 Python object (Odoo serializes it); raising is turned into a JSON error envelope.
 
 ## Reading the live route table (introspect, don't grep)

@@ -9,14 +9,14 @@ description: >-
   SQL, and tracing what actually runs at runtime. Use whenever an Odoo stack
   trace, failed -i/-u, blank or 500 page, or "works locally not in prod" shows
   up, or before you guess which addon or layer caused it. Read the running
-  instance instead of guessing. Targets Odoo 17/18.
+  instance instead of guessing. Targets Odoo 17/18/19.
 ---
 
 # Odoo debugging
 
 Most Odoo errors are about the **composed runtime**, not a typo: a field/method/view that exists only after the addon graph loads, an override that ran (or didn't) at the wrong MRO layer, a record rule, or a stale cache. The top traceback frame is often not the cause. **Decode the error class first, then read ground truth** before editing — delegate discovery to the **`odoo-introspect`** skill (`odoo-ai all <model>`).
 
-**Version floor: Odoo 17/18.** `--dev` sub-flags and `--log-handler` names target 17/18; `breakpoint()` needs Python 3.7+. Older → `skills/odoo-introspect/references/version-matrix.md`.
+**Version floor: Odoo 17/18, through Odoo 19 (current LTS).** `--dev` sub-flags and `--log-handler` names target 17/18+; `breakpoint()` needs Python 3.7+. Older → `skills/odoo-introspect/references/version-matrix.md`.
 
 ## Symptom → first tool
 

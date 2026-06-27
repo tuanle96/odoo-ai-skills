@@ -1,6 +1,6 @@
 # Playbook: Purchase (`purchase`) + HR note
 
-**Map, not truth — Odoo 17/18.** Confirm first:
+**Map, not truth — Odoo 17/18/19.** Confirm first:
 
 ```bash
 odoo-ai --db <DB> all purchase.order --methods button_confirm,_create_picking,_prepare_picking,_create_invoices,_prepare_invoice

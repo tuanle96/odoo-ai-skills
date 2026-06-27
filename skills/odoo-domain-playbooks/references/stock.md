@@ -1,6 +1,6 @@
 # Playbook: Inventory (`stock`)
 
-**Map, not truth — Odoo 17/18.** Confirm first — and read the v17 field rename below before any move-line code:
+**Map, not truth — Odoo 17/18/19.** Confirm first — and read the v17 field rename below before any move-line code:
 
 ```bash
 odoo-ai --db <DB> all stock.move --methods _action_confirm,_action_assign,_action_done,_action_cancel,_get_new_picking_values

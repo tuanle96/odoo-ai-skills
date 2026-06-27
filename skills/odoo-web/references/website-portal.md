@@ -1,7 +1,7 @@
 # Website pages, snippets & the portal
 
 Authoring the public website and extending `/my`, plus the v17/18 frontend-JS
-migration. Targets Odoo 17/18.
+migration. Targets Odoo 17/18, through Odoo 19 (current LTS).
 
 ## Website page anatomy
 

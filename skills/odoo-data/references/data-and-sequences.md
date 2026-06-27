@@ -1,6 +1,6 @@
 # Data files, sequences & configuration — reference
 
-Targets Odoo 17/18. Older versions: `skills/odoo-introspect/references/version-matrix.md`.
+Targets Odoo 17/18, through Odoo 19 (current LTS). Older versions: `skills/odoo-introspect/references/version-matrix.md`.
 
 ## XML record syntax
 

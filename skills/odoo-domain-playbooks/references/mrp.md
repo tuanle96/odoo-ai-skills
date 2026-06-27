@@ -1,6 +1,6 @@
 # Playbook: Manufacturing (`mrp`)
 
-**Map, not truth — Odoo 17/18.** Move generation names vary by version — verify before overriding:
+**Map, not truth — Odoo 17/18/19.** Move generation names vary by version — verify before overriding:
 
 ```bash
 odoo-ai --db <DB> all mrp.production --methods _action_confirm,button_mark_done,_get_moves_raw_values,_get_moves_finished_values

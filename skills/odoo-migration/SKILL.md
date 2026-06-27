@@ -17,7 +17,7 @@ On `-u` the ORM auto-applies *additive, non-destructive* schema changes. Anythin
 
 **The rule: if existing rows must change shape or move, you write the migration; if you're only adding, let `-u` do it.**
 
-Targets Odoo 17/18. Cross-version deprecations: `skills/odoo-introspect/references/version-matrix.md`.
+Targets Odoo 17/18, through Odoo 19 (current LTS). Cross-version deprecations: `skills/odoo-introspect/references/version-matrix.md`.
 
 ## Does this need a migration?
 

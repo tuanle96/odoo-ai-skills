@@ -1,6 +1,6 @@
 # Migration scripts — reference
 
-Targets Odoo 17/18. Per-version renames: `skills/odoo-introspect/references/version-matrix.md`.
+Targets Odoo 17/18, through Odoo 19 (current LTS). Per-version renames: `skills/odoo-introspect/references/version-matrix.md`.
 
 ## The two helper libraries
 

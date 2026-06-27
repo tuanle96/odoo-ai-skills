@@ -30,7 +30,7 @@ Better still when you only need an aggregate — push it to SQL via `_read_group
 
 ## `_read_group` (v17 tuple API)
 
-`read_group` is replaced by `_read_group(domain, groupby, aggregates, ...)` returning a **list of tuples**, one per group, in `groupby + aggregates` order. `'__count'` is the row count aggregate; others read `'field:agg'` (e.g. `'amount_total:sum'`).
+`read_group` is replaced by `_read_group(domain, groupby, aggregates, ...)` returning a **list of tuples**, one per group, in `groupby + aggregates` order. `'__count'` is the row count aggregate; others read `'field:agg'` (e.g. `'amount_total:sum'`). On **v18.2+** the public `read_group` is deprecated — use `_read_group` (tuples) internally, or `formatted_read_group` for the formatted public output. The field-level aggregate attribute is `aggregator=` since **v17.2** (`group_operator=` is the old name).
 
 ```python
 # Count children per parent in ONE query:

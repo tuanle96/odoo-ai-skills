@@ -8,7 +8,7 @@ description: >-
   doesn't say "skill" — any time you would otherwise GUESS at Odoo's field
   inventory, ORM API, method resolution order, super() chain, or which hook to
   extend. Read ground truth first (via the odoo-introspect skill), then make the
-  smallest safe patch and prove it with the odoo-testing gate. Targets Odoo 17/18.
+  smallest safe patch and prove it with the odoo-testing gate. Targets Odoo 17/18/19.
 ---
 
 # Odoo development
@@ -17,7 +17,7 @@ Odoo composes each model at runtime from the installed addon dependency graph. T
 
 **The rule: read ground truth from the running registry first, then customize.** Discovery is a solved problem — delegate it to the **`odoo-introspect`** skill. This skill is the *customize-safely* loop layered on top of it.
 
-**Version floor: Odoo 17/18.** On v16 or older, some ORM/method names differ — check `skills/odoo-introspect/references/version-matrix.md` before relying on a signature below.
+**Version floor: Odoo 17/18, through Odoo 19 (current LTS).** On v16 or older, some ORM/method names differ — and v17.2 → 19 renamed several you'll otherwise emit from memory: `group_operator`→`aggregator` (17.2); `check_access_rights`/`check_access_rule`→`check_access`/`has_access` (18/19); public methods are RPC-callable unless marked `@api.private` (18.2); `record._cr`/`._context`/`._uid`→`record.env.cr`/`.context`/`.uid` (19); `from odoo.osv import expression`→the `odoo.Domain` API (18.1→19); constraints/indexes can be model attributes (18.1). Check `skills/odoo-introspect/references/version-matrix.md` before relying on a signature below.
 
 ## Three different "orders" — do not conflate them
 
