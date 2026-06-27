@@ -122,6 +122,7 @@ See `references/sample-output.md` for the JSON shape each layer returns.
 - `scripts/field_refs.py` — Layer E: reverse impact of a field (computes/related/views/rules/filters/actions that depend on it) before a rename/retype/drop.
 - `scripts/preflight.py` — module preflight: installed/loaded state, load path, shadow/duplicate `addons_path` traps.
 - `scripts/state_capture.py` — Layer F: runtime state — breakpoint snapshot (args/locals/`self` at a `model.method` or source line) + exception post-mortem (full call stack with each frame's locals). Non-interactive, JSON.
+- `scripts/capabilities.py` — Layer H: native capability surface (wizards/actions/crons/automations/sequences/mixins/functional fields) for a model or module, from the live registry. Exposed as `odoo-ai capabilities <model>` / `--module <addon>` and driven by the **`odoo-capabilities`** skill (Step 0: is it already native?).
 - `scripts/odoo-ai` — CLI that runs all four and writes a JSON folder.
 - `references/introspection.md` — RPC fallback for SaaS + mcp-odoo integration.
 - `references/sample-output.md` — abbreviated sample JSON for each of the four layers.

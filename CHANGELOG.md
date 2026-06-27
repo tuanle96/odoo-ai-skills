@@ -6,6 +6,51 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-27
+
+Adds **Layer H — the Native Capability Atlas**: a Step-0 scanner and a new
+`odoo-capabilities` skill that answer the question that comes *before* "where do
+I extend?" — **"does Odoo already ship this?"** The suite's rule (read ground
+truth, don't guess) applied one step earlier: enumerate the native surface from
+the live registry and reuse it, instead of reinventing sequences, crons,
+automation rules, mixins, or wizards in custom code.
+
+### Added
+- **`odoo-ai capabilities <model>` / `--module <addon>`** (new `capabilities.py`,
+  Layer H). Enumerates the native capability surface straight from the running
+  instance: per **module** (via the `ir.model.data` xmlid registry) it lists the
+  models, wizards, window/server/report actions, crons, automation rules,
+  sequences, mail templates, feature groups, and menus the addon shipped — each
+  with its **xmlid as evidence**; per **model** (a.k.a. `feature-map`) it maps
+  the mixins (mail/activities/portal), functional fields, actions/reports, the
+  bound Action-menu surface (where native wizards attach), crons, and automation
+  rules around it. Pure enumeration — **no matching/scoring**, and it **never
+  reads server-action/cron code bodies** (nothing to gate).
+- **`odoo-ai feature-map <model>`** — alias for `capabilities <model>`.
+- **New `odoo-capabilities` skill** (Tier 0, Step 0). The "native-first" gate:
+  before *adding* a field/model/wizard/report/cron/automation or *overriding a
+  core flow*, enumerate native candidates, cite the instance evidence, and decide
+  reuse / reject-with-reason / the real gap. Stays silent for bug-fixes, view
+  tweaks, and edits inside your own module. Carries
+  `references/native-primitives.md` — the anti-pattern → native-primitive
+  catalogue (ir.sequence, ir.cron, base.automation, computed-vs-onchange,
+  mail.thread/activities, the standard wizards, `_prepare_*`/`_action_*` hooks,
+  reports, feature groups, record rules), version-noted for 17/18/19.
+- **Worked example** `examples/native-capability-check.md` — two native-checks
+  where reading the instance turns "write a module" into "reuse the existing
+  `ir.sequence` / `mail.thread` / automation rule": the best patch is no patch.
+- **Tests** — pure-function coverage for the scanner (`bucket_for_imd_model`,
+  `is_functional_field`, `mixin_capabilities`, `count_surface`) and the CLI
+  `_summ` capabilities summaries, in both the pytest and unittest suites; an
+  integration smoke (`capabilities.py`, model + module mode) added to
+  `integration_smoke.py`.
+
+### Changed
+- **Workflow gains a scoped Step 0.** The `odoo` router and `odoo-dev` now run
+  `native-check → introspect → plan → code → test → review`, with Step 0 firing
+  only for additive / core-overriding tasks. README, tier table, and the
+  introspect script list updated; skill count 17 → 18.
+
 ## [0.4.2] - 2026-06-27
 
 A follow-up hygiene patch on 0.4.1: surface the code-gating policy on the CLI,

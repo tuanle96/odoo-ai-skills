@@ -21,6 +21,7 @@ import trace_flow   # noqa: E402  (import-safe: run() is gated on `env` in globa
 import preflight    # noqa: E402  (import-safe: run() is gated on `env` in globals)
 import state_capture  # noqa: E402  (import-safe: run() is gated on `env` in globals)
 import security_sim  # noqa: E402  (import-safe: run() is gated on `env` in globals)
+import capabilities  # noqa: E402  (import-safe: run() is gated on `env` in globals)
 
 
 def _load_odoo_ai():
@@ -633,6 +634,64 @@ def test_state_serialize_locals_redacts_by_name():
     assert out["vals"]["token"] == state_capture.REDACTED  # nested dict key redacted
     assert out["vals"]["name"] == "ok"
     assert out["n"] == 1
+
+
+# --- capabilities (Layer H) pure helpers ------------------------------------
+def test_capabilities_is_functional_field():
+    # business fields the agent should reuse, not re-add
+    assert capabilities.is_functional_field("commitment_date") is True
+    assert capabilities.is_functional_field("invoice_status") is True
+    # ORM plumbing
+    for n in ("id", "display_name", "create_uid", "write_date", "__last_update"):
+        assert capabilities.is_functional_field(n) is False, n
+    # mail/activity/portal mixin internals
+    for n in ("message_ids", "message_follower_ids", "activity_ids",
+              "activity_state", "access_url", "website_message_ids"):
+        assert capabilities.is_functional_field(n) is False, n
+    assert capabilities.is_functional_field("") is False
+
+
+def test_capabilities_mixin_capabilities():
+    full = capabilities.mixin_capabilities(
+        {"message_ids", "activity_ids", "access_url", "name"})
+    assert full == {"mail_thread": True, "activities": True, "portal": True}
+    none = capabilities.mixin_capabilities({"name", "state"})
+    assert none == {"mail_thread": False, "activities": False, "portal": False}
+    assert capabilities.mixin_capabilities(None)["mail_thread"] is False
+
+
+def test_capabilities_count_surface_ignores_truncation_and_nonlists():
+    surface = {
+        "models": [{"model": "a"}, {"model": "b"}],
+        "crons": [{"name": "c"}, {"_truncated": "+9 more"}],   # marker not counted
+        "wizards": [],
+        "mode": "module",       # non-list metadata ignored
+        "_summary": {"x": 1},   # non-list metadata ignored
+    }
+    assert capabilities.count_surface(surface) == {
+        "models": 2, "crons": 1, "wizards": 0}
+    assert capabilities.count_surface({}) == {}
+    assert capabilities.count_surface(None) == {}
+
+
+# --- odoo-ai._summ for capabilities -----------------------------------------
+def test_summ_capabilities_module():
+    d = {"mode": "module", "module": "sale", "found": True, "state": "installed",
+         "_summary": {"models": 3, "wizards": 2, "window_actions": 5, "automation_rules": 1}}
+    out = odoo_ai._summ("capabilities", d)
+    assert "module=sale" in out and "3 models" in out and "2 wizards" in out
+
+
+def test_summ_capabilities_model_and_not_installed():
+    d = {"mode": "model", "model": "sale.order",
+         "_summary": {"functional_fields": 40, "bound_actions": 3, "reports": 2}}
+    out = odoo_ai._summ("capabilities", d)
+    assert "model=sale.order" in out and "40 fn-fields" in out
+    ni = odoo_ai._summ("capabilities", {"mode": "module", "module": "x",
+                                        "found": True, "state": "uninstalled", "_summary": {}})
+    assert "not enumerable" in ni
+    # malformed payload never raises
+    assert odoo_ai._summ("capabilities", {}) is not None
 
 
 if __name__ == "__main__":

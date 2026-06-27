@@ -1,5 +1,10 @@
 # Examples
 
+- **[`native-capability-check.md`](native-capability-check.md)** — Step 0 in
+  action: two native-checks (`odoo-ai capabilities …`) where reading the instance
+  turns a "write a module" request into "reuse the `ir.sequence` / `mail.thread` /
+  automation rule Odoo already ships" — the best patch is sometimes no patch.
+
 - **[`sale-order-walkthrough.md`](sale-order-walkthrough.md)** — a complete
   introspect → plan → patch → test pass for a real `sale.order` change, with
   every decision taken from the live registry. The runnable module is in

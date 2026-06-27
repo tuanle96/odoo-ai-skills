@@ -90,6 +90,27 @@ class SummTests(unittest.TestCase):
     def test_returns_empty_string_for_unknown_step(self):
         self.assertEqual(odoo_ai._summ("nope", {"anything": 1}), "")
 
+    def test_capabilities_module_summary(self):
+        data = {"mode": "module", "module": "sale", "found": True, "state": "installed",
+                "_summary": {"models": 3, "wizards": 2, "window_actions": 5,
+                             "automation_rules": 1}}
+        out = odoo_ai._summ("capabilities", data)
+        self.assertIn("module=sale", out)
+        self.assertIn("3 models", out)
+        self.assertIn("2 wizards", out)
+
+    def test_capabilities_model_summary(self):
+        data = {"mode": "model", "model": "sale.order",
+                "_summary": {"functional_fields": 40, "bound_actions": 3, "reports": 2}}
+        out = odoo_ai._summ("capabilities", data)
+        self.assertIn("model=sale.order", out)
+        self.assertIn("40 fn-fields", out)
+
+    def test_capabilities_not_installed_summary(self):
+        data = {"mode": "module", "module": "x", "found": True,
+                "state": "uninstalled", "_summary": {}}
+        self.assertIn("not enumerable", odoo_ai._summ("capabilities", data))
+
 
 if __name__ == "__main__":
     unittest.main()

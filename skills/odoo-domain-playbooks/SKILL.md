@@ -28,7 +28,9 @@ So the playbook tells you **where to look and what to read** — never what to t
 
 ## The universal move (before customizing ANY app)
 
-Run these two via the `odoo-introspect` skill's `odoo-ai` CLI, feed the JSON to the agent, *then* plan the patch:
+**Step 0 — is it already native?** If the change *adds* behavior (a field, wizard, report, cron, automation) or *overrides* a flow method, first check what the app already ships via the **`odoo-capabilities`** skill — `odoo-ai capabilities <key.model>` / `--module <addon>` surfaces the native wizards, automations, sequences, and hooks so you reuse them instead of rebuilding. These standard apps are *dense* with native capability; assume it exists until the instance says otherwise.
+
+Then run these two via the `odoo-introspect` skill's `odoo-ai` CLI, feed the JSON to the agent, *then* plan the patch:
 
 ```bash
 # 1. model_brief (Layer A+B): fields, MRO + super-analysis, buttons/views, security — for the

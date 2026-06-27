@@ -22,6 +22,7 @@ Odoo builds every model, view, security rule, and automation **at runtime** from
 
 ## Always start here
 
+0. **`odoo-capabilities`** — Step 0, *only* when the task would **add** a field/model/wizard/report/cron/automation or **override a core flow**: check what Odoo already ships before reinventing it (`odoo-ai capabilities <model>` / `--module <addon>`). Skip for bug-fixes, view tweaks, or work inside your own module.
 1. **`odoo-introspect`** — Tier 0 ground-truth engine. Dump the model/flow as JSON (Layer A fields+MRO+super+security, B view/buttons, C menu/data/reports, D real runtime trace) with `odoo-ai all <model>`. Do this **before** writing code.
 2. Pick the build skill from the table below.
 3. **`odoo-testing`** — prove it (test fails before, passes after; non-admin / multi-company / batch; `-i` + `-u`).
@@ -30,6 +31,7 @@ Odoo builds every model, view, security rule, and automation **at runtime** from
 
 | If the task is… | Use |
 |---|---|
+| About to **add** a field/model/wizard/report/cron/automation, or **override a core flow** — does Odoo already ship this? | **odoo-capabilities** (Step 0, before introspect) |
 | Find out what a model/flow really is (fields, MRO, `super()`, security, views, runtime order) | **odoo-introspect** (always first) |
 | Add/modify fields; override `create`/`write`/compute/onchange/constrains; pick inheritance mode & MRO layer | **odoo-dev** |
 | Create a new module / `__manifest__.py` / directory structure | **odoo-module-scaffold** |
@@ -48,7 +50,7 @@ Odoo builds every model, view, security rule, and automation **at runtime** from
 
 ## The tiers
 
-- **Tier 0 — foundation:** `odoo-introspect` (every other skill calls it).
+- **Tier 0 — foundation:** `odoo-capabilities` (Step 0: is it already native?) → `odoo-introspect` (every other skill calls it).
 - **Tier 1 — core loop:** `odoo-dev` · `odoo-module-scaffold` · `odoo-views` · `odoo-security` · `odoo-testing` · `odoo-review` · `odoo-debug`.
 - **Tier 2 — frontend & report:** `odoo-owl` · `odoo-web` · `odoo-reports`.
 - **Tier 3 — lifecycle:** `odoo-data` · `odoo-migration` · `odoo-perf` · `odoo-deploy`.

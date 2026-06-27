@@ -52,6 +52,7 @@ SENTINELS = {
     "field_refs.py":    ("===ODOO_REFS_START===", "===ODOO_REFS_END==="),
     "security_sim.py":  ("===ODOO_SECURITY_START===", "===ODOO_SECURITY_END==="),
     "state_capture.py": ("===ODOO_STATE_START===", "===ODOO_STATE_END==="),
+    "capabilities.py":  ("===ODOO_CAP_START===", "===ODOO_CAP_END==="),
 }
 
 
@@ -328,13 +329,41 @@ def smoke_security_multicompany():
           ca in ints_ab and cb in ints_ab, f"dom_AB={dom_ab} (cA={ca}, cB={cb})")
 
 
+def smoke_capabilities():
+    print(f"Layer H — capabilities (model mode) on {MODEL}")
+    d = _shell("capabilities.py", {"MODEL": MODEL})
+    check("capabilities.model mode", d.get("mode") == "model", str(d.get("mode")))
+    check("capabilities.mixins has 3 keys",
+          set(d.get("mixins", {})) == {"mail_thread", "activities", "portal"},
+          str(d.get("mixins")))
+    check("capabilities.functional_fields is a list",
+          isinstance(d.get("functional_fields"), list))
+    check("capabilities._summary present", isinstance(d.get("_summary"), dict))
+    check("capabilities.bound_actions is a list", isinstance(d.get("bound_actions"), list))
+
+    print("Layer H — capabilities (module mode) on base")
+    m = _shell("capabilities.py", {"MODULE": "base"})
+    check("capabilities.module found+installed",
+          m.get("found") is True and m.get("state") == "installed",
+          f"found={m.get('found')}, state={m.get('state')}")
+    check("capabilities.module models is a list", isinstance(m.get("models"), list))
+    check("capabilities.module _summary present", isinstance(m.get("_summary"), dict))
+    # xmlid evidence: any enumerated window action carries a module.name xmlid
+    wins = [w for w in m.get("window_actions", []) if "_truncated" not in w]
+    if wins:
+        check("capabilities.window_actions carry xmlid evidence",
+              all(w.get("xmlid", "").startswith("base.") for w in wins if w.get("xmlid")),
+              str(wins[0]))
+
+
 def main():
     if not DB:
         print("SKIP integration_smoke: ODOO_DB not set (pure-function CI is unaffected).")
         return 0
     print(f"integration_smoke · db={DB} · model={MODEL} · odoo_bin={ODOO_BIN}\n")
     for fn in (smoke_brief, smoke_entrypoints, smoke_metadata, smoke_refs,
-               smoke_security, smoke_security_multicompany, smoke_state):
+               smoke_security, smoke_security_multicompany, smoke_state,
+               smoke_capabilities):
         try:
             fn()
         except Exception as e:  # noqa: BLE001

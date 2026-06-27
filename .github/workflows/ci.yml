@@ -23,7 +23,8 @@ jobs:
             skills/odoo-introspect/scripts/field_refs.py \
             skills/odoo-introspect/scripts/preflight.py \
             skills/odoo-introspect/scripts/security_sim.py \
-            skills/odoo-introspect/scripts/state_capture.py
+            skills/odoo-introspect/scripts/state_capture.py \
+            skills/odoo-introspect/scripts/capabilities.py
 
       - name: Install test deps
         run: pip install pytest
