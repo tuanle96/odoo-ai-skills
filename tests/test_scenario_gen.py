@@ -171,11 +171,21 @@ class RenderSkeletonTests(unittest.TestCase):
         self.assertIn("locked_period", keys)
         self.assertIn("def test_locked_period(self):", code)
 
-    def test_no_extra_tests_beyond_scenarios(self):
+    def test_test_count_matches_scenarios_plus_at_install_variant(self):
+        # Every scenario → one stub; when at_install_vs_post_install is required,
+        # a second at_install-tagged class adds exactly one more stub (v0.9.1).
         code, scenarios = self._build("res.partner", ["name_get"], has_company_id=False)
-        # Count 'def test_' occurrences — must equal scenario count
-        test_count = code.count("    def test_")
-        self.assertEqual(test_count, len(scenarios))
+        keys = [s["key"] for s in scenarios]
+        expected = len(scenarios) + (1 if "at_install_vs_post_install" in keys else 0)
+        self.assertEqual(code.count("    def test_"), expected)
+
+    def test_both_install_tags_present_when_required(self):
+        # the skeleton must not contradict its own at_install_vs_post_install scenario
+        code, scenarios = self._build("sale.order", ["action_confirm"])
+        self.assertIn("at_install_vs_post_install", [s["key"] for s in scenarios])
+        self.assertIn("@tagged('post_install', '-at_install')", code)
+        self.assertIn("@tagged('at_install', '-post_install')", code)
+        ast.parse(code)  # still valid Python with two classes
 
 
 class BuildReportTests(unittest.TestCase):

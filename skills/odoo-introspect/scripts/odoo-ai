@@ -108,6 +108,10 @@ LOCAL_SCRIPTS = {
 # both a clone and the installed-plugin layout.
 CARDS_DIR = HERE.parent.parent / "odoo-capabilities" / "references" / "cards"
 
+# When --json is set, commands print ONLY the raw JSON to stdout (no human
+# summary / header / footer) so CI can `odoo-ai --json <cmd> > artifact.json`.
+_JSON_OUT = False
+
 
 def run_in_shell(script_path, env_extra, cfg):
     cmd = [cfg["odoo_bin"], "shell", "-d", cfg["db"], "--no-http", "--log-level=warn"]
@@ -152,7 +156,10 @@ def do_step(step, env_extra, cfg, out_dir, model):
         return None
     path = out_dir / f"{model.replace('.', '_')}.{step}.json"
     path.write_text(json.dumps(data, indent=2))
-    print(f"  ✓ {step:<11} -> {path}  {_summ(step, data)}")
+    if _JSON_OUT:
+        print(json.dumps(data, indent=2))
+    else:
+        print(f"  ✓ {step:<11} -> {path}  {_summ(step, data)}")
     return data
 
 
@@ -277,7 +284,10 @@ def do_local(cmd, argv, out_dir, label):
         return None
     path = out_dir / f"{str(label).replace('.', '_')}.{cmd}.json"
     path.write_text(json.dumps(data, indent=2))
-    print(f"  ✓ {cmd:<13} -> {path}  {_summ_local(cmd, data)}")
+    if _JSON_OUT:
+        print(json.dumps(data, indent=2))
+    else:
+        print(f"  ✓ {cmd:<13} -> {path}  {_summ_local(cmd, data)}")
     return data
 
 
@@ -319,6 +329,9 @@ def main():
     p.add_argument("--conf", default=os.environ.get("ODOO_CONF"))
     p.add_argument("--odoo-bin", default=os.environ.get("ODOO_BIN", "odoo-bin"))
     p.add_argument("--out-dir")
+    p.add_argument("--json", dest="as_json", action="store_true",
+                   help="print ONLY raw JSON to stdout (no summary/header) — for piping/CI, "
+                        "e.g. `odoo-ai --json validate addons/ > validate.json`")
     p.add_argument("--timeout", type=int, default=600)
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -353,6 +366,8 @@ def main():
     sdq = sub.add_parser("docs", help="query the local Odoo-docs index (Layer J) — subordinate to introspect; results carry canonical URLs"); sdq.add_argument("query"); sdq.add_argument("--version", required=True); sdq.add_argument("--top", default=""); sdq.add_argument("--index-dir", dest="index_dir", default="")
 
     a = p.parse_args()
+    global _JSON_OUT
+    _JSON_OUT = bool(getattr(a, "as_json", False))
     # native-learn is a local file op — no DB / odoo shell needed.
     if a.cmd == "native-learn":
         do_native_learn(a.requirement, a.card, resolve_learn_file(a.learn_file))
@@ -409,7 +424,8 @@ def main():
              or getattr(a, "target", None) or a.cmd)
     out_dir = Path(a.out_dir) if a.out_dir else Path("/tmp/odoo-ai") / str(label).replace(".", "_")
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"odoo-ai · db={a.db} · target={label} · out={out_dir}")
+    if not _JSON_OUT:
+        print(f"odoo-ai · db={a.db} · target={label} · out={out_dir}")
 
     if a.cmd == "capabilities":
         if a.module:
@@ -491,7 +507,8 @@ def main():
                                   "MODULE": a.module, "VERSION": a.version}, cfg, out_dir, a.model)
     elif a.cmd == "verify-claims":
         do_step("claim_verify", {"CLAIMS_FILE": a.claims}, cfg, out_dir, "verify-claims")
-    print(f"\nFeed the JSON in {out_dir} to the agent BEFORE asking it to write code.")
+    if not _JSON_OUT:
+        print(f"\nFeed the JSON in {out_dir} to the agent BEFORE asking it to write code.")
 
 
 if __name__ == "__main__":

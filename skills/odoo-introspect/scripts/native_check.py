@@ -234,13 +234,19 @@ def dispatch_leaf(leaf, handlers, on_error=None):
     if handler is None:
         if on_error:
             on_error(f"unknown probe kind: {kind}")
-        return False, {"check": f"unknown probe kind {kind}", "found": False}
+        # status="unknown_kind": the probe could NOT be evaluated — callers must
+        # treat this as "unable to tell", NOT as a genuine False/absent.
+        return False, {"check": f"unknown probe kind {kind}", "found": False,
+                       "status": "unknown_kind"}
     try:
         return handler(leaf)
     except Exception as e:  # noqa: BLE001
         if on_error:
             on_error(f"probe {leaf} failed ({type(e).__name__}: {e})")
-        return False, {"check": str(leaf)[:60], "found": False, "detail": "probe error"}
+        # status="error": evaluation failed (e.g. a malformed probe missing a
+        # required key) — again "unable to tell", not a real contradiction.
+        return False, {"check": str(leaf)[:60], "found": False,
+                       "status": "error", "detail": f"{type(e).__name__}: {e}"}
 
 
 def make_handlers(env):
@@ -315,8 +321,13 @@ def make_handlers(env):
 
     def _h_mixin(leaf):
         m, mixin = leaf["model"], leaf["mixin"]
-        ok = (m in env) and any(
-            getattr(b, "_name", None) == mixin for b in type(env[m]).__mro__)
+        ok = False
+        if m in env:
+            model = env[m]
+            inh = getattr(model, "_inherit", None)
+            inh_list = [inh] if isinstance(inh, str) else list(inh or [])
+            ok = (mixin in inh_list
+                  or any(getattr(b, "_name", None) == mixin for b in type(model).__mro__))
         return ok, {"check": f"{m} inherits {mixin}", "found": ok}
 
     def _h_edition(leaf):

@@ -48,9 +48,18 @@ SENSITIVE_MODELS = frozenset({
 })
 
 SENSITIVE_KEY_RE = re.compile(
-    r"(?i)(password|token|secret|api_key|apikey|authorization|session"
-    r"|private_key|credential|passwd|pwd)"
+    r"(?i)(passw(?:or)?d|pwd|secret|token|api[_-]?key|apikey|access[_-]?key"
+    r"|secret[_-]?key|client[_-]?secret|authorization|auth[_-]?token|bearer"
+    r"|session|credential|private[_-]?key|signing[_-]?key|webhook|dsn"
+    r"|smtp[_-]?pass)"
 )
+
+# Execution-state / source keys stripped wholesale in external mode (matched
+# case-insensitively). These Layer-F shapes can carry arbitrary secrets/PII.
+_STRIP_KEYS = frozenset({
+    "source", "code", "locals", "local_vars", "frame_locals", "globals",
+    "self", "args", "kwargs", "vals", "vals_list",
+})
 
 # ---------------------------------------------------------------------------
 # PII mask patterns (applied in mask_value, most-specific first)
@@ -72,6 +81,13 @@ _PHONE_RE = re.compile(r"(?<!\d)(\+?[\d][\d\s\-\(\)\.]{7,}\d)(?!\d)")
 _HEX_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])[0-9a-fA-F]{24,}(?![A-Za-z0-9])")
 # Base64 (classical +/ or URL-safe) token: >= 24 chars; safe-replace filters prose
 _B64_TOKEN_RE = re.compile(r"[A-Za-z0-9+/\-_]{24,}={0,2}")
+# Provider secret tokens (specific shapes — masked before the generic token catch-all)
+_AWS_KEY_RE = re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")
+_GH_TOKEN_RE = re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b")
+_STRIPE_RE = re.compile(r"\b[srp]k_(?:live|test)_[A-Za-z0-9]{16,}\b")
+_SLACK_RE = re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{10,}\b")
+_GOOGLE_API_RE = re.compile(r"\bAIza[0-9A-Za-z\-_]{35}\b")
+_PEM_RE = re.compile(r"-----BEGIN (?:[A-Z ]*)?PRIVATE KEY-----")
 
 # Fields always classified as high-sensitivity regardless of model
 _SENSITIVE_FIELDS = frozenset({
@@ -139,6 +155,14 @@ def mask_value(value):
     if not isinstance(value, str):
         return value
     s = value
+    # Provider secrets first (most specific) — a static index never sees these,
+    # but a Layer-F locals dump or a server-action body can.
+    s = _PEM_RE.sub("<private_key>", s)
+    s = _AWS_KEY_RE.sub("<aws_key>", s)
+    s = _GH_TOKEN_RE.sub("<github_token>", s)
+    s = _STRIPE_RE.sub("<stripe_key>", s)
+    s = _SLACK_RE.sub("<slack_token>", s)
+    s = _GOOGLE_API_RE.sub("<google_api_key>", s)
     s = _JWT_RE.sub("<jwt>", s)
     s = _IBAN_RE.sub("<iban>", s)
     s = _CARD_RE.sub(_safe_card_replace, s)
@@ -176,11 +200,11 @@ def scan_secrets(text):
     is the first **6 chars** of the match + ``"…"``.  The full secret is never
     echoed.
 
-    Kinds detected:
-        ``aws_key``            – AWS access key (``AKIA…``)
-        ``jwt``                – three-part JWT token
-        ``private_key_header`` – PEM private key block header (``-----BEGIN``)
-        ``generic_token``      – high-entropy 32+-char token (mixed case + digits)
+    Kinds detected (kept in lock-step with mask_value's provider patterns so a
+    secret the redactor would mask is also one the scanner counts):
+        ``aws_key`` (AKIA/ASIA) · ``github_token`` · ``stripe_key`` ·
+        ``slack_token`` · ``google_api_key`` · ``jwt`` · ``private_key_header`` ·
+        ``generic_token`` (high-entropy 32+-char, mixed case + digits)
     """
     hits = []
     seen_spans = set()
@@ -192,16 +216,21 @@ def scan_secrets(text):
         seen_spans.add(span)
         hits.append({"kind": kind, "match_preview": m.group(0)[:6] + "…"})
 
-    for m in _SCAN_AWS_RE.finditer(text):
-        _add(m, "aws_key")
-    for m in _SCAN_JWT_RE.finditer(text):
-        _add(m, "jwt")
-    for m in _SCAN_PK_RE.finditer(text):
-        _add(m, "private_key_header")
-    for m in _SCAN_TOKEN_RE.finditer(text):
+    # Same compiled REs/thresholds the redactor masks with — so anything
+    # mask_value would mask as a secret also increments the scan count (JWT 10+
+    # per segment, hex/base64 token 24+), keeping the gate honest.
+    for rx, kind in ((_AWS_KEY_RE, "aws_key"), (_GH_TOKEN_RE, "github_token"),
+                     (_STRIPE_RE, "stripe_key"), (_SLACK_RE, "slack_token"),
+                     (_GOOGLE_API_RE, "google_api_key"), (_PEM_RE, "private_key_header"),
+                     (_JWT_RE, "jwt")):
+        for m in rx.finditer(text):
+            _add(m, kind)
+    for m in _HEX_TOKEN_RE.finditer(text):
+        _add(m, "generic_token")
+    for m in _B64_TOKEN_RE.finditer(text):
         raw = m.group(0)
-        if (re.search(r"[A-Z]", raw) and re.search(r"[a-z]", raw)
-                and re.search(r"[0-9]", raw)):
+        if ("+" in raw or "/" in raw
+                or (re.search(r"[A-Z]", raw) and re.search(r"[a-z]", raw) and re.search(r"[0-9]", raw))):
             _add(m, "generic_token")
 
     return hits
@@ -225,22 +254,47 @@ def redact_payload(obj, mode="external"):
     return _redact(copy.deepcopy(obj), mode)
 
 
-def _redact(obj, mode):
-    """Recursive worker — operates in-place on the deep copy."""
+_META_KEYS = ("model", "id", "_name")  # kept as-is even inside a sensitive record
+
+
+def _redact(obj, mode, force=False):
+    """Recursive worker (operates on the deep copy).
+
+    ``force`` propagates "this is sensitive-record data" down into nested dicts
+    and lists: every string under a sensitive-model record dump is redacted —
+    including ``display_name``, many2one display tuples ``[id, "Name"]``, and
+    nested child records that lack their own ``model`` key — because a plain
+    name/address isn't caught by mask_value's PII regexes.
+    """
     if isinstance(obj, dict):
+        # {model, field, value} triple → redact value by model+field sensitivity.
+        if (mode == "external" and "value" in obj
+                and ("model" in obj or "field" in obj)
+                and classify_field_sensitivity(str(obj.get("model") or ""),
+                                               str(obj.get("field") or "")) == "high"):
+            obj["value"] = "<redacted:sensitive-field>"
+        model = obj.get("model")
+        sensitive_record = (mode == "external" and isinstance(model, str)
+                            and model in SENSITIVE_MODELS)
         for key in list(obj.keys()):
-            if mode == "external" and key in ("source", "code", "locals"):
+            lk = str(key).lower()
+            if mode == "external" and lk in _STRIP_KEYS:
                 obj[key] = "<stripped:external-mode>"
                 continue
             if SENSITIVE_KEY_RE.search(str(key)):
                 obj[key] = "<redacted>"
                 continue
-            obj[key] = _redact(obj[key], mode)
+            if lk in _META_KEYS or lk.startswith("_"):
+                continue  # keep the model name / id / dunder metadata itself
+            # inside a sensitive record, force-redact every value of this field
+            obj[key] = _redact(obj[key], mode, force=force or sensitive_record)
         return obj
     if isinstance(obj, list):
-        return [_redact(item, mode) for item in obj]
-    if isinstance(obj, str) and mode == "external":
-        return mask_value(obj)
+        return [_redact(item, mode, force) for item in obj]
+    if isinstance(obj, str):
+        if force:
+            return "<redacted:sensitive-model-field>"
+        return mask_value(obj) if mode == "external" else obj
     return obj
 
 

@@ -35,11 +35,17 @@ import sys
 import json
 
 # native_check is a sibling script; when piped to `odoo-bin shell` there is no
-# __file__, so the CLI exports SCRIPTS_DIR. The unit test puts the dir on
-# sys.path before importing this module, so the import resolves there too.
+# __file__, so the CLI exports SCRIPTS_DIR. Only trust an ABSOLUTE SCRIPTS_DIR
+# that actually contains a sibling native_check.py — never a relative path (a
+# hostile cwd-relative dir could shadow the real module). The unit test puts the
+# scripts dir on sys.path itself, so the import still resolves there.
 _SD = os.environ.get("SCRIPTS_DIR")
-if _SD and _SD not in sys.path:
-    sys.path.insert(0, _SD)
+if _SD and os.path.isabs(_SD) and os.path.isfile(os.path.join(_SD, "native_check.py")):
+    if _SD not in sys.path:
+        sys.path.insert(0, _SD)
+elif _SD:
+    sys.stderr.write(f"claim_verify: ignoring untrusted SCRIPTS_DIR={_SD!r} "
+                     "(must be an absolute path with a sibling native_check.py)\n")
 import native_check  # noqa: E402  (reuse make_handlers / dispatch_leaf / eval_probe / PROBE_KINDS)
 
 WARNINGS = []
@@ -86,18 +92,39 @@ def claim_to_probe(claim):
     return None
 
 
-def needs_runtime(claim):
-    """True if the claim asserts behaviour/safety beyond mere existence."""
+def needs_runtime(claim, probe=None):
+    """True if the claim asserts behaviour/safety beyond mere existence.
+
+    An explicit ``claim_type`` wins: ``existence`` → no; ``hook_safety`` /
+    ``runtime_behavior`` / ``migration`` / ``security`` → yes. Otherwise a
+    method/hook probe is treated as a behaviour claim by default (existence of a
+    method doesn't prove it's the right/safe hook), falling back to a keyword
+    scan of the free-text claim.
+    """
+    ct = (claim.get("claim_type") or "").lower()
+    if ct == "existence":
+        return False
+    if ct in ("hook_safety", "runtime_behavior", "migration", "security"):
+        return True
+    if isinstance(probe, dict) and probe.get("kind") == "method_exists":
+        return True
     return bool(BEHAVIOUR_RE.search(claim.get("claim") or ""))
 
 
-def classify(claim, probe, passed):
-    """Verdict from (claim, probe, did-the-probe-pass)."""
+def classify(claim, probe, passed, eval_ok=True):
+    """Verdict from (claim, probe, probe-passed, could-the-probe-be-evaluated).
+
+    ``eval_ok=False`` (a malformed/unknown probe that could not be evaluated) is
+    NOT a contradiction — it maps to ``needs_human`` so the agent never tells the
+    user "the upstream source is wrong" when the verifier simply couldn't tell.
+    """
     if probe is None:
         return "needs_human" if claim.get("claim") else "absent"
+    if not eval_ok:
+        return "needs_human"
     if not passed:
         return "contradicted"
-    if needs_runtime(claim):
+    if needs_runtime(claim, probe):
         return "needs_shell"
     return "confirmed"
 
@@ -142,9 +169,15 @@ def run():
             continue
         probe = claim_to_probe(c)
         passed, evidence = (False, [])
+        eval_ok = True
         if probe is not None:
             passed, evidence = native_check.eval_probe(probe, checker)
-        verdict = classify(c, probe, passed)
+            # A leaf that couldn't be evaluated (malformed/unknown) carries a
+            # status marker — don't let that masquerade as a contradiction.
+            eval_ok = not any(isinstance(e, dict)
+                              and e.get("status") in ("error", "unknown_kind")
+                              for e in evidence)
+        verdict = classify(c, probe, passed, eval_ok)
         counts[verdict] = counts.get(verdict, 0) + 1
         entry = {
             "source": c.get("source"),
@@ -153,9 +186,13 @@ def run():
             "verdict": verdict,
             "evidence": ([e for e in evidence if e.get("found")] if passed else evidence),
         }
-        rec = recommend_for(verdict, c)
-        if rec:
-            entry["recommend"] = rec
+        if probe is not None and not eval_ok:
+            entry["recommend"] = ("probe could not be evaluated (malformed/unknown kind) "
+                                  "— verify this claim manually against the instance")
+        else:
+            rec = recommend_for(verdict, c)
+            if rec:
+                entry["recommend"] = rec
         results.append(entry)
 
     out = {

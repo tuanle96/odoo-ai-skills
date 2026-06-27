@@ -206,5 +206,42 @@ class BuildReportTest(unittest.TestCase):
         ast.parse(report["migration_script"])
 
 
+class RenameThresholdV091Tests(unittest.TestCase):
+    """v0.9.1: a low-similarity sole-same-type match must NOT mask a real drop."""
+
+    @staticmethod
+    def _f(t="char", req=False, dflt=False, store=True):
+        return {"type": t, "required": req, "has_default": dflt, "store": store}
+
+    def test_unrelated_drop_is_not_a_high_rename(self):
+        old = {"legacy_code": self._f(), "name": self._f()}
+        new = {"customer_note": self._f(), "name": self._f()}
+        renames = upgrade_check.detect_renames(old, new)
+        self.assertTrue(all(r["confidence"] == "low" for r in renames), renames)
+        risks = upgrade_check.classify_upgrade_risks(old, new)
+        removed = [r for r in risks if r["kind"] == "field_removed" and r["field"] == "legacy_code"]
+        self.assertEqual(len(removed), 1, "real drop must still be flagged")
+        self.assertEqual(removed[0]["severity"], "blocking")
+
+    def test_true_rename_is_high_and_suppresses_removed(self):
+        old = {"partner_code": self._f()}
+        new = {"partner_ref": self._f()}
+        renames = upgrade_check.detect_renames(old, new)
+        self.assertEqual(renames[0]["confidence"], "high", renames)
+        risks = upgrade_check.classify_upgrade_risks(old, new)
+        self.assertFalse(any(r["kind"] == "field_removed" for r in risks))
+        self.assertTrue(any(r["kind"] == "field_renamed" for r in risks))
+
+    def test_non_stored_field_removed_is_warning_not_blocking(self):
+        risks = upgrade_check.classify_upgrade_risks({"x_comp": self._f(store=False)}, {})
+        rm = [r for r in risks if r["kind"] == "field_removed"]
+        self.assertEqual([r["severity"] for r in rm], ["warning"])
+
+    def test_new_required_non_stored_not_flagged(self):
+        new = {"x_c": self._f(req=True, dflt=False, store=False)}
+        risks = upgrade_check.classify_upgrade_risks({}, new)
+        self.assertFalse(any(r["kind"] == "new_required_no_default" for r in risks))
+
+
 if __name__ == "__main__":
     unittest.main()

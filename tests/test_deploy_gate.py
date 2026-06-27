@@ -313,6 +313,7 @@ class TestBuildReport(unittest.TestCase):
             (p / "scenarios.json").write_text(json.dumps({"risk": {"tier": "normal"}}))
             (p / "validate.json").write_text(
                 json.dumps({"summary": {"blocking": 0, "warning": 0}}))
+            (p / "scan_secrets.json").write_text(json.dumps({"count": 0}))  # core-required v0.9.1
             report = dg.build_report(p)
         self.assertEqual(report["decision"]["decision"], "approve")
         self.assertEqual(report["risk"]["tier"], "normal")
@@ -322,11 +323,11 @@ class TestBuildReport(unittest.TestCase):
     def test_block_when_upgrade_blocking(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp)
-            (p / "native_check.json").write_text(json.dumps({}))
+            (p / "native_check.json").write_text(json.dumps({"confirmed_candidates": []}))
             (p / "scenarios.json").write_text(json.dumps({"risk": {"tier": "normal"}}))
             (p / "validate.json").write_text(
                 json.dumps({"summary": {"blocking": 0, "warning": 0}}))
-            (p / "upgrade.json").write_text(json.dumps({"summary": {"blocking": 1}}))
+            (p / "upgrade.json").write_text(json.dumps({"summary": {"blocking": 1, "warning": 0}}))
             report = dg.build_report(p)
         self.assertEqual(report["decision"]["decision"], "block")
         self.assertEqual(report["risk"]["tier"], "critical")
@@ -376,6 +377,264 @@ class TestBuildReport(unittest.TestCase):
             report = dg.build_report(p)
         self.assertEqual(report["risk"]["tier"], "critical")
         self.assertEqual(report["decision"]["decision"], "needs_human")
+
+
+class V091GateTests(unittest.TestCase):
+    """v0.9.1 fixes: glob filenames, scan-secrets, parse-error guard, manifest."""
+
+    def _bundle(self, files):
+        d = tempfile.mkdtemp()
+        for name, obj in files.items():
+            with open(Path(d) / name, "w") as fh:
+                fh.write(obj if isinstance(obj, str) else json.dumps(obj))
+        return d
+
+    def test_resolves_cli_style_filenames(self):
+        d = self._bundle({
+            "patch.validate.json": {"summary": {"blocking": 0, "warning": 0}},
+            "env.env-diff.json": {"summary": {"severity": "low"}},
+            "sale_order.scenarios.json": {"risk": {"tier": "normal"}},
+        })
+        r = dg.build_report(d)
+        self.assertIn("validate", r["evidence"]["present"])
+        self.assertIn("env_diff", r["evidence"]["present"])
+        self.assertIn("scenarios", r["evidence"]["present"])
+
+    def test_missing_scan_secrets_does_not_approve(self):
+        d = self._bundle({
+            "native_check.json": {"confirmed_candidates": []},
+            "scenarios.json": {"risk": {"tier": "normal"}},
+            "validate.json": {"summary": {"blocking": 0, "warning": 0}},
+        })
+        r = dg.build_report(d)
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+        self.assertIn("scan_secrets", r["decision"]["missing_evidence"])
+
+    def test_multiple_matching_artifacts_use_worst_and_warn(self):
+        d = self._bundle({
+            "a.validate.json": {"summary": {"blocking": 0, "warning": 0}},
+            "b.validate.json": {"summary": {"blocking": 2, "warning": 0}},  # worst must win
+        })
+        r = dg.build_report(d)
+        self.assertEqual(r["evidence"]["signals"]["validate_blocking"], 2)
+        self.assertTrue(any("matched" in w for w in r["_warnings"]))
+        self.assertEqual(r["decision"]["decision"], "block")
+
+    def test_invalid_schema_required_artifact_does_not_approve(self):
+        # empty {} validate has no real signal → must not satisfy required evidence
+        d = self._bundle({
+            "native_check.json": {"confirmed_candidates": []},
+            "scenarios.json": {"risk": {"tier": "normal"}},
+            "validate.json": {},                       # invalid schema
+            "scan_secrets.json": {"count": 0},
+        })
+        r = dg.build_report(d)
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+        self.assertIn("validate", r["decision"]["missing_evidence"])
+
+    def test_wrong_typed_fields_do_not_crash_and_do_not_approve(self):
+        d = self._bundle({
+            "native_check.json": {"confirmed_candidates": []},
+            "scenarios.json": {"risk": {"tier": "normal"}},
+            "validate.json": {"summary": {"blocking": "2", "warning": 0}},  # str, invalid
+            "scan_secrets.json": {"count": "2"},                            # str, invalid
+        })
+        r = dg.build_report(d)  # must not raise
+        self.assertNotEqual(r["decision"]["decision"], "approve")
+
+    def test_scan_secrets_blocks(self):
+        d = self._bundle({"scan_secrets.json": {"count": 2, "hits": [{"kind": "aws_key"}]}})
+        r = dg.build_report(d)
+        self.assertEqual(r["decision"]["decision"], "block")
+
+    def test_parse_error_never_approves(self):
+        d = self._bundle({
+            "validate.json": "{not valid json",
+            "native_check.json": {"confirmed_candidates": []},
+            "scenarios.json": {"risk": {"tier": "normal"}},
+        })
+        r = dg.build_report(d)
+        self.assertNotEqual(r["decision"]["decision"], "approve")
+        self.assertTrue(r["_warnings"])
+
+    def _clean_core(self, extra):
+        files = {
+            "native_check.json": {"confirmed_candidates": []},
+            "scenarios.json": {"risk": {"tier": "normal"}},
+            "validate.json": {"summary": {"blocking": 0, "warning": 0}},
+            "scan_secrets.json": {"count": 0},
+        }
+        files.update(extra)
+        return dg.build_report(self._bundle(files))
+
+    def test_string_changed_files_does_not_silently_approve(self):
+        # round-4 #2: a string (not list) changed_files would be char-iterated and
+        # miss `migrations/` — a malformed manifest must force needs_human
+        r = self._clean_core({"manifest.json": {"changed_files": "migrations/17.0.1/post.py"}})
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+
+    def test_non_dict_manifest_does_not_crash(self):
+        for bad in ("x", [1], 5):
+            r = self._clean_core({"manifest.json": bad})  # must not raise
+            self.assertNotEqual(r["decision"]["decision"], "approve")
+
+    def test_list_manifest_with_migration_requires_upgrade(self):
+        r = self._clean_core({"manifest.json": {"changed_files": ["migrations/17.0.1/post.py"]}})
+        self.assertIn("upgrade", r["required_evidence"])
+
+    def test_manifest_nonstring_or_nonbool_fields_not_trusted(self):
+        # round-5: present-but-wrong-typed fields must force needs_human, never approve
+        for bad in ({"changed_files": [123]}, {"touched_models": [1, 2]},
+                    {"has_migration": ""}, {"touches_security": []},
+                    {"touches_controller": 1}):
+            r = self._clean_core({"manifest.json": bad})
+            self.assertEqual(r["decision"]["decision"], "needs_human", bad)
+
+    def test_valid_manifest_shapes_still_approve(self):
+        for ok in ({}, {"changed_files": ["m/models/x.py"], "has_migration": False},
+                   {"touched_models": ["sale.order"]}):
+            r = self._clean_core({"manifest.json": ok})
+            self.assertEqual(r["decision"]["decision"], "approve", ok)
+
+    def test_required_approval_forces_needs_human_not_approve(self):
+        # round-6 #1: decision must never say approve while a sign-off is required
+        r = self._clean_core({"manifest.json": {"touched_models": ["account.move"]}})
+        self.assertTrue(r["evidence"]["signals"].get("sensitive_model"))
+        self.assertTrue(r["decision"]["required_approvals"])
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+
+    def test_negative_or_missing_counts_are_invalid(self):
+        # round-6 #2: a -1 blocking (would clear the >0 signal) or a missing warning
+        # must be treated as invalid evidence → needs_human, never approve
+        r = self._clean_core({"manifest.json": {"has_migration": True},
+                              "upgrade.json": {"summary": {"blocking": -1, "warning": 0}}})
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+        r = self._clean_core({"validate.json": {"summary": {"blocking": 0}}})  # no warning
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+
+    def test_duplicate_json_keys_rejected(self):
+        # round-7 #1: a duplicate key must not silently overwrite a blocker/tier
+        # (_bundle writes str values raw, so these stay duplicate on disk)
+        r = self._clean_core({"validate.json": '{"summary":{"blocking":1,"blocking":0,"warning":0}}'})
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+        r = self._clean_core({"scenarios.json": '{"risk":{"tier":"critical","tier":"normal"}}'})
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+
+    def test_native_check_wrong_type_is_invalid(self):
+        # round-7 #2: confirmed_candidates/considered must be real lists
+        for bad in ({"confirmed_candidates": "not-a-list"}, {"considered": True}):
+            r = self._clean_core({"native_check.json": bad})
+            self.assertEqual(r["decision"]["decision"], "needs_human", bad)
+
+    def test_backslash_migration_path_detected(self):
+        # round-7 #3A: a Windows-separator migration path must still require upgrade
+        r = self._clean_core({"manifest.json": {
+            "changed_files": ["addons/m/migrations\\18.0.1\\post-migrate.py"]}})
+        self.assertTrue(r["evidence"]["signals"]["has_migration"])
+        self.assertIn("upgrade", r["required_evidence"])
+
+    def test_sensitive_model_from_changed_file_path(self):
+        # round-7 #3B: a change under account/ is sensitive even w/o touched_models
+        r = self._clean_core({"manifest.json": {
+            "changed_files": ["addons/account/models/account_move.py"]}})
+        self.assertTrue(r["evidence"]["signals"]["sensitive_model"])
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+
+    def test_upgrade_warning_forces_needs_human(self):
+        # round-8 #1: a required upgrade reporting warnings must not silently approve
+        r = self._clean_core({"manifest.json": {"has_migration": True},
+                              "upgrade.json": {"summary": {"blocking": 0, "warning": 1}}})
+        self.assertEqual(r["risk"]["tier"], "high")
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+
+    def test_native_check_mixed_wrong_type_invalid(self):
+        # round-8 #2: a present-but-non-list known key invalidates native_check
+        for bad in ('{"confirmed_candidates": [], "considered": true}',
+                    '{"confirmed_candidates": "not-a-list", "considered": []}'):
+            r = self._clean_core({"native_check.json": bad})
+            self.assertEqual(r["decision"]["decision"], "needs_human", bad)
+
+    def test_nan_infinity_constants_rejected(self):
+        # round-8 #3: NaN/Infinity are not valid JSON and must not parse into evidence
+        for bad in ('{"confirmed_candidates": [NaN]}', '{"confirmed_candidates": [Infinity]}'):
+            r = self._clean_core({"native_check.json": bad})
+            self.assertEqual(r["decision"]["decision"], "needs_human", bad)
+
+    def test_overflow_float_rejected_and_no_crash(self):
+        # round-9 #1/#2: 1e10000 overflows to inf — must be rejected on load, and the
+        # report must still serialise (allow_nan=False) without crashing
+        r = self._clean_core({"native_check.json": '{"confirmed_candidates":[1e10000]}'})
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+        r = self._clean_core({"trace.json": '{"error":1e10000}'})
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+        json.dumps(r, default=str, allow_nan=False)  # output contract: must not raise
+
+    def test_security_and_trace_wrong_types_invalid(self):
+        # round-9 #3: known signal fields read by truthiness must be the right type
+        for bad in ({"is_superuser": [], "_warnings": {}},):
+            r = self._clean_core({"security.json": bad})
+            self.assertEqual(r["decision"]["decision"], "needs_human", bad)
+        r = self._clean_core({"trace.json": {"error": []}})
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+
+    def test_security_and_trace_valid_shapes_still_decide(self):
+        r = self._clean_core({"security.json": {"is_superuser": False, "_warnings": []}})
+        self.assertEqual(r["decision"]["decision"], "approve")
+        r = self._clean_core({"trace.json": {"calls": 5}})           # no error → approve
+        self.assertEqual(r["decision"]["decision"], "approve")
+        r = self._clean_core({"trace.json": {"error": "boom"}})      # real error → block
+        self.assertEqual(r["decision"]["decision"], "block")
+
+    def test_malformed_model_hint_fields_invalid(self):
+        # round-10 #1: model hints feed sensitive detection — a non-string is invalid
+        for bad in ({"scenarios.json": {"risk": {"tier": "normal", "model": []}}},
+                    {"scenarios.json": {"risk": {"tier": "normal"}, "model": []}},
+                    {"security.json": {"model": 5}},
+                    {"security.json": {"model_name": []}}):
+            r = self._clean_core(bad)
+            self.assertEqual(r["decision"]["decision"], "needs_human", bad)
+
+    def test_string_model_hint_decides_by_sensitivity(self):
+        r = self._clean_core({"scenarios.json": {"risk": {"tier": "normal", "model": "sale.order"}}})
+        self.assertEqual(r["decision"]["decision"], "approve")        # non-sensitive
+        r = self._clean_core({"scenarios.json": {"risk": {"tier": "normal", "model": "account.move"}}})
+        self.assertEqual(r["decision"]["decision"], "needs_human")    # sensitive
+
+    def test_empty_string_trace_error_is_invalid(self):
+        # round-10 #2: "" reads falsey but is a present error field → not approve
+        r = self._clean_core({"trace.json": {"error": ""}})
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+
+    def test_gate_decision_self_defends_on_odd_trace_error(self):
+        # round-11: gate_decision must not approve on a present-but-falsy trace_error
+        # even if called directly (defense-in-depth, not relying on _artifact_valid)
+        for te, want in (("", "block"), ([], "block"), ("boom", "block"), (None, "approve")):
+            d = dg.gate_decision({"signals": {"trace_error": te}, "missing": []}, {"tier": "normal"})
+            self.assertEqual(d["decision"], want, te)
+
+    def test_manifest_expands_required_evidence(self):
+        d = self._bundle({
+            "native_check.json": {"confirmed_candidates": []},
+            "scenarios.json": {"risk": {"tier": "normal"}},
+            "validate.json": {"summary": {"blocking": 0, "warning": 0}},
+            "manifest.json": {"has_migration": True,
+                              "changed_files": ["addons/m/controllers/main.py"]},
+        })
+        r = dg.build_report(d)
+        self.assertIn("upgrade", r["required_evidence"])
+        self.assertIn("security", r["required_evidence"])
+        self.assertEqual(r["decision"]["decision"], "needs_human")  # upgrade+security missing
+        self.assertTrue(any("controller" in a for a in r["decision"]["required_approvals"]))
+
+    def test_clean_core_bundle_approves(self):
+        d = self._bundle({
+            "native_check.json": {"confirmed_candidates": []},
+            "scenarios.json": {"risk": {"tier": "normal"}},
+            "validate.json": {"summary": {"blocking": 0, "warning": 0}},
+            "scan_secrets.json": {"count": 0},  # core-required as of v0.9.1
+        })
+        r = dg.build_report(d)
+        self.assertEqual(r["decision"]["decision"], "approve")
 
 
 if __name__ == "__main__":

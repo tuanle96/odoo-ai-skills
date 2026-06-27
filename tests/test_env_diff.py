@@ -225,13 +225,24 @@ class SummarizeDriftLowAndNoneTest(unittest.TestCase):
         summary = env_diff.summarize_drift(diff)
         self.assertEqual(summary["severity"], "low")
 
-    def test_low_on_base_only_modules(self):
-        # dev has modules prod doesn't — less critical, still low
+    def test_high_on_base_only_modules(self):
+        # v0.9.1: dev has a module the target lacks — code may reference what
+        # isn't there → HIGH (asymmetry is dangerous in BOTH directions).
         base = _fp(modules={"sale": "16.0.1.0.0", "dev_tool": "16.0.1.0.0"})
         target = _fp(modules={"sale": "16.0.1.0.0"})
         diff = env_diff.diff_fingerprints(base, target)
         summary = env_diff.summarize_drift(diff)
-        self.assertEqual(summary["severity"], "low")
+        self.assertEqual(summary["severity"], "high")
+        self.assertTrue(any("coding env but not target" in b for b in summary["blocking"]))
+
+    def test_none_counts_do_not_crash_and_are_not_match(self):
+        # a failed count is recorded as None by run(); the diff must not raise,
+        # and an UNKNOWN count must not read as "none"/match (v0.9.1, oracle r2).
+        base = _fp(counts={"ir.model": None})
+        target = _fp(counts={"ir.model": 110})
+        diff = env_diff.diff_fingerprints(base, target)
+        self.assertFalse(diff["counts"]["ir.model"]["comparable"])
+        self.assertEqual(env_diff.summarize_drift(diff)["severity"], "low")
 
 
 if __name__ == "__main__":

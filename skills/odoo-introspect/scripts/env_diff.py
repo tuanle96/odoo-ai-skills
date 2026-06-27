@@ -53,9 +53,16 @@ def diff_fingerprints(base, target):
 
     base_counts = base.get("counts") or {}
     target_counts = target.get("counts") or {}
+
+    def _delta(b, t):
+        # A failed count is recorded as None by run(); treat it as UNKNOWN, not 0,
+        # so the diff never does None - int (TypeError) or reports a false delta.
+        if not isinstance(b, int) or not isinstance(t, int):
+            return {"base": b, "target": t, "delta": None, "comparable": False}
+        return {"base": b, "target": t, "delta": t - b, "comparable": True}
+
     counts = {
-        k: {"base": base_counts.get(k, 0), "target": target_counts.get(k, 0),
-             "delta": target_counts.get(k, 0) - base_counts.get(k, 0)}
+        k: _delta(base_counts.get(k), target_counts.get(k))
         for k in sorted(set(base_counts) | set(target_counts))
     }
 
@@ -87,8 +94,11 @@ def diff_fingerprints(base, target):
 def summarize_drift(diff):
     """Classify drift severity and produce a blunt verdict.
 
-    "high"  — edition changed, OR target has modules/studio fields dev lacks.
-    "low"   — minor drift: version changes, base-only modules, count/param diffs.
+    "high"  — edition changed, OR a module / Studio field exists on ONE side but
+              not the other (EITHER direction). Asymmetry is dangerous both ways:
+              code written against a module/field that the deployment target lacks
+              fails there just as surely as the reverse.
+    "low"   — minor drift: version changes, count/param diffs only.
     "none"  — all captured dimensions match.
 
     Returns {"verdict": str, "blocking": [str], "severity": "none"|"low"|"high"}.
@@ -98,46 +108,44 @@ def summarize_drift(diff):
     studio = diff.get("studio_fields") or {}
 
     edition_changed = edition.get("changed", False)
-    n_extra_mods = len(modules.get("only_in_target") or [])
-    n_studio_extra = len(studio.get("only_in_target") or [])
+    mods_target = len(modules.get("only_in_target") or [])   # in target, not coding env
+    mods_base = len(modules.get("only_in_base") or [])       # in coding env, not target
+    studio_target = len(studio.get("only_in_target") or [])
+    studio_base = len(studio.get("only_in_base") or [])
 
     blocking = []
     if edition_changed:
         blocking.append(f"Edition changed: {edition.get('base')} → {edition.get('target')}")
-    if n_extra_mods:
-        blocking.append(f"{n_extra_mods} module(s) installed in target but not in coding env")
-    if n_studio_extra:
-        blocking.append(f"{n_studio_extra} studio field(s) in target but not in coding env")
+    if mods_target:
+        blocking.append(f"{mods_target} module(s) in target but not coding env")
+    if mods_base:
+        blocking.append(f"{mods_base} module(s) in coding env but not target "
+                        "(code may import/reference what the target lacks)")
+    if studio_target:
+        blocking.append(f"{studio_target} Studio field(s) in target but not coding env")
+    if studio_base:
+        blocking.append(f"{studio_base} Studio field(s) in coding env but not target")
 
     if blocking:
-        parts = []
-        if n_extra_mods:
-            parts.append(f"{n_extra_mods} extra module(s)")
-        if n_studio_extra:
-            parts.append(f"{n_studio_extra} studio field(s)")
-        if parts:
-            verdict = (f"Coding env diverges from target: {', '.join(parts)} — "
-                       "do NOT claim production safety.")
-        else:
-            verdict = (f"Coding env diverges from target: edition "
-                       f"{edition.get('base')} → {edition.get('target')} — "
-                       "do NOT claim production safety.")
+        verdict = ("Coding env diverges from the deployment target ("
+                   + "; ".join(blocking) + ") — do NOT claim production safety.")
         return {"verdict": verdict, "blocking": blocking, "severity": "high"}
 
-    # Low: any minor drift
+    # Low: minor drift (versions / counts / config params) OR an UNKNOWN count
+    # (a failed collection) — "unknown" must not read as "match" for a gate.
     version_changed = modules.get("version_changed") or []
-    only_in_base = modules.get("only_in_base") or []
     counts = diff.get("counts") or {}
-    counts_differ = any(abs(v.get("delta", 0)) > 0 for v in counts.values())
+    counts_differ = any((v.get("delta") not in (None, 0)) for v in counts.values())
+    counts_unknown = any(not v.get("comparable", True) for v in counts.values())
     config_params = diff.get("config_params") or {}
     params_differ = bool(
         (config_params.get("only_in_base") or []) or (config_params.get("only_in_target") or [])
     )
-    studio_base_only = bool(studio.get("only_in_base") or [])
 
-    if version_changed or only_in_base or counts_differ or params_differ or studio_base_only:
-        return {"verdict": "Minor drift detected: module versions or counts differ between environments.",
-                "blocking": [], "severity": "low"}
+    if version_changed or counts_differ or params_differ or counts_unknown:
+        why = ("a count could not be collected (unknown)" if counts_unknown
+               else "module versions, counts, or config params differ")
+        return {"verdict": f"Minor drift detected: {why}.", "blocking": [], "severity": "low"}
 
     return {"verdict": "Environments match on captured dimensions.", "blocking": [], "severity": "none"}
 
@@ -232,8 +240,9 @@ def main(argv=None):
 
 # In odoo-bin shell: __name__ != "__main__" and env exists → run().
 # Locally: python3 env_diff.py ... → main().
+# Mutually exclusive: in `odoo-bin shell` (env present) → run(); standalone → main().
+# Never both, even if the shell executes stdin with __name__ == "__main__".
 if "env" in globals():
     run()
-
-if __name__ == "__main__":
+elif __name__ == "__main__":
     main()

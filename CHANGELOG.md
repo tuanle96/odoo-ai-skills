@@ -6,6 +6,79 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-06-28
+
+**Hardening release — fixes from an independent oracle review of v0.9.0.** No new
+features; it makes the v0.9.0 gates actually trustworthy. The most dangerous
+v0.9.0 failure mode was a polished-but-wrong `approve`/PR-comment built from
+mis-parsed or missing evidence — these fixes close that.
+
+### Fixed
+- **Evidence/CLI artifact contract** — `deploy_gate` now resolves artifacts by
+  pattern (`validate.json` **or** the CLI's `patch.validate.json` / `env.env-diff.json`
+  forms), so a bundle produced by the official CLI is actually read. Added a
+  global **`odoo-ai --json`** flag (raw JSON to stdout) so CI can capture machine
+  output instead of the human summary.
+- **CI workflow** (`odoo-ai-gate.yml`) — was teeing the human summary into `.json`,
+  redirecting `evidence`'s JSON into `.md`, grepping a non-existent `verdict` key,
+  and checking `"findings": []` that `scan-secrets` never emits. Rewritten to use
+  `--json`, `evidence --md-out`, parse `.decision.decision`, and read the secret count.
+- **Migration safety** (`upgrade_check.detect_renames`) — a sole same-type field is
+  no longer a "high-confidence rename" without a **name-similarity threshold**; a
+  real drop (e.g. `legacy_code` → `customer_note`) keeps its data-loss `field_removed`.
+  Column risks now apply to **stored** fields only.
+- **Redaction** (`redaction.redact_payload`) — now masks provider secrets
+  (AWS/GitHub/Stripe/Slack/Google/PEM), covers benign secret keys
+  (`aws_access_key_id`, `access_key`, `client_secret`, `webhook`, …), strips
+  case/variant execution-state keys (`Source`, `local_vars`, `self`, `args`, …),
+  and redacts record `value`s by `classify_field_sensitivity`.
+- **Deploy gate** — ingests `scan_secrets` (blocks on count > 0), never `approve`s
+  when an artifact is present-but-unparseable, and an optional `manifest.json`
+  (touched models / migration / security / controller) drives the *required*
+  evidence and the sign-off list (incl. public-controller / access-rule reviews).
+- **Claim verify** (`claim_verify`) — a malformed/unknown probe is no longer a
+  `contradicted` ("the source is wrong"); `dispatch_leaf` marks eval status and
+  such claims become `needs_human`. Method/hook claims default to `needs_shell`
+  (existence ≠ safety); a `claim_type` field can override.
+- **Env drift** (`env_diff`) — modules/Studio fields present on only **one** side
+  are HIGH severity in **either** direction; partial fingerprints (`None` counts)
+  no longer crash the diff.
+- **Misc** — scenario skeleton now emits both `at_install` and `post_install`
+  tag variants; `patch_validator` SQL/`create()` checks are AST-based (no more
+  `LIKE '%x%'` false positive, no flagging non-Odoo `create()`); `native_check`
+  mixin probe also checks `_inherit`; `doc_index` normalises the version dir,
+  fails on an empty build, and records `_meta` provenance (source commit, built_at).
+
+### Hardened — deploy-gate approve path (multi-round adversarial review)
+The gate's `approve` decision was put through repeated adversarial review of
+attacker- / bug-shaped evidence JSON. A wrong `approve` (or a crash/`NaN` in the
+output) is now unreachable through `build_report`:
+- **Strict load boundary** (`_loads_strict`) — rejects duplicate object keys
+  (`{"blocking":1,"blocking":0}` can't overwrite a blocker), `NaN`/`Infinity`,
+  and overflow-to-`inf` numbers (`1e10000`); the report is emitted `allow_nan=False`.
+- **Typed artifact schemas** (`_artifact_valid`) — every field the decision reads
+  is validated: `validate`/`upgrade` need non-bool int `blocking`+`warning` ≥ 0
+  (a `-1` or a missing `warning` is invalid, not "clean"); `native_check` needs
+  real lists; `scenarios` a tier enum + string model hints; `env_diff` a severity
+  enum; `security` a bool `is_superuser` / list `_warnings`; `trace.error` null or
+  a non-empty string. A present-but-mis-typed required artifact → `needs_human`.
+- **Multiple matching artifacts** merge to the **worst case** (a clean duplicate
+  can't hide a blocking one) and raise an ambiguity warning → `needs_human`.
+- **`scan_secrets` is core-required** (a missing secret scan can't silently
+  approve), and its scanner matches the redactor's provider/JWT/token coverage.
+- **Manifest shape fully validated** — a non-dict manifest, a non-list/non-string
+  `changed_files`, or a non-bool `has_migration` no longer silently skips required
+  evidence; migration paths are matched after normalising `\\`→`/`; a change under
+  a sensitive domain path (`account/`, `hr/`, …) requires the sign-off even when
+  `touched_models` is absent.
+- **A required human sign-off forces `needs_human`** — the decision can never be
+  `approve` while also listing `required_approvals`.
+
+### Changed
+- Softened doc claims to match behaviour: redaction is **pattern-based (review
+  still required)**, not absolute; upgrade-check **heuristically suggests** renames;
+  the upgrade harness **lists** `noupdate` records (it does not diff your patch).
+
 ## [0.9.0] - 2026-06-28
 
 **The verification gate.** Repositions the suite around its real category —
@@ -88,11 +161,13 @@ local** (no `odoo-bin shell`, no DB) so they run in CI or on a laptop.
   without `@api.model_create_multi`, `search()`/`browse()` in loops, f-string
   `cr.execute`, uncommented `sudo()`, `self._cr`/`_uid`/`_context`, fragile xpath,
   leftover debug — with low false positives.
-- **Enforced privacy redaction** — `odoo-ai redact <file> [--mode external|local]`
-  and `odoo-ai scan-secrets <file>` (LOCAL, `redaction.py`). Turns the suite's
-  prior *warning* into *enforcement*: external mode strips `source`/`locals`/`code`,
-  redacts secret-named keys, and masks PII (email/phone/IBAN/card/JWT/token);
-  model-level sensitivity labels for `res.partner`/`account.move`/`hr.*`/`payment.*`.
+- **Privacy redaction** (pattern-based; review still required) — `odoo-ai redact
+  <file> [--mode external|local]` and `odoo-ai scan-secrets <file>` (LOCAL,
+  `redaction.py`). A post-processing step before introspection JSON leaves your
+  box: external mode strips `source`/`locals`/`code`, redacts secret-named keys,
+  and masks PII (email/phone/IBAN/card/JWT/token); model-level sensitivity labels
+  for `res.partner`/`account.move`/`hr.*`/`payment.*`. (0.9.1 broadens the secret
+  coverage — pattern-based redaction is not a substitute for review.)
 - **Layer H deeper probe grammar** — `native_check` grows from 4 probe kinds to
   **12**: adds `xmlid_exists`, `action_window_exists`, `group_exists`, `cron_exists`,
   `sequence_exists`, `selection_has_value`, `mixin_inherited`, `edition`. The leaf
@@ -101,9 +176,10 @@ local** (no `odoo-bin shell`, no DB) so they run in CI or on a laptop.
   (the `sale.order` confirm card now probes both the hook *and* `state='sale'`).
 - **Migration & upgrade harness** — `odoo-ai upgrade-check <model> --against
   <old_brief.json>` (needs DB) and `odoo-ai upgrade-diff <old> <new>` (LOCAL),
-  `upgrade_check.py`. Distinguishes a **rename** from a **drop** (data loss),
-  flags new-required-without-default and `noupdate`-protected edits, and scaffolds
-  a `pre-migrate.py`. Fresh-install success is never reported as upgrade safety.
+  `upgrade_check.py`. Heuristically suggests a **rename** vs a data-losing
+  **drop** (with a name-similarity threshold — see 0.9.1), flags
+  new-required-without-default, and **lists** `noupdate` records on the model, and
+  scaffolds a `pre-migrate.py`. Fresh-install success is never reported as upgrade safety.
 - **Deployment approval orchestrator** — `odoo-ai deploy-gate <bundle_dir>`
   (LOCAL, `deploy_gate.py`). Aggregates the other tools' JSON into a risk
   classification and an **approve / needs-human / block** decision, requiring

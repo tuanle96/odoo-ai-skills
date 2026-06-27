@@ -6,6 +6,7 @@ classify_field_sensitivity, scan_secrets (detection + preview truncation),
 redact_payload (external and local modes).  Import-safe; no Odoo dependency.
 """
 import sys
+import json
 import unittest
 import importlib.util
 from pathlib import Path
@@ -295,6 +296,72 @@ class ConstantsTests(unittest.TestCase):
         self.assertIsNotNone(p.search("api_token"))
         self.assertIsNotNone(p.search("auth_token"))
         self.assertIsNotNone(p.search("my_password_field"))
+
+
+class HardeningV091Tests(unittest.TestCase):
+    """v0.9.1 redaction hardening (oracle review fixes)."""
+
+    def test_provider_secrets_masked(self):
+        self.assertEqual(redaction.mask_value("AKIAIOSFODNN7EXAMPLE"), "<aws_key>")
+        self.assertEqual(redaction.mask_value("ghp_" + "a" * 36), "<github_token>")
+        self.assertIn("<stripe_key>", redaction.mask_value("k sk_live_" + "a" * 20))
+        self.assertIn("<private_key>", redaction.mask_value("-----BEGIN RSA PRIVATE KEY-----"))
+
+    def test_benign_secret_keys_redacted(self):
+        for k in ("aws_access_key_id", "access_key", "client_secret",
+                  "webhook_url", "signing_key", "AUTH_TOKEN"):
+            self.assertEqual(redaction.redact_payload({k: "x"}, "external")[k], "<redacted>", k)
+
+    def test_strip_key_case_and_variants(self):
+        for k in ("Source", "LOCALS", "local_vars", "frame_locals", "self", "args", "kwargs"):
+            self.assertEqual(redaction.redact_payload({k: "anything"}, "external")[k],
+                             "<stripped:external-mode>", k)
+
+    def test_record_shape_value_redacted_by_sensitivity(self):
+        r = redaction.redact_payload(
+            {"model": "res.partner", "field": "name", "value": "Jane Doe"}, "external")
+        self.assertTrue(r["value"].startswith("<redacted"), r["value"])
+        self.assertNotIn("Jane Doe", json.dumps(r))
+        # non-sensitive model/field keeps the value (still PII-masked, but 'draft' is clean)
+        r2 = redaction.redact_payload(
+            {"model": "sale.order", "field": "state", "value": "draft"}, "external")
+        self.assertEqual(r2["value"], "draft")
+
+    def test_sensitive_model_record_dump_redacts_plain_name(self):
+        # full record dump (not a triple): a plain name/city must not leak (v0.9.1 r2 #5)
+        r = redaction.redact_payload(
+            {"model": "res.partner", "name": "Jane Doe", "city": "Hanoi"}, "external")
+        self.assertNotIn("Jane Doe", json.dumps(r))
+        self.assertNotIn("Hanoi", json.dumps(r))
+
+    def test_sensitive_record_nested_shapes_redacted(self):
+        # round-3 #3: display_name, many2one display tuple, nested child records
+        for payload in (
+            {"model": "res.partner", "display_name": "Jane Doe"},
+            {"model": "res.partner", "parent_id": [1, "Jane Doe"]},
+            {"model": "res.partner", "child_ids": [{"name": "Kid Name", "city": "Hanoi"}]},
+        ):
+            out = json.dumps(redaction.redact_payload(payload, "external"))
+            self.assertNotIn("Jane Doe", out, payload)
+            self.assertNotIn("Kid Name", out, payload)
+            self.assertNotIn("Hanoi", out, payload)
+
+    def test_scan_secrets_jwt_threshold_matches_mask(self):
+        # round-3 #4: a 10+/segment JWT that mask_value masks must also be scanned
+        short_jwt = "aaaaaaaaaa.bbbbbbbbbb.cccccccccc"
+        self.assertEqual(redaction.mask_value(short_jwt), "<jwt>")
+        self.assertTrue(any(h["kind"] == "jwt" for h in redaction.scan_secrets(short_jwt)))
+
+    def test_aws_key_under_benign_key_does_not_leak(self):
+        # the exact oracle finding: AWS key under aws_access_key_id
+        out = redaction.redact_payload({"aws_access_key_id": "AKIAIOSFODNN7EXAMPLE"}, "external")
+        self.assertNotIn("AKIAIOSFODNN7EXAMPLE", json.dumps(out))
+
+    def test_scan_secrets_covers_same_providers_as_mask(self):
+        # round-2 #3: the scanner must catch what the redactor masks
+        text = "ghp_" + "a" * 36 + " sk_live_" + "b" * 20 + " ASIA" + "C" * 16
+        kinds = {h["kind"] for h in redaction.scan_secrets(text)}
+        self.assertTrue({"github_token", "stripe_key", "aws_key"} <= kinds, kinds)
 
 
 if __name__ == "__main__":

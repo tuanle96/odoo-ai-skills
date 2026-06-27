@@ -54,41 +54,48 @@ def _reduce_fields(fields_dict):
     return result
 
 
-def detect_renames(old_fields, new_fields):
-    """Heuristic rename: disappeared+appeared fields of the same type.
+# Minimum name similarity for a HIGH-confidence rename. Below this, a sole
+# same-type candidate is only a LOW (possible) rename and the old field is still
+# treated as removed — otherwise a real DROP (legacy_code -> customer_note) would
+# masquerade as a rename and suppress the data-loss warning.
+_HIGH_SIM = 0.5
 
-    Returns [{"old","new","confidence":"high"|"low","reason"}].
-    high = exactly one appeared field has the same type; low = ambiguous (multiple).
-    Name similarity (prefix/suffix or difflib ratio) is used to rank candidates.
+
+def detect_renames(old_fields, new_fields):
+    """Heuristic rename: a disappeared + an appeared field of the SAME type.
+
+    Returns [{"old","new","confidence":"high"|"low","similarity","reason"}].
+    HIGH requires BOTH a sole same-type candidate AND name similarity >=
+    `_HIGH_SIM`; everything else is LOW (a *possible* rename — the caller still
+    treats the old field as removed). Only STORED fields are considered: a
+    non-stored computed field has no column to rename.
     """
-    disappeared = {f: m for f, m in old_fields.items() if f not in new_fields}
-    appeared = {f: m for f, m in new_fields.items() if f not in old_fields}
+    disappeared = {f: m for f, m in old_fields.items()
+                   if f not in new_fields and m.get("store", True)}
+    appeared = {f: m for f, m in new_fields.items()
+                if f not in old_fields and m.get("store", True)}
     used = set()
     results = []
 
     for old_f in sorted(disappeared):
         old_type = disappeared[old_f].get("type", "")
-        candidates = [
-            (f, m) for f, m in appeared.items()
-            if m.get("type", "") == old_type and f not in used
-        ]
+        candidates = [f for f, m in appeared.items()
+                      if m.get("type", "") == old_type and f not in used]
         if not candidates:
             continue
-        ranked = sorted(candidates, key=lambda x: _name_sim(old_f, x[0]), reverse=True)
-        best_name = ranked[0][0]
-        confidence = "high" if len(candidates) == 1 else "low"
-        reason = (
-            f"sole {old_type!r}-type candidate in new fields"
-            if confidence == "high"
-            else f"{len(candidates)} {old_type!r}-type candidates; best similarity match"
-        )
-        results.append({
-            "old": old_f,
-            "new": best_name,
-            "confidence": confidence,
-            "reason": reason,
-        })
-        used.add(best_name)
+        best = max(candidates, key=lambda f: _name_sim(old_f, f))
+        sim = round(_name_sim(old_f, best), 3)
+        if len(candidates) == 1 and sim >= _HIGH_SIM:
+            confidence = "high"
+            reason = f"sole {old_type!r}-type candidate, name similarity {sim} ≥ {_HIGH_SIM}"
+        else:
+            confidence = "low"
+            reason = (f"sole {old_type!r}-type candidate but low name similarity {sim} < {_HIGH_SIM}"
+                      if len(candidates) == 1
+                      else f"{len(candidates)} {old_type!r}-type candidates (ambiguous); best similarity {sim}")
+        results.append({"old": old_f, "new": best, "confidence": confidence,
+                        "similarity": sim, "reason": reason})
+        used.add(best)
 
     return results
 
@@ -102,23 +109,38 @@ def classify_upgrade_risks(old_fields, new_fields, noupdate_xmlids=None):
     renames = detect_renames(old_fields, new_fields)
     high_old = {r["old"] for r in renames if r["confidence"] == "high"}
     high_new = {r["new"] for r in renames if r["confidence"] == "high"}
+    low_old = {r["old"]: r for r in renames if r["confidence"] == "low"}
     risks = []
 
-    # field_removed: in old, not in new, not a high-confidence rename source
+    # field_removed: in old, not in new, not a HIGH-confidence rename. A stored
+    # field is a real column drop (blocking); a non-stored field has no column
+    # (warning, API/view compatibility only). A LOW-confidence same-type match is
+    # surfaced as an UNCONFIRMED possible-rename note, but the field is still
+    # treated as removed (never silently suppressed).
     for f in sorted(old_fields):
-        if f not in new_fields and f not in high_old:
-            risks.append({
-                "kind": "field_removed",
-                "field": f,
-                "severity": "blocking",
-                "detail": (
-                    f"Field {f!r} exists in old version but not in new; "
-                    "ORM will silently drop the column"
-                ),
-                "mitigation": "pre-migrate: preserve/move data before column drop",
-            })
+        if f in new_fields or f in high_old:
+            continue
+        stored = old_fields[f].get("store", True)
+        hint = ""
+        if f in low_old:
+            r = low_old[f]
+            hint = (f" — possible (UNCONFIRMED) rename to {r['new']!r} "
+                    f"(similarity {r['similarity']}); confirm before treating as a rename")
+        risks.append({
+            "kind": "field_removed",
+            "field": f,
+            "severity": "blocking" if stored else "warning",
+            "detail": (
+                f"Field {f!r} exists in old version but not in new"
+                + ("; ORM will drop the column" if stored
+                   else "; non-stored field — no column, API/view compatibility only")
+                + hint
+            ),
+            "mitigation": ("pre-migrate: preserve/move data before the column drop"
+                           if stored else "update references in views/domains/code"),
+        })
 
-    # field_renamed: emit for every high-confidence rename
+    # field_renamed: high-confidence renames only (stored, gated in detect_renames)
     for r in renames:
         if r["confidence"] == "high":
             risks.append({
@@ -135,10 +157,11 @@ def classify_upgrade_risks(old_fields, new_fields, noupdate_xmlids=None):
                 ),
             })
 
-    # new_required_no_default: new field, required, no default; skip rename targets
+    # new_required_no_default: a new STORED required field with no default (a
+    # non-stored field has no NOT NULL column to violate). Skip rename targets.
     for f in sorted(new_fields):
         meta = new_fields[f]
-        if (f not in old_fields and f not in high_new
+        if (f not in old_fields and f not in high_new and meta.get("store", True)
                 and meta.get("required") and not meta.get("has_default")):
             risks.append({
                 "kind": "new_required_no_default",
@@ -151,9 +174,11 @@ def classify_upgrade_risks(old_fields, new_fields, noupdate_xmlids=None):
                 "mitigation": "backfill in pre-migrate before NOT NULL",
             })
 
-    # type_changed: same field name, different type
+    # type_changed: same field name, different type — only meaningful for a real
+    # column (both sides stored).
     for f in sorted(old_fields):
-        if f in new_fields and old_fields[f].get("type") != new_fields[f].get("type"):
+        if (f in new_fields and old_fields[f].get("type") != new_fields[f].get("type")
+                and old_fields[f].get("store", True) and new_fields[f].get("store", True)):
             risks.append({
                 "kind": "type_changed",
                 "field": f,
@@ -324,10 +349,9 @@ def main(argv=None):
     print(json.dumps(report, indent=2, default=str))
 
 
-# --- Entry-point guards (both coexist: shell → run(), CLI → main()) ----------
-
+# --- Entry-point guards (mutually exclusive: shell → run(), CLI → main()) -----
+# `elif` so the shell never also runs main() when stdin is exec'd as __main__.
 if "env" in globals():
     run()
-
-if __name__ == "__main__":
+elif __name__ == "__main__":
     main()

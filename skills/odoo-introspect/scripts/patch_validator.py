@@ -24,6 +24,7 @@ Output: JSON {findings, summary, _caveat}. Each finding:
 import os
 import re
 import sys
+import ast
 import json
 
 # --- Pure helpers (no Odoo needed — unit-testable) ---------------------------
@@ -45,6 +46,103 @@ def _strip_comment(line):
 
 def _indent(line):
     return len(line) - len(line.lstrip())
+
+
+def _deco_is_model_create_multi(d):
+    return ((isinstance(d, ast.Attribute) and d.attr == "model_create_multi")
+            or (isinstance(d, ast.Name) and d.id == "model_create_multi"))
+
+
+def _is_model_class(cls):
+    """True if a ClassDef assigns _name/_inherit/_inherits (i.e. an Odoo model)."""
+    for n in cls.body:
+        if isinstance(n, ast.Assign):
+            for t in n.targets:
+                if isinstance(t, ast.Name) and t.id in ("_name", "_inherit", "_inherits"):
+                    return True
+    return False
+
+
+def _interp_kind(node):
+    """If *node* is a string built by interpolation, name the technique, else None."""
+    if isinstance(node, ast.JoinedStr):
+        return "an f-string"
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+        return "a %-format"
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return "string concatenation"
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "format"):
+        return "a .format() call"
+    return None
+
+
+def _ast_findings(path, source):
+    """AST checks where regex is too blunt: SQL interpolation in `.execute()`
+    (a constant query with %s placeholders or a LIKE '%x%' is NOT flagged) —
+    including a query assembled into a variable first — and a batch-unsafe
+    `create()` *inside an actual Odoo model class* (so a plain helper named
+    create() is not a false positive). Returns [] if unparseable — the line-based
+    rules still ran.
+    """
+    out = []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return out
+
+    # Parent pointers so each execute() can be scoped to its enclosing function —
+    # taint is per-function (a `q` interpolated in one function must not flag a
+    # constant `q` executed in another).
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            child._pv_parent = parent
+
+    def _scope(node):
+        while node is not None:
+            node = getattr(node, "_pv_parent", None)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Module)):
+                return node
+        return tree
+
+    _taint_cache = {}
+
+    def _tainted_in(scope):
+        key = id(scope)
+        if key not in _taint_cache:
+            names = set()
+            for n in ast.walk(scope):
+                if isinstance(n, ast.Assign) and _interp_kind(n.value):
+                    for t in n.targets:
+                        if isinstance(t, ast.Name):
+                            names.add(t.id)
+            _taint_cache[key] = names
+        return _taint_cache[key]
+
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "execute" and node.args):
+            arg = node.args[0]
+            kind = _interp_kind(arg)
+            if kind is None and isinstance(arg, ast.Name) and arg.id in _tainted_in(_scope(node)):
+                kind = f"a variable (`{arg.id}`) built by string interpolation"
+            if kind:
+                out.append(_f(path, getattr(node, "lineno", 0), "sql_injection", "blocking",
+                    f"cr.execute(...) built with {kind} — SQL injection risk "
+                    "(a constant query with %s placeholders is fine)",
+                    "parameterize: cr.execute(query, (a, b))"))
+
+    for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+        if not _is_model_class(cls):
+            continue
+        for fn in cls.body:
+            if (isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and fn.name == "create"
+                    and not any(_deco_is_model_create_multi(d) for d in fn.decorator_list)):
+                out.append(_f(path, fn.lineno, "create_not_batch", "blocking",
+                    "create() in a model without @api.model_create_multi is not batch-safe",
+                    "decorate with @api.model_create_multi and take vals_list (a list)"))
+    return out
 
 
 def check_python(path, source):
@@ -75,16 +173,8 @@ def check_python(path, source):
                 "type='json' is renamed type='jsonrpc' in Odoo 19+",
                 "use type='jsonrpc' (confirm the target version)"))
 
-        # SQL injection: cr.execute(...) with string interpolation.
-        if ".execute(" in code:
-            after = code.split(".execute(", 1)[1]
-            if (re.match(r"\s*f['\"]", after)                 # f-string
-                    or re.search(r"['\"]\s*%\s*[\(\w]", after)  # 'sql' % (...) operator, not %s
-                    or ".format(" in after                     # .format()
-                    or re.search(r"['\"]\s*\+", after)):       # 'str' + var
-                findings.append(_f(path, ln, "sql_injection", "blocking",
-                    "cr.execute with string interpolation — SQL injection risk",
-                    "parameterize: cr.execute(query, (a, b)); never f-string a domain/SQL"))
+        # SQL injection (.execute with interpolation) is checked via AST in
+        # _ast_findings — a regex would false-positive on a constant LIKE '%x%'.
 
         # blanket sudo() with no explanatory comment (check raw line for '#').
         if ".sudo()" in code and "#" not in raw:
@@ -120,26 +210,9 @@ def check_python(path, source):
         if FORLOOP_RE.match(code):
             loop_stack.append(ind)
 
-    # --- create() without @api.model_create_multi (batch-unsafe) ---
-    for i, code in enumerate(code_lines):
-        m = DEF_RE.match(code)
-        if not (m and m.group(2) == "create"):
-            continue
-        decos, j = [], i - 1
-        while j >= 0:
-            prev = code_lines[j].strip()
-            if not prev:
-                j -= 1
-                continue
-            if prev.startswith("@"):
-                decos.append(prev)
-                j -= 1
-                continue
-            break
-        if not any("model_create_multi" in d for d in decos):
-            findings.append(_f(path, i + 1, "create_not_batch", "blocking",
-                "create() without @api.model_create_multi is not batch-safe",
-                "decorate with @api.model_create_multi and take vals_list (a list)"))
+    # create() without @api.model_create_multi is checked via AST in
+    # _ast_findings — and only inside a real Odoo model class, so a plain
+    # non-Odoo helper named create() is not a false positive.
 
     # --- ensure_one() inside a likely-batch method (create/write/action_*) ---
     cur_method, cur_indent = None, -1
@@ -159,13 +232,22 @@ def check_python(path, source):
                 f"ensure_one() inside {cur_method}() — likely called on a recordset",
                 "operate on the full recordset; don't assume a singleton"))
 
-    return findings
+    return findings + _ast_findings(path, source)
+
+
+_XML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
 def check_xml(path, source):
-    """Flag Odoo anti-patterns in view/data XML. Returns a list of findings."""
+    """Flag Odoo anti-patterns in view/data XML. Returns a list of findings.
+
+    XML comments are stripped first (preserving line numbers) so a commented-out
+    `attrs=` / `<tree>` isn't flagged, and `<xpath>` is matched as a whole
+    (possibly multi-line) opening tag so a `position=` on the next line counts.
+    """
     findings = []
-    for i, raw in enumerate(source.splitlines()):
+    clean = _XML_COMMENT_RE.sub(lambda m: "\n" * m.group(0).count("\n"), source)
+    for i, raw in enumerate(clean.splitlines()):
         ln = i + 1
         if re.search(r"\b(attrs|states)\s*=", raw):
             findings.append(_f(path, ln, "xml_attrs_states", "warning",
@@ -175,7 +257,10 @@ def check_xml(path, source):
             findings.append(_f(path, ln, "tree_tag", "warning",
                 "<tree> is renamed <list> in Odoo 17+",
                 "use <list> … </list>"))
-        if re.search(r"<\s*xpath\b", raw) and "position" not in raw:
+    # whole opening tag (DOTALL) so a multi-line <xpath ... position="..."> is OK
+    for m in re.finditer(r"<\s*xpath\b[^>]*>", clean, re.DOTALL):
+        if "position" not in m.group(0):
+            ln = clean.count("\n", 0, m.start()) + 1
             findings.append(_f(path, ln, "xpath_no_position", "warning",
                 "<xpath> without position= is fragile/ambiguous",
                 'add position="after|before|inside|replace|attributes"'))

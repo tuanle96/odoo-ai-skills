@@ -24,7 +24,10 @@ values — no leak), and, when the flow raised, the innermost addon frame the
 exception passed through.
 
 ⚠️  This EXECUTES the method. Run on a dev/staging DB. By default the work is
-wrapped in a SAVEPOINT and rolled back so nothing persists.
+wrapped in a SAVEPOINT and rolled back so no DB changes persist — but a DB
+rollback does NOT undo emails, webhooks, HTTP/API calls, queued jobs, or files
+the flow already sent/wrote (see the COMMIT note below). "Instance untouched"
+means the DB, not the outside world.
 
 ⚠️  COMMIT=1 now does a REAL commit: it RELEASEs the savepoint and calls
 `env.cr.commit()`, so the side effects PERSIST. Use it only on a throwaway/dev

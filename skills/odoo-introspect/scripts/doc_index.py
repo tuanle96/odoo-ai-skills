@@ -151,19 +151,20 @@ def canonical_url(rel_path, version, anchor=None):
     return f"{url}#{anchor}" if anchor else url
 
 
-def build_index(chunks):
+def _now_iso():
+    import datetime
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+
+
+def build_index(chunks, meta_extra=None):
     """Build a TF-IDF index from doc chunks using native_check's IDF helpers.
 
     Each chunk is adapted to a card-shaped dict so ``corpus_idf`` can tokenise
     heading + body text.  Vectors are stored sparse (only non-zero weights).
+    ``meta_extra`` (version, source_commit, file_count, built_at) is merged into
+    ``_meta`` for provenance so a stale index can be detected.
 
-    Returns::
-
-        {
-          "idf":   {token: weight, ...},
-          "docs":  [{"rel_path","heading","anchor","vec","preview"}, ...],
-          "_meta": {"doc_count": N, "vocab_size": M},
-        }
+    Returns ``{"idf": {...}, "docs": [...], "_meta": {...}}``.
     """
     # Adapt chunks → card-like dicts: title = heading, intents = [body text]
     # corpus_idf reads card.get("title") + card.get("intents", []) via card_tokens
@@ -183,11 +184,10 @@ def build_index(chunks):
             "vec":      native_check.tfidf_vector(toks, idf),
             "preview":  c["text"][:240].strip(),
         })
-    return {
-        "idf":   idf,
-        "docs":  docs,
-        "_meta": {"doc_count": len(docs), "vocab_size": len(idf)},
-    }
+    meta = {"doc_count": len(docs), "vocab_size": len(idf)}
+    if meta_extra:
+        meta.update({k: v for k, v in meta_extra.items() if v is not None})
+    return {"idf": idf, "docs": docs, "_meta": meta}
 
 
 def query_index(index, q, top=5):
@@ -231,7 +231,9 @@ def _git_checkout(version, repo_url):
             ["git", "-C", tmpdir, "sparse-checkout", "set", "content/developer"],
             check=True, capture_output=True,
         )
-        return Path(tmpdir)
+        sha = subprocess.run(["git", "-C", tmpdir, "rev-parse", "HEAD"],
+                             capture_output=True, text=True).stdout.strip() or None
+        return Path(tmpdir), sha
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
             FileNotFoundError) as exc:
         print(
@@ -239,30 +241,36 @@ def _git_checkout(version, repo_url):
             "  Tip: pass --src pointing at a local checkout to skip git.",
             file=sys.stderr,
         )
-        return None
+        return None, None
 
 
 def _cmd_build(args):
-    version = args.version
+    # Normalise the version for BOTH the output dir and the URLs so a later
+    # `query --version 18.0` reads the same dir a `build --version 18` wrote.
+    version = _norm_ver(args.version)
     out_dir = Path(args.out or os.path.expanduser(f"~/.odoo-ai/docs-index/{version}"))
     out_dir.mkdir(parents=True, exist_ok=True)
+    source_commit = None
 
     if args.src:
         root = Path(args.src)
         if (root / "content" / "developer").is_dir():
-            # src is the docs repo root
             dev_dir = root / "content" / "developer"
             def _rel(p): return str(p.relative_to(root)).replace('\\', '/')
         else:
-            # src is the content/developer/ dir itself
             dev_dir = root
             def _rel(p): return "content/developer/" + str(p.relative_to(root)).replace('\\', '/')
     else:
-        root = _git_checkout(version, args.repo_url)
+        root, source_commit = _git_checkout(args.version, args.repo_url)
         if root is None:
-            return
+            return 1
         dev_dir = root / "content" / "developer"
         def _rel(p): return str(p.relative_to(root)).replace('\\', '/')
+
+    if not dev_dir.is_dir():
+        print(f"ERROR: {dev_dir} does not exist — wrong --src? "
+              "(content/developer/ not found)", file=sys.stderr)
+        return 1
 
     chunks, file_count = [], 0
     for rst in sorted(dev_dir.rglob("*.rst")):
@@ -273,15 +281,27 @@ def _cmd_build(args):
         chunks.extend(chunk_rst(rst.read_text(encoding="utf-8", errors="ignore"), rel))
         file_count += 1
 
-    idx      = build_index(chunks)
+    if file_count == 0 and not args.allow_empty:
+        print(f"ERROR: no .rst files found under {dev_dir} — refusing to write an "
+              "empty index (pass --allow-empty to override).", file=sys.stderr)
+        return 1
+
+    idx = build_index(chunks, meta_extra={
+        "version": version,
+        "source_commit": source_commit,
+        "file_count": file_count,
+        "built_at": _now_iso(),
+    })
     out_file = out_dir / "index.json"
     out_file.write_text(json.dumps(idx, ensure_ascii=False, separators=(',', ':')))
-    print(f"Built: {file_count} files · {len(chunks)} chunks · {len(idx['idf'])} vocab")
+    print(f"Built: {file_count} files · {len(chunks)} chunks · {len(idx['idf'])} vocab"
+          + (f" · commit {source_commit[:9]}" if source_commit else ""))
     print(f"Index: {out_file}")
+    return 0
 
 
 def _cmd_query(args):
-    version  = args.version
+    version  = _norm_ver(args.version)
     idx_dir  = Path(args.index_dir or os.path.expanduser(f"~/.odoo-ai/docs-index/{version}"))
     idx_file = idx_dir / "index.json"
     if not idx_file.exists():
@@ -290,7 +310,7 @@ def _cmd_query(args):
             f"  Run: odoo-ai docs-build --version {version}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
     idx     = json.loads(idx_file.read_text())
     results = query_index(idx, args.q, top=args.top)
     for r in results:
@@ -299,12 +319,14 @@ def _cmd_query(args):
         "query":   args.q,
         "version": version,
         "results": results,
+        "index_meta": idx.get("_meta", {}),   # provenance: source_commit / built_at / file_count
         "_caveat": (
             "Docs say how the API SHOULD work; introspect the live instance for what "
             "THIS instance has. Existence-gate any model/field/method against the "
-            "instance before relying on it."
+            "instance before relying on it. Check index_meta.built_at — rebuild if stale."
         ),
     }, indent=2, ensure_ascii=False))
+    return 0
 
 
 def main(argv=None):
@@ -321,6 +343,8 @@ def main(argv=None):
     bp.add_argument("--repo-url", dest="repo_url",
                     default="https://github.com/odoo/documentation.git",
                     help="Git repo URL (used only when --src is omitted)")
+    bp.add_argument("--allow-empty", dest="allow_empty", action="store_true",
+                    help="write the index even when no .rst files were found")
 
     qp = sub.add_parser("query", help="Query the built index")
     qp.add_argument("q",           help="Natural-language query string")
@@ -330,7 +354,8 @@ def main(argv=None):
     qp.add_argument("--top", type=int, default=5, help="Max results (default 5)")
 
     args = p.parse_args(argv)
-    (_cmd_build if args.cmd == "build" else _cmd_query)(args)
+    rc = (_cmd_build if args.cmd == "build" else _cmd_query)(args)
+    sys.exit(rc or 0)
 
 
 if __name__ == "__main__":

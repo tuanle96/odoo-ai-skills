@@ -61,6 +61,7 @@ jobs:
     name: Layer I — local gates
     runs-on: ubuntu-latest
     permissions:
+      contents: read         # actions/checkout (absent perms default to none once `permissions:` is set)
       pull-requests: write   # required to post / update the sticky PR comment
 
     steps:
@@ -107,16 +108,17 @@ jobs:
           mkdir -p /tmp/odoo-ai-gate
 
           if [ -z "$TARGETS" ]; then
-            echo '{"skipped": true, "reason": "no .py/.xml files changed"}' \
+            echo '{"skipped": true, "summary": {"blocking": 0, "warning": 0}}' \
               > /tmp/odoo-ai-gate/validate.json
             echo "Nothing to validate."
             exit 0
           fi
 
-          # validate accepts a list of files or a directory (e.g. addons/my_module).
-          # It exits 1 when blocking issues are found; the outcome is captured below.
-          python3 skills/odoo-introspect/scripts/odoo-ai validate $TARGETS \
-            | tee /tmp/odoo-ai-gate/validate.json
+          # --json prints ONLY the JSON report to stdout (validate accepts files or
+          # a directory). The report carries summary.blocking / summary.warning;
+          # the build-comment step reads those (the CLI itself exits 0).
+          python3 skills/odoo-introspect/scripts/odoo-ai --json validate $TARGETS \
+            > /tmp/odoo-ai-gate/validate.json
         continue-on-error: true
 
       # ── 5. scan-secrets (LOCAL) ─────────────────────────────────────────────
@@ -129,14 +131,21 @@ jobs:
           mkdir -p /tmp/odoo-ai-gate
 
           if [ -z "$TARGETS" ]; then
-            echo '{"skipped": true}' > /tmp/odoo-ai-gate/scan.json
+            echo '{"count": 0, "skipped": true}' > /tmp/odoo-ai-gate/scan_secrets.json
             exit 0
           fi
 
+          # scan-secrets is one-file-at-a-time; sum the per-file counts into a
+          # single canonical scan_secrets.json (deploy-gate blocks when count > 0).
+          total=0
           for f in $TARGETS; do
-            [ -f "$f" ] && python3 skills/odoo-introspect/scripts/odoo-ai scan-secrets "$f" \
-              | tee -a /tmp/odoo-ai-gate/scan.json
+            [ -f "$f" ] || continue
+            n=$(python3 skills/odoo-introspect/scripts/odoo-ai --json scan-secrets "$f" \
+                 | python3 -c "import sys,json; print(json.load(sys.stdin).get('count', 0))")
+            total=$((total + n))
           done
+          echo "{\"count\": $total}" > /tmp/odoo-ai-gate/scan_secrets.json
+          echo "potential secrets found: $total"
         continue-on-error: true
 
       # ── 6. deploy-gate + evidence (LOCAL, if bundle present) ────────────────
@@ -176,52 +185,73 @@ jobs:
           echo "Bundle: $BUNDLE"
           mkdir -p /tmp/odoo-ai-gate
 
-          # deploy-gate: reads the bundle and emits JSON with a top-level `verdict` key.
-          python3 skills/odoo-introspect/scripts/odoo-ai deploy-gate "$BUNDLE" \
-            | tee /tmp/odoo-ai-gate/deploy_gate.json
+          # Wire the secret scan into the bundle so deploy-gate blocks on secrets.
+          cp /tmp/odoo-ai-gate/scan_secrets.json "$BUNDLE/scan_secrets.json" 2>/dev/null || true
 
-          # evidence: renders the bundle as Markdown for the PR comment (added v0.8.0).
+          # deploy-gate: --json → the report JSON. The decision is at .decision.decision.
+          python3 skills/odoo-introspect/scripts/odoo-ai --json deploy-gate "$BUNDLE" \
+            > /tmp/odoo-ai-gate/deploy_gate.json
+
+          # evidence: --md-out writes the PR-ready Markdown (stdout is a small JSON status).
           python3 skills/odoo-introspect/scripts/odoo-ai evidence "$BUNDLE" \
-            > /tmp/odoo-ai-gate/evidence.md 2>/dev/null || \
-            echo "_evidence command not available — upgrade to v0.8.0+_" \
+            --md-out /tmp/odoo-ai-gate/evidence.md > /dev/null 2>&1 || \
+            echo "_evidence command not available — upgrade to v0.9.0+_" \
             > /tmp/odoo-ai-gate/evidence.md
         continue-on-error: true
 
       # ── 7. Build PR comment ─────────────────────────────────────────────────
       - name: Build comment body
         run: |
+          # Safe JSON path reader as a ONE-LINE python -c (a heredoc body would be
+          # column-0 inside this YAML `run: |` block and break the scalar; jq may
+          # be absent). Usage: G <file.json> key1 key2 ...
+          G() { python3 -c "import sys,json,functools;print(functools.reduce(lambda o,k:o.get(k) if isinstance(o,dict) else None,sys.argv[2:],json.load(open(sys.argv[1]))) or '')" "$@" 2>/dev/null || echo ""; }
+          # Shape validators → "ok" iff the report exists AND has the expected
+          # TYPED shape (not merely valid JSON) — so a crashed gate that emits {}
+          # or wrong-typed fields renders needs-human, NOT a false "clean".
+          # Mirrors deploy_gate._artifact_valid (non-bool ints).
+          VOK() { python3 -c "import sys,json;d=json.load(open(sys.argv[1]));s=d.get('summary');b=(s or {}).get('blocking');w=(s or {}).get('warning',0);sys.exit(0 if (isinstance(s,dict) and isinstance(b,int) and not isinstance(b,bool) and isinstance(w,int) and not isinstance(w,bool)) else 1)" "$1" >/dev/null 2>&1 && echo ok; }
+          SOK() { python3 -c "import sys,json;c=json.load(open(sys.argv[1])).get('count');sys.exit(0 if (isinstance(c,int) and not isinstance(c,bool) and c>=0) else 1)" "$1" >/dev/null 2>&1 && echo ok; }
           {
             echo "## odoo-ai gate · Layer I"
             echo ""
             echo "| gate | result |"
             echo "|---|---|"
 
-            # validate row
+            # validate row — read the report summary, not the exit code
+            vb=$(G /tmp/odoo-ai-gate/validate.json summary blocking)
+            vw=$(G /tmp/odoo-ai-gate/validate.json summary warning)
             if grep -q '"skipped": true' /tmp/odoo-ai-gate/validate.json 2>/dev/null; then
               echo "| \`validate\` | ⏭ skipped (no .py/.xml changed) |"
-            elif [ "${{ steps.validate.outcome }}" = "success" ]; then
+            elif [ -z "$(VOK /tmp/odoo-ai-gate/validate.json)" ]; then
+              echo "| \`validate\` | ⚠️ report missing/invalid — needs human |"
+            elif [ "${vb:-0}" -gt 0 ] 2>/dev/null; then
+              echo "| \`validate\` | ❌ ${vb} blocking — see output below |"
+            elif [ "${vw:-0}" -gt 0 ] 2>/dev/null; then
+              echo "| \`validate\` | ⚠ ${vw} warning(s) |"
+            else
               echo "| \`validate\` | ✅ clean |"
-            else
-              echo "| \`validate\` | ❌ issues found — see output below |"
             fi
 
-            # scan-secrets row
-            if grep -q '"skipped": true' /tmp/odoo-ai-gate/scan.json 2>/dev/null; then
+            # scan-secrets row — read the summed count
+            sc=$(G /tmp/odoo-ai-gate/scan_secrets.json count)
+            if grep -q '"skipped": true' /tmp/odoo-ai-gate/scan_secrets.json 2>/dev/null; then
               echo "| \`scan-secrets\` | ⏭ skipped |"
-            elif grep -q '"findings": \[\]' /tmp/odoo-ai-gate/scan.json 2>/dev/null; then
+            elif [ -z "$(SOK /tmp/odoo-ai-gate/scan_secrets.json)" ]; then
+              echo "| \`scan-secrets\` | ⚠️ report missing/invalid — needs human |"
+            elif [ "${sc:-0}" -gt 0 ] 2>/dev/null; then
+              echo "| \`scan-secrets\` | 🚫 ${sc} potential secret(s) |"
+            else
               echo "| \`scan-secrets\` | ✅ clean |"
-            elif [ -f /tmp/odoo-ai-gate/scan.json ]; then
-              echo "| \`scan-secrets\` | ⚠ findings — review below |"
-            else
-              echo "| \`scan-secrets\` | ⏭ skipped |"
             fi
 
-            # deploy-gate row
+            # deploy-gate row — read decision.decision
+            dec=$(G /tmp/odoo-ai-gate/deploy_gate.json decision decision)
             if [ -z "${{ steps.gate.outputs.bundle }}" ]; then
               echo "| \`deploy-gate\` | ⏭ no bundle |"
-            elif grep -q '"verdict": "approve"' /tmp/odoo-ai-gate/deploy_gate.json 2>/dev/null; then
+            elif [ "$dec" = "approve" ]; then
               echo "| \`deploy-gate\` | ✅ approve |"
-            elif grep -q '"verdict": "block"' /tmp/odoo-ai-gate/deploy_gate.json 2>/dev/null; then
+            elif [ "$dec" = "block" ]; then
               echo "| \`deploy-gate\` | 🚫 block |"
             else
               echo "| \`deploy-gate\` | 👤 needs-human |"
@@ -258,3 +288,30 @@ jobs:
         with:
           header: odoo-ai-gate
           path: /tmp/odoo-ai-gate/comment.md
+
+      # ── 9. Enforce the gate ─────────────────────────────────────────────────
+      # The earlier steps continue-on-error so the comment always posts. This
+      # final step actually FAILS the job on a real blocker (validate blocking,
+      # a secret, or a deploy-gate `block`) so the gate gates instead of advising.
+      - name: Enforce gate
+        run: |
+          G() { python3 -c "import sys,json,functools;print(functools.reduce(lambda o,k:o.get(k) if isinstance(o,dict) else None,sys.argv[2:],json.load(open(sys.argv[1]))) or '')" "$@" 2>/dev/null || echo ""; }
+          VOK() { python3 -c "import sys,json;d=json.load(open(sys.argv[1]));s=d.get('summary');b=(s or {}).get('blocking');w=(s or {}).get('warning',0);sys.exit(0 if (isinstance(s,dict) and isinstance(b,int) and not isinstance(b,bool) and isinstance(w,int) and not isinstance(w,bool)) else 1)" "$1" >/dev/null 2>&1 && echo ok; }
+          SOK() { python3 -c "import sys,json;c=json.load(open(sys.argv[1])).get('count');sys.exit(0 if (isinstance(c,int) and not isinstance(c,bool) and c>=0) else 1)" "$1" >/dev/null 2>&1 && echo ok; }
+          SKIP() { grep -q '"skipped": true' "$1" 2>/dev/null && echo skip; }
+          fail=0
+          # A required local report that ran but is missing/invalid-shape → fail
+          # (a crashed gate must not be a green check).
+          if [ -z "$(SKIP /tmp/odoo-ai-gate/validate.json)" ] && [ -z "$(VOK /tmp/odoo-ai-gate/validate.json)" ]; then
+            echo "::error::validate: report missing or invalid shape"; fail=1
+          fi
+          if [ -z "$(SKIP /tmp/odoo-ai-gate/scan_secrets.json)" ] && [ -z "$(SOK /tmp/odoo-ai-gate/scan_secrets.json)" ]; then
+            echo "::error::scan-secrets: report missing or invalid shape"; fail=1
+          fi
+          vb=$(G /tmp/odoo-ai-gate/validate.json summary blocking)
+          [ "${vb:-0}" -gt 0 ] 2>/dev/null && { echo "::error::validate: ${vb} blocking finding(s)"; fail=1; }
+          sc=$(G /tmp/odoo-ai-gate/scan_secrets.json count)
+          [ "${sc:-0}" -gt 0 ] 2>/dev/null && { echo "::error::scan-secrets: ${sc} potential secret(s)"; fail=1; }
+          dec=$(G /tmp/odoo-ai-gate/deploy_gate.json decision decision)
+          [ "$dec" = "block" ] && { echo "::error::deploy-gate: block"; fail=1; }
+          exit $fail

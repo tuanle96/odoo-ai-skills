@@ -92,7 +92,10 @@ class PythonRuleTests(unittest.TestCase):
         self.assertNotIn("query_in_loop", self._check(src))
 
     def test_create_without_model_create_multi_blocks(self):
-        src = "    def create(self, vals):\n        return super().create(vals)\n"
+        src = ("class O(models.Model):\n"
+               "    _inherit = 'sale.order'\n"
+               "    def create(self, vals):\n"
+               "        return super().create(vals)\n")
         findings = pv.check_python("m.py", src)
         self.assertIn("create_not_batch", _rules(findings))
         self.assertTrue(any(f["severity"] == "blocking" for f in findings
@@ -133,7 +136,8 @@ class ValidatePathsTests(unittest.TestCase):
     def test_summary_counts_and_dispatch(self):
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "m.py"), "w") as fh:
-                fh.write("    def create(self, vals):\n        return super().create(vals)\n")
+                fh.write("class O(models.Model):\n    _inherit = 's.o'\n"
+                         "    def create(self, vals):\n        return super().create(vals)\n")
             with open(os.path.join(d, "v.xml"), "w") as fh:
                 fh.write("<tree/>\n")
             res = pv.validate_paths([d])
@@ -168,6 +172,67 @@ class ValidatePathsTests(unittest.TestCase):
                 pv.main([p])
             data = json.loads(buf.getvalue())
         self.assertIn("private_env_alias", {f["rule"] for f in data["findings"]})
+
+
+class V091AstTests(unittest.TestCase):
+    """v0.9.1: AST-based SQL + create checks remove the regex false positives."""
+
+    def _rules(self, src):
+        return {f["rule"] for f in pv.check_python("x.py", src)}
+
+    def test_constant_like_pattern_not_flagged(self):
+        # the oracle finding: a constant LIKE '%foo%' must NOT be SQL-injection
+        self.assertNotIn("sql_injection",
+                         self._rules("self.env.cr.execute(\"SELECT id FROM t WHERE n LIKE '%foo%'\")"))
+
+    def test_interpolated_execute_flagged(self):
+        self.assertIn("sql_injection", self._rules("cr.execute(f'SELECT {uid}')"))
+        self.assertIn("sql_injection", self._rules("cr.execute('SELECT %s' % (uid,))"))
+        self.assertIn("sql_injection", self._rules("cr.execute('SELECT ' + name)"))
+
+    def test_parameterized_execute_clean(self):
+        self.assertNotIn("sql_injection",
+                         self._rules("cr.execute('SELECT * FROM t WHERE id = %s', (rec.id,))"))
+
+    def test_create_only_flagged_inside_model_class(self):
+        model = ("class O(models.Model):\n    _inherit = 'sale.order'\n"
+                 "    def create(self, vals):\n        return super().create(vals)\n")
+        helper = "class Foo:\n    def create(self, x):\n        return x\n"
+        self.assertIn("create_not_batch", self._rules(model))
+        self.assertNotIn("create_not_batch", self._rules(helper))  # non-Odoo helper: no FP
+
+    def test_variable_built_sql_flagged(self):
+        # the round-2 FN: query assembled into a var, then executed
+        src = "def f(self, rec):\n    q = f'SELECT {rec.id}'\n    self.env.cr.execute(q)\n"
+        self.assertIn("sql_injection", self._rules(src))
+
+    def test_constant_var_sql_clean(self):
+        src = "def f(self):\n    q = 'SELECT 1'\n    self.env.cr.execute(q)\n"
+        self.assertNotIn("sql_injection", self._rules(src))
+
+    def test_taint_is_per_function_no_cross_fp(self):
+        # round-3 #5: an interpolated `q` in a() must not flag a constant `q` in b()
+        src = ("def a(rec):\n    q = f'SELECT {rec.id}'\n    return q\n\n"
+               "def b(self):\n    q = 'SELECT 1'\n    self.env.cr.execute(q)\n")
+        self.assertNotIn("sql_injection", self._rules(src))
+
+
+class V091XmlTests(unittest.TestCase):
+    """v0.9.1: XML comment-stripping + multi-line <xpath> kill the FPs."""
+
+    def _rules(self, src):
+        return {f["rule"] for f in pv.check_xml("v.xml", src)}
+
+    def test_xpath_position_on_next_line_is_clean(self):
+        self.assertNotIn("xpath_no_position",
+                         self._rules('<xpath\n    expr="//field"\n    position="after"/>'))
+
+    def test_xpath_truly_missing_position_flagged(self):
+        self.assertIn("xpath_no_position", self._rules('<xpath\n    expr="//field"/>'))
+
+    def test_commented_out_markup_not_flagged(self):
+        self.assertNotIn("tree_tag", self._rules("<!-- <tree/> old -->"))
+        self.assertNotIn("xml_attrs_states", self._rules("<!-- attrs=\"{'x':1}\" -->"))
 
 
 if __name__ == "__main__":

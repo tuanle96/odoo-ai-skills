@@ -23,6 +23,8 @@ It reuses Layer D's approach: `sys.settrace` filtered to `odoo.addons.*` frames
 SAVEPOINT that rolls back by default so nothing persists.
 
 ⚠️  This EXECUTES the method. Run on a dev/staging DB, on a throwaway record.
+    The SAVEPOINT rollback only undoes DB changes — NOT emails, webhooks, HTTP/API
+    calls, or queued jobs the method already fired.
 ⚠️  COMMIT=1 RELEASEs the savepoint and calls `env.cr.commit()` — effects PERSIST.
 
 The env-dependent work lives in run(); the pure helpers (truncate, should_break,

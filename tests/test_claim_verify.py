@@ -92,5 +92,38 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(cv.classify({}, {"kind": "field_exists"}, ok2), "contradicted")
 
 
+class V091Tests(unittest.TestCase):
+    """v0.9.1: probe errors ≠ contradictions; method/hook claims default needs_shell."""
+
+    def test_unevaluable_probe_is_needs_human_not_contradicted(self):
+        import native_check as nc
+
+        def boom(_leaf):
+            raise KeyError("field")
+        checker = lambda leaf: nc.dispatch_leaf(leaf, {"field_exists": boom})
+        probe = {"kind": "field_exists", "model": "m"}  # missing 'field' → handler errors
+        passed, ev = nc.eval_probe(probe, checker)
+        eval_ok = not any(e.get("status") in ("error", "unknown_kind") for e in ev)
+        self.assertFalse(eval_ok)
+        self.assertEqual(cv.classify({"claim": "x"}, probe, passed, eval_ok), "needs_human")
+
+    def test_unknown_kind_marks_status(self):
+        import native_check as nc
+        _passed, ev = nc.dispatch_leaf({"kind": "no_such_kind"}, {})
+        self.assertEqual(ev.get("status"), "unknown_kind")
+
+    def test_method_claim_defaults_needs_shell(self):
+        self.assertEqual(cv.classify({"claim": "exists"}, {"kind": "method_exists"}, True),
+                         "needs_shell")
+
+    def test_claim_type_existence_short_circuits(self):
+        self.assertEqual(cv.classify({"claim_type": "existence"}, {"kind": "method_exists"}, True),
+                         "confirmed")
+
+    def test_claim_type_security_forces_needs_shell(self):
+        self.assertEqual(cv.classify({"claim_type": "security"}, {"kind": "field_exists"}, True),
+                         "needs_shell")
+
+
 if __name__ == "__main__":
     unittest.main()
