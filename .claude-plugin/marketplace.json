@@ -1,0 +1,26 @@
+{
+    "name": "odoo-ai",
+    "owner": {
+        "name": "Lê Anh Tuấn",
+        "email": "tuanle.works@gmail.com"
+    },
+    "metadata": {
+        "description": "Marketplace for the odoo-ai-skills suite — read-ground-truth-first Odoo 17/18/19 development skills for Claude Code."
+    },
+    "plugins": [
+        {
+            "name": "odoo-ai-skills",
+            "source": ".",
+            "description": "Odoo 17/18/19 development skills suite: read ground truth from the running instance first (fields, MRO/super, views, security, runtime flow + state, reverse field impact, load state), build the smallest correct change, test it, review it — never guess. Covers models, scaffolding, views, OWL, public web, security, reports, data, migration, performance, deploy, and domain playbooks.",
+            "keywords": [
+                "odoo",
+                "erp",
+                "introspection",
+                "owl",
+                "qweb",
+                "code-review",
+                "python"
+            ]
+        }
+    ]
+}

@@ -17,6 +17,32 @@ Odoo composes every model, view, security rule, and automation **at runtime** fr
 
 Left to memory, LLMs invent Odoo field and model names, reach for APIs that were removed (`attrs`/`states`, `<tree>`, `name_get`), call `super()` at the wrong MRO layer, sprinkle `sudo()` to silence access errors, and ship stored computes with an incomplete `@api.depends`. These fail **silently at runtime**, not at lint time — exactly where confidence is most dangerous. This suite closes that gap by making the agent read the live registry before it writes, and by encoding the Odoo-specific contracts (security, MRO, manifest wiring, version deltas) that a generic model doesn't know.
 
+## Install as a Claude Code plugin
+
+This repo is a Claude Code plugin (a `.claude-plugin/plugin.json` manifest plus the `skills/` directory) **and** its own marketplace (`.claude-plugin/marketplace.json`). Install it in two commands:
+
+```bash
+claude plugin marketplace add tuanle96/odoo-ai-skills   # register the marketplace
+claude plugin install odoo-ai-skills@odoo-ai            # install the plugin
+```
+
+The 17 skills then load namespaced — `/odoo-ai-skills:odoo` (router), `/odoo-ai-skills:odoo-introspect`, etc. Update later with `claude plugin update odoo-ai-skills@odoo-ai`.
+
+To try it before installing, load it straight from a local clone:
+
+```bash
+claude --plugin-dir /path/to/odoo-ai-skills    # then /plugin to browse
+claude plugin validate /path/to/odoo-ai-skills # check the manifest
+```
+
+**Running the bundled `odoo-ai` CLI after install.** A plugin is copied into Claude's cache, so reference the CLI through the plugin-root variable rather than a relative path:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}"/skills/odoo-introspect/scripts/odoo-ai --db <DB> all sale.order
+```
+
+(When working in a clone, `scripts/odoo-ai` as shown elsewhere is fine.)
+
 ## How to use
 
 - **New to a task?** Invoke the **`odoo`** skill — it routes you to the right sub-skill.

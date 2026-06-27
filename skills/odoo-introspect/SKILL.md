@@ -80,6 +80,8 @@ scripts/odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception   # 
 
 Config via flags or env: `--db/ODOO_DB` (required), `--conf/ODOO_CONF`, `--odoo-bin/ODOO_BIN`, `--out-dir` (default `/tmp/odoo-ai/<model>`). Or run a single script directly: `MODEL=sale.order odoo-bin shell -d <DB> --no-http < scripts/model_brief.py`.
 
+**Path when installed as a Claude Code plugin.** The examples use `scripts/odoo-ai` (relative to a clone). When this suite is installed as a plugin, it lives in Claude's cache, so invoke the CLI via the plugin-root variable instead: `"${CLAUDE_PLUGIN_ROOT}"/skills/odoo-introspect/scripts/odoo-ai --db <DB> all <model>`. The `--odoo-bin` flag still points at the *target instance's* `odoo-bin` (or `odoo`), which is unrelated to where the plugin lives.
+
 See `references/sample-output.md` for the JSON shape each layer returns.
 
 ## Workflow: discover → plan → code (never skip step 1)
