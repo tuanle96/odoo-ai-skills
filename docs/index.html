@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>odoo-ai-skills — read ground truth, then change code</title>
+<meta name="description" content="A Claude Code skills suite for doing Odoo 17/18/19 development with an AI agent — correctly. Read the running instance first, build the smallest correct change, prove it with a test, review before merge.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0d0b12; --bg-2:#15121d; --panel:#191523; --panel-2:#1f1a2b;
+    --border:#2b2438; --text:#ece9f2; --muted:#a59fb5; --faint:#6f6880;
+    --odoo:#8f6aa6; --odoo-strong:#714B67; --accent:#39d4b4; --accent-2:#5b8cff;
+    --code:#0a0810; --radius:16px; --maxw:1120px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:radial-gradient(1200px 700px at 80% -10%, #241a33 0%, transparent 60%),
+                       radial-gradient(900px 600px at -10% 10%, #14222b 0%, transparent 55%), var(--bg);
+    color:var(--text); font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    line-height:1.6; -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit; text-decoration:none}
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 22px}
+  code,kbd,pre{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  /* nav */
+  header{position:sticky; top:0; z-index:50; backdrop-filter:blur(10px);
+    background:rgba(13,11,18,.72); border-bottom:1px solid var(--border)}
+  nav{display:flex; align-items:center; gap:18px; height:62px}
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:-.01em}
+  .brand .dot{width:13px; height:13px; border-radius:4px;
+    background:linear-gradient(135deg,var(--odoo),var(--accent)); box-shadow:0 0 18px rgba(57,212,180,.5)}
+  nav .links{display:flex; gap:24px; margin-left:14px}
+  nav .links a{color:var(--muted); font-size:.94rem; font-weight:500}
+  nav .links a:hover{color:var(--text)}
+  nav .spacer{flex:1}
+  .btn{display:inline-flex; align-items:center; gap:8px; padding:9px 16px; border-radius:10px;
+    font-weight:600; font-size:.9rem; border:1px solid var(--border); transition:.18s; white-space:nowrap}
+  .btn:hover{transform:translateY(-1px)}
+  .btn.ghost{background:var(--panel); color:var(--text)}
+  .btn.ghost:hover{border-color:var(--odoo)}
+  .btn.solid{background:linear-gradient(135deg,var(--odoo-strong),var(--odoo)); color:#fff; border-color:transparent;
+    box-shadow:0 8px 24px -8px rgba(143,106,166,.7)}
+
+  /* hero */
+  .hero{padding:84px 0 56px; text-align:center}
+  .tag{display:inline-flex; align-items:center; gap:8px; padding:6px 14px; border-radius:999px;
+    border:1px solid var(--border); background:var(--panel); color:var(--muted); font-size:.82rem; font-weight:500}
+  .tag b{color:var(--accent); font-weight:600}
+  h1{font-size:clamp(2.2rem,5.4vw,3.9rem); line-height:1.05; letter-spacing:-.03em; font-weight:800;
+    margin:22px auto 0; max-width:14ch}
+  h1 .grad{background:linear-gradient(110deg,var(--accent),var(--odoo) 70%); -webkit-background-clip:text; background-clip:text; color:transparent}
+  .sub{color:var(--muted); font-size:1.15rem; max-width:62ch; margin:20px auto 0}
+  .cta{display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-top:30px}
+  .cmd{display:inline-flex; align-items:center; gap:12px; margin:26px auto 0; padding:12px 16px;
+    background:var(--code); border:1px solid var(--border); border-radius:12px; color:#cfc8df;
+    font-size:.92rem; max-width:560px}
+  .cmd .pr{color:var(--accent)}
+  .cmd button{margin-left:auto; background:var(--panel-2); border:1px solid var(--border); color:var(--muted);
+    border-radius:7px; padding:5px 10px; font-size:.78rem; cursor:pointer; font-family:Inter,sans-serif}
+  .cmd button:hover{color:var(--text); border-color:var(--odoo)}
+  .shot{margin:46px auto 0; max-width:900px; border:1px solid var(--border); border-radius:var(--radius);
+    overflow:hidden; box-shadow:0 30px 80px -30px rgba(0,0,0,.8); background:var(--code)}
+  .shot .bar{display:flex; gap:7px; padding:11px 14px; border-bottom:1px solid var(--border); background:var(--panel)}
+  .shot .bar i{width:11px; height:11px; border-radius:50%; background:#3a3447; display:block}
+  .shot img{display:block; width:100%}
+
+  /* sections */
+  section{padding:64px 0; border-top:1px solid var(--border)}
+  .eyebrow{color:var(--accent); font-weight:600; font-size:.82rem; letter-spacing:.12em; text-transform:uppercase}
+  h2{font-size:clamp(1.6rem,3.2vw,2.3rem); letter-spacing:-.02em; margin:.4rem 0 0; font-weight:700}
+  .lead{color:var(--muted); max-width:64ch; margin-top:12px}
+
+  .grid{display:grid; gap:18px; margin-top:38px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .card{background:linear-gradient(180deg,var(--panel),var(--bg-2)); border:1px solid var(--border);
+    border-radius:var(--radius); padding:22px; transition:.18s}
+  .card:hover{border-color:var(--odoo); transform:translateY(-3px)}
+  .card h3{margin:0 0 6px; font-size:1.06rem; display:flex; align-items:center; gap:9px}
+  .card p{margin:0; color:var(--muted); font-size:.93rem}
+  .badge{font-family:"JetBrains Mono",monospace; font-size:.72rem; font-weight:600; color:var(--bg);
+    background:var(--accent); border-radius:6px; padding:2px 7px}
+  .badge.alt{background:var(--odoo); color:#fff}
+
+  /* problem list */
+  .fail{display:grid; gap:10px; margin-top:30px}
+  .fail li{list-style:none; padding:14px 16px; border:1px solid var(--border); border-radius:12px;
+    background:var(--panel); color:var(--muted); display:flex; gap:12px; align-items:flex-start}
+  .fail li b{color:var(--text); font-weight:600}
+  .fail .x{color:#ff6b6b; font-weight:700; flex:none}
+
+  /* loop */
+  .loop{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:38px; counter-reset:s}
+  .step{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:20px; position:relative}
+  .step::before{counter-increment:s; content:counter(s); position:absolute; top:-12px; left:18px;
+    width:26px; height:26px; border-radius:8px; display:grid; place-items:center; font-size:.82rem; font-weight:700;
+    color:#fff; background:linear-gradient(135deg,var(--odoo-strong),var(--odoo))}
+  .step h4{margin:8px 0 4px; font-size:1rem}
+  .step p{margin:0; color:var(--muted); font-size:.88rem}
+
+  /* code */
+  pre{background:var(--code); border:1px solid var(--border); border-radius:14px; padding:20px;
+    overflow:auto; font-size:.86rem; margin-top:24px; color:#d4cee2}
+  pre .c{color:var(--faint)} pre .k{color:var(--accent-2)} pre .s{color:var(--accent)} pre .f{color:var(--odoo)}
+
+  .skilltiers{display:grid; gap:26px; margin-top:36px}
+  .tier h4{margin:0 0 14px; font-size:.84rem; letter-spacing:.1em; text-transform:uppercase; color:var(--faint)}
+  .chips{display:flex; flex-wrap:wrap; gap:10px}
+  .chip{border:1px solid var(--border); background:var(--panel); border-radius:10px; padding:9px 13px;
+    font-size:.88rem; font-family:"JetBrains Mono",monospace; color:var(--muted); transition:.16s}
+  .chip:hover{color:var(--text); border-color:var(--accent)}
+  .chip b{color:var(--text); font-weight:600}
+
+  /* stats */
+  .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:18px; margin-top:8px}
+  .stat{text-align:center; padding:22px; background:var(--panel); border:1px solid var(--border); border-radius:14px}
+  .stat .n{font-size:2rem; font-weight:800; letter-spacing:-.02em;
+    background:linear-gradient(120deg,var(--accent),var(--odoo)); -webkit-background-clip:text; background-clip:text; color:transparent}
+  .stat .l{color:var(--muted); font-size:.85rem; margin-top:4px}
+
+  footer{border-top:1px solid var(--border); padding:40px 0; color:var(--faint); font-size:.88rem}
+  footer .row{display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap; align-items:center}
+  footer a{color:var(--muted)} footer a:hover{color:var(--text)}
+
+  @media(max-width:860px){
+    .g3,.g2,.loop,.stats{grid-template-columns:1fr 1fr}
+    nav .links{display:none}
+  }
+  @media(max-width:560px){ .g3,.g2,.loop,.stats{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap"><nav>
+    <a class="brand" href="#top"><span class="dot"></span> odoo-ai-skills</a>
+    <div class="links">
+      <a href="#why">Why</a><a href="#loop">The loop</a><a href="#layers">Layers</a>
+      <a href="#skills">Skills</a><a href="#example">Example</a>
+    </div>
+    <div class="spacer"></div>
+    <a class="btn ghost" href="https://github.com/tuanle96/odoo-ai-skills">GitHub</a>
+    <a class="btn solid" href="#install">Install</a>
+  </nav></div>
+</header>
+
+<a id="top"></a>
+<section class="hero" style="border-top:none">
+  <div class="wrap">
+    <span class="tag"><b>Claude Code plugin</b> · Odoo 17 / 18 / 19</span>
+    <h1>Stop letting AI <span class="grad">guess</span> how Odoo works.</h1>
+    <p class="sub">A skills suite that makes an AI agent read ground truth from your running
+      instance first — fields, MRO &amp; <code>super()</code> chains, views, security, runtime
+      flow — then build the smallest correct change, prove it with a test, and review it before merge.</p>
+    <div class="cmd">
+      <span class="pr">$</span>
+      <span id="cmd">claude plugin install odoo-ai-skills@odoo-ai</span>
+      <button onclick="navigator.clipboard.writeText(document.getElementById('cmd').textContent);this.textContent='copied'">copy</button>
+    </div>
+    <div class="cta">
+      <a class="btn solid" href="#install">Get started</a>
+      <a class="btn ghost" href="https://github.com/tuanle96/odoo-ai-skills">★ Star on GitHub</a>
+    </div>
+    <div class="shot">
+      <div class="bar"><i></i><i></i><i></i></div>
+      <img src="assets/demo.gif" alt="odoo-ai workflow: introspect, patch, test">
+    </div>
+  </div>
+</section>
+
+<section id="why">
+  <div class="wrap">
+    <span class="eyebrow">The problem</span>
+    <h2>Odoo is composed at runtime. Memory can't see it.</h2>
+    <p class="lead">Field names, the method-resolution order, the rendered view arch, record
+      rules — none of it is reliably knowable from memory or <code>grep</code>. It exists only in
+      the running instance. Left to memory, LLMs fail <b>silently at runtime</b>, not at lint time:</p>
+    <ul class="fail">
+      <li><span class="x">✕</span><span>Invent field and model names, or set <b>state = 'confirmed'</b> when Odoo uses <b>'sale'</b>.</span></li>
+      <li><span class="x">✕</span><span>Reach for removed APIs — <b>attrs</b>/<b>states</b>, <b>&lt;tree&gt;</b>, <b>name_get</b>.</span></li>
+      <li><span class="x">✕</span><span>Call <b>super()</b> at the wrong MRO layer, so the override silently never runs.</span></li>
+      <li><span class="x">✕</span><span>Sprinkle <b>sudo()</b> to silence access errors — bypassing ACL <i>and</i> record rules.</span></li>
+      <li><span class="x">✕</span><span>Ship stored computes with an incomplete <b>@api.depends</b>.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section id="loop">
+  <div class="wrap">
+    <span class="eyebrow">The rule every skill enforces</span>
+    <h2>Read ground truth → smallest change → test → review.</h2>
+    <div class="loop">
+      <div class="step"><h4>Introspect</h4><p>Dump the model/flow as JSON from the live registry before writing a line.</p></div>
+      <div class="step"><h4>Patch</h4><p>Smallest extension at the right hook and MRO layer, with the correct <code>depends</code>.</p></div>
+      <div class="step"><h4>Test</h4><p>Prove it: non-admin, multi-company, batch, <code>-i</code>/<code>-u</code> — fail-before, pass-after.</p></div>
+      <div class="step"><h4>Review</h4><p>Catch security / data-loss / silent-correctness / perf defects before merge.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="layers">
+  <div class="wrap">
+    <span class="eyebrow">The introspection engine</span>
+    <h2>Six JSON layers of ground truth</h2>
+    <p class="lead">One command — <code>odoo-ai all &lt;model&gt;</code> — runs inside <code>odoo-bin shell</code>
+      and prints pure JSON the agent reads before any code.</p>
+    <div class="grid g3">
+      <div class="card"><h3><span class="badge">A</span> model_brief</h3><p>Fields (+ selection literals, ondelete/domain), MRO + <code>super()</code> analysis, security (ACL + record rules), auto-triggers, recommended <code>depends</code>.</p></div>
+      <div class="card"><h3><span class="badge">B</span> entrypoints</h3><p>Form/list buttons → method/action, view modifiers, and the resolved view inheritance chain for xpath work.</p></div>
+      <div class="card"><h3><span class="badge">C</span> metadata</h3><p>Menu graph, seeded <code>ir.model.data</code> + <code>noupdate</code> records, deep QWeb report wiring.</p></div>
+      <div class="card"><h3><span class="badge">D</span> trace_flow</h3><p>The <b>real</b> runtime call sequence + SQL across addons — executes on a throwaway record, rolls back.</p></div>
+      <div class="card"><h3><span class="badge alt">E</span> field_refs</h3><p>Reverse impact of a field — every compute/related/view/rule that breaks on a rename or drop.</p></div>
+      <div class="card"><h3><span class="badge alt">F</span> state_capture</h3><p>Runtime values at a breakpoint + exception post-mortem. Redacts secrets by default.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="stats">
+      <div class="stat"><div class="n">17</div><div class="l">skills</div></div>
+      <div class="stat"><div class="n">6</div><div class="l">introspection layers</div></div>
+      <div class="stat"><div class="n">17→19</div><div class="l">Odoo versions</div></div>
+      <div class="stat"><div class="n">CI</div><div class="l">tested on 17 &amp; 18 CE</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="skills">
+  <div class="wrap">
+    <span class="eyebrow">17 skills</span>
+    <h2>A skill for every part of the job</h2>
+    <div class="skilltiers">
+      <div class="tier"><h4>Foundation</h4><div class="chips">
+        <span class="chip"><b>odoo-introspect</b> · ground-truth engine + CLI</span>
+        <span class="chip"><b>odoo</b> · router</span>
+      </div></div>
+      <div class="tier"><h4>Core loop</h4><div class="chips">
+        <span class="chip"><b>odoo-dev</b></span><span class="chip"><b>odoo-module-scaffold</b></span>
+        <span class="chip"><b>odoo-views</b></span><span class="chip"><b>odoo-security</b></span>
+        <span class="chip"><b>odoo-testing</b></span><span class="chip"><b>odoo-review</b></span>
+        <span class="chip"><b>odoo-debug</b></span>
+      </div></div>
+      <div class="tier"><h4>Frontend &amp; reporting</h4><div class="chips">
+        <span class="chip"><b>odoo-owl</b></span><span class="chip"><b>odoo-web</b></span><span class="chip"><b>odoo-reports</b></span>
+      </div></div>
+      <div class="tier"><h4>Lifecycle &amp; domain</h4><div class="chips">
+        <span class="chip"><b>odoo-data</b></span><span class="chip"><b>odoo-migration</b></span>
+        <span class="chip"><b>odoo-perf</b></span><span class="chip"><b>odoo-deploy</b></span>
+        <span class="chip"><b>odoo-domain-playbooks</b></span>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<section id="example">
+  <div class="wrap">
+    <span class="eyebrow">Worked example</span>
+    <h2>From the brief, not from memory</h2>
+    <p class="lead">The brief said <code>action_confirm</code> is owned by <code>sale</code> (bottom of the MRO),
+      <code>commitment_date</code> is a <code>sale</code> field, and the confirmed state is <code>'sale'</code> — not <code>'confirmed'</code>.
+      So the patch is four correct lines, and the test asserts the real literal.</p>
+<pre><span class="c"># 1) introspect</span>
+odoo-ai --db dev all sale.order --methods action_confirm
+
+<span class="c"># 2) smallest correct patch — guard before super(), depends = ['sale']</span>
+<span class="k">class</span> SaleOrder(models.Model):
+    _inherit = <span class="s">"sale.order"</span>
+    <span class="k">def</span> <span class="f">action_confirm</span>(self):
+        <span class="k">for</span> order <span class="k">in</span> self:
+            <span class="k">if not</span> order.commitment_date:
+                <span class="k">raise</span> UserError(_(<span class="s">"Set a Delivery Date first."</span>))
+        <span class="k">return</span> super().action_confirm()
+
+<span class="c"># 3) prove it — real state literal</span>
+self.assertEqual(order.state, <span class="s">"sale"</span>)   <span class="c"># NOT 'confirmed'</span></pre>
+    <div class="cta" style="justify-content:flex-start;margin-top:22px">
+      <a class="btn ghost" href="https://github.com/tuanle96/odoo-ai-skills/blob/main/examples/sale-order-walkthrough.md">Read the full walkthrough →</a>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <span class="eyebrow">Install</span>
+    <h2>Two commands</h2>
+    <p class="lead">It's a Claude Code plugin and its own marketplace. Skills load namespaced
+      (<code>/odoo-ai-skills:odoo</code>, …).</p>
+<pre><span class="c"># register the marketplace, then install</span>
+claude plugin marketplace add tuanle96/odoo-ai-skills
+claude plugin install odoo-ai-skills@odoo-ai
+
+<span class="c"># gather ground truth before writing code</span>
+odoo-ai --db &lt;DB&gt; all sale.order --methods action_confirm</pre>
+    <p class="lead" style="margin-top:18px"><b style="color:var(--text)">Requirements:</b>
+      Odoo 17/18 (floor) through 19 (LTS); shell access to <code>odoo-bin shell</code> on a dev/staging
+      DB, or the RPC fallback for SaaS.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap row">
+    <div><span class="brand"><span class="dot"></span> odoo-ai-skills</span> · LGPL-3.0 · v0.3.1</div>
+    <div style="display:flex; gap:22px">
+      <a href="https://github.com/tuanle96/odoo-ai-skills">GitHub</a>
+      <a href="https://github.com/tuanle96/odoo-ai-skills/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/tuanle96/odoo-ai-skills/blob/main/SECURITY.md">Security</a>
+      <a href="https://github.com/tuanle96/odoo-ai-skills/releases">Releases</a>
+    </div>
+  </div>
+  <div class="wrap" style="margin-top:14px; color:var(--faint)">
+    Not affiliated with Odoo S.A. Odoo is a trademark of Odoo S.A.
+  </div>
+</footer>
+
+</body>
+</html>
