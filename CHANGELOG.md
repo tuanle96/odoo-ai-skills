@@ -6,6 +6,41 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-27
+
+Builds on the v0.5 Native Capability Atlas with **native-check — gate-then-rank
+requirement matching**. Describe a requirement; the script recall-matches a
+corpus of curated capability cards, then **existence-gates** each against the
+running instance and returns candidates with cited evidence. The objective half
+(does it exist here?) is the script's; the subjective half (which fits best?)
+stays the agent's.
+
+### Added
+- **`odoo-ai native-check "<requirement>" [--model M]`** (new `native_check.py`).
+  Recall-matches the requirement (diacritic-folded, Vietnamese-aware) against the
+  capability cards, then runs each card's existence `probe` against the live
+  registry. Returns `confirmed_candidates` (probe passed here — with `evidence`:
+  module/model/field/hook present) and `unconfirmed_candidates` (matched but not
+  active here — with `why_absent`). Evidence or silence: only confirmed
+  candidates may be recommended. The pure helpers (tokenize, diacritic-fold,
+  recall scoring, the `any`/`all` probe evaluator) are unit-tested without Odoo.
+- **Curated capability cards** — `skills/odoo-capabilities/references/cards/*.json`
+  (~34 cards across `universal` + sale/stock/account/mrp/purchase/hr). Each card
+  carries business intents (EN + VN), the right hook, reuse advice,
+  `when_not_enough`, and an existence `probe`. Probe kinds: `module_installed`,
+  `model_exists`, `field_exists`, `method_exists` (+ `any`/`all`). Documented in
+  `references/capability-schema.md`; CI-validated (schema, uniqueness, probe kinds).
+- **PR template** (`.github/PULL_REQUEST_TEMPLATE.md`) with the native-check
+  checklist (candidates considered / reused / rejected+why / the gap).
+- **Tests** — native_check pure-function coverage + a shipped-card-corpus
+  validator in both the pytest and unittest suites; a native-check integration
+  smoke (confirmed carry found-evidence, unconfirmed carry why_absent).
+
+### Changed
+- `odoo-capabilities` SKILL now leads with `native-check`; the `odoo` router and
+  `odoo-dev` Step-0 reference it. `capabilities <model>`/`--module` remains the
+  full-surface fallback when no card matches.
+
 ## [0.5.0] - 2026-06-27
 
 Adds **Layer H — the Native Capability Atlas**: a Step-0 scanner and a new

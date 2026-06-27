@@ -29,7 +29,7 @@ Odoo composes each model at runtime from the installed addon dependency graph. T
 
 ### 0. Native-check — is it already built in? (delegate to `odoo-capabilities`)
 
-**Only when the task ADDS something** (a field, model, wizard, report, cron, automation) **or overrides a core flow method.** Before reinventing platform behavior, enumerate the native surface — `odoo-ai capabilities <model>` / `--module <addon>` — and decide: reuse a native primitive (sequence, automation rule, computed field, mixin, an existing wizard / `_prepare_*` hook), or build only the genuine gap. The `odoo-capabilities` skill's `references/native-primitives.md` is the anti-pattern → native map; the "Pick the built-in, don't hand-roll it" table below is the quick version. Skip this step for bug-fixes, refactors, or edits inside your own module — go straight to Discover.
+**Only when the task ADDS something** (a field, model, wizard, report, cron, automation) **or overrides a core flow method.** Before reinventing platform behavior, ask `odoo-ai native-check "<requirement>"` (matches curated cards + existence-gates them here) or enumerate the full surface with `odoo-ai capabilities <model>` / `--module <addon>` — then decide: reuse a native primitive (sequence, automation rule, computed field, mixin, an existing wizard / `_prepare_*` hook), or build only the genuine gap. The `odoo-capabilities` skill's `references/native-primitives.md` is the anti-pattern → native map; the "Pick the built-in, don't hand-roll it" table below is the quick version. Skip this step for bug-fixes, refactors, or edits inside your own module — go straight to Discover.
 
 ### 1. Discover — read the instance (delegate to `odoo-introspect`)
 

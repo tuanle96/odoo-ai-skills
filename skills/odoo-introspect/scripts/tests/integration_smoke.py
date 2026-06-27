@@ -53,6 +53,7 @@ SENTINELS = {
     "security_sim.py":  ("===ODOO_SECURITY_START===", "===ODOO_SECURITY_END==="),
     "state_capture.py": ("===ODOO_STATE_START===", "===ODOO_STATE_END==="),
     "capabilities.py":  ("===ODOO_CAP_START===", "===ODOO_CAP_END==="),
+    "native_check.py":  ("===ODOO_NCHECK_START===", "===ODOO_NCHECK_END==="),
 }
 
 
@@ -356,6 +357,30 @@ def smoke_capabilities():
               str(wins[0]))
 
 
+def smoke_native_check():
+    cards = SCRIPTS.parent.parent / "odoo-capabilities" / "references" / "cards"
+    print(f"Layer H — native-check (gate-then-rank; cards: {cards.name}/)")
+    d = _shell("native_check.py", {
+        "REQUIREMENT": "auto-number our delivery slips", "CARDS_DIR": str(cards)})
+    check("native_check.cards_loaded > 0", d.get("cards_loaded", 0) > 0, str(d.get("cards_loaded")))
+    check("native_check.confirmed is a list", isinstance(d.get("confirmed_candidates"), list))
+    check("native_check.unconfirmed is a list", isinstance(d.get("unconfirmed_candidates"), list))
+    conf = d.get("confirmed_candidates", [])
+    ids = [c.get("id") for c in conf]
+    # ir.sequence exists in `base` on ANY install → always confirmed for "auto-number"
+    check("native_check confirms universal.ir_sequence for auto-number",
+          "universal.ir_sequence" in ids, str(ids))
+    # every confirmed candidate carries cited instance evidence (found probes)
+    bad_conf = [c["id"] for c in conf
+                if not (isinstance(c.get("evidence"), list) and c["evidence"]
+                        and all(e.get("found") for e in c["evidence"]))]
+    check("native_check confirmed carry found-evidence", not bad_conf, str(bad_conf[:3]))
+    # every unconfirmed candidate explains why it's absent
+    bad_unconf = [c["id"] for c in d.get("unconfirmed_candidates", [])
+                  if not c.get("why_absent")]
+    check("native_check unconfirmed carry why_absent", not bad_unconf, str(bad_unconf[:3]))
+
+
 def main():
     if not DB:
         print("SKIP integration_smoke: ODOO_DB not set (pure-function CI is unaffected).")
@@ -363,7 +388,7 @@ def main():
     print(f"integration_smoke · db={DB} · model={MODEL} · odoo_bin={ODOO_BIN}\n")
     for fn in (smoke_brief, smoke_entrypoints, smoke_metadata, smoke_refs,
                smoke_security, smoke_security_multicompany, smoke_state,
-               smoke_capabilities):
+               smoke_capabilities, smoke_native_check):
         try:
             fn()
         except Exception as e:  # noqa: BLE001

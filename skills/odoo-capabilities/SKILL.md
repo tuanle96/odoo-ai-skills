@@ -7,12 +7,14 @@ description: >-
   core flow method — any time you'd otherwise reinvent something Odoo provides out
   of the box (auto-numbering → ir.sequence; periodic job → ir.cron; react-to-change
   → automation rule / computed field; audit log / reminders → mail.thread /
-  activities; "create the invoice/payment" → an existing wizard). Enumerates the
-  live native surface (wizards, actions, crons, automations, sequences, mixins,
-  feature groups, functional fields) straight from the running instance with
-  `odoo-ai capabilities <model>` / `--module <addon>`, so the agent reuses native
-  Odoo instead of building custom. Pairs with `odoo-introspect` (which answers
-  "where do I extend?"). Targets Odoo 17/18/19.
+  activities; "create the invoice/payment" → an existing wizard). Describe the
+  requirement to `odoo-ai native-check "<requirement>"` — it matches curated
+  capability cards and existence-gates them against the live instance (returning
+  candidates with cited evidence) — or enumerate the full native surface with
+  `odoo-ai capabilities <model>` / `--module <addon>` (wizards, actions, crons,
+  automations, sequences, mixins, feature groups, fields). So the agent reuses
+  native Odoo instead of building custom. Pairs with `odoo-introspect` (which
+  answers "where do I extend?"). Targets Odoo 17/18/19.
 ---
 
 # Odoo native capabilities — discover before you customize
@@ -49,33 +51,42 @@ Keep it cheap: a native-check is one command and a short judgement. Don't let it
 
 ## Run it
 
-```bash
-# What's the native capability surface AROUND a model (feature-map)?
-odoo-ai --db <DB> capabilities sale.order
-odoo-ai --db <DB> feature-map sale.order        # alias of the above
+**Start with `native-check`** — describe the requirement; it recall-matches the curated capability cards, then **existence-gates** each against THIS instance and hands back candidates with cited evidence (gate-then-rank: the script does the objective gate, you do the relevance ranking).
 
-# What did a whole addon ship (models, wizards, actions, crons, automations, sequences…)?
-odoo-ai --db <DB> capabilities --module sale
+```bash
+# Does Odoo already ship this? (the primary tool)
+odoo-ai --db <DB> native-check "tự động đánh số phiếu giao hàng"
+odoo-ai --db <DB> native-check "block sale confirmation without a delivery date" --model sale.order
 ```
 
-It enumerates straight from the running registry (the `ir.model.data` xmlid registry for a module; the live `_fields` + actions/crons/automations for a model). It **never reads server-action or cron code bodies** — it's a pure surface map, so there's nothing sensitive to gate. Output is JSON: mixins, functional fields, window/server/report actions, the bound Action-menu surface (where native wizards attach), crons, automation rules, sequences, feature groups — each with its **xmlid as evidence**.
+It returns JSON with two buckets:
+- **`confirmed_candidates`** — cards whose existence probe **passed here**, each with `evidence` (module installed / model / field / hook present), `reuse_advice`, `hooks`, `when_not_enough`. These are the only ones you may recommend.
+- **`unconfirmed_candidates`** — cards that matched the requirement but are **not active in this instance** (with `why_absent` — e.g. `base_automation` not installed, Community vs Enterprise). Surface as "exists in Odoo but not here", never as a recommendation.
 
-No shell (Odoo Online/SaaS)? Use the RPC fallback in `skills/odoo-introspect/references/introspection.md` — the same `ir.model`/`ir.actions`/`ir.cron` reads work over RPC.
+If `confirmed_candidates` is empty (the cards don't cover it), fall back to the full surface scan:
+
+```bash
+# Full native surface AROUND a model, or everything an addon shipped (v0.5):
+odoo-ai --db <DB> capabilities sale.order        # feature-map: mixins, fields, actions, bound wizards, crons…
+odoo-ai --db <DB> capabilities --module sale      # models, wizards, actions, crons, automations, sequences…
+```
+
+Both read straight from the running registry; `capabilities` **never reads server-action/cron code bodies** (pure surface map). No shell (Odoo Online/SaaS)? The same `ir.model`/`ir.actions` reads work over the RPC fallback in `skills/odoo-introspect/references/introspection.md`.
 
 ## The output contract (what a native-check must conclude)
 
-Don't just dump the surface — decide on it. Before writing code, state:
+Don't just dump the dossier — decide on it. Before writing code, state:
 
-1. **Native candidates found** — the primitives/features that could serve the requirement, each with its evidence (the field/action/wizard/xmlid you saw in the instance).
-2. **Reused** — which you'll build on.
-3. **Rejected + why** — which you considered and ruled out (e.g. "Enterprise-only and this is Community", "feature-group disabled", "doesn't cover the multi-currency case").
-4. **The gap** — what genuinely needs custom code, and the smallest hook for it.
+1. **Native candidates found** — from `confirmed_candidates` (each carries instance evidence). Add any extra you spotted in the `capabilities` surface.
+2. **Reused** — which you'll build on, and at which hook.
+3. **Rejected + why** — which you ruled out (e.g. "matched but `unconfirmed` — `base_automation` not installed here", "doesn't cover the multi-currency case").
+4. **The gap** — what genuinely needs custom code, and the smallest hook for it. Then hand off to `odoo-introspect` → `odoo-dev`.
 
-> **Evidence or silence.** Only claim *"Odoo already does this"* when you can point to a real artifact in **this** instance (a field, an action, a wizard, an xmlid). Capability facts drift across versions and editions — a memorized "Odoo has a wizard for that" is exactly the guessing this suite exists to stop. A **false** "it's already built in" is worse than missing a native feature: prefer under-claiming.
+> **Evidence or silence.** Only claim *"Odoo already does this"* for a `confirmed_candidate` — it has a real artifact in **this** instance. A memorized "Odoo has a wizard for that" is exactly the guessing this suite exists to stop, and a **false** "it's already built in" is worse than missing a native feature: prefer under-claiming.
 
-## The anti-pattern → native-primitive map
+## The cards and the anti-pattern → native-primitive map
 
-The durable catalogue of *"stop hand-rolling X; Odoo ships Y"* lives in `references/native-primitives.md` — auto-numbering, periodic jobs, trigger-based reactions, computed-vs-onchange doctrine, chatter/activities, the standard wizards, the `_prepare_*`/`_action_*` extension hooks, reports, feature groups, record rules. Read it when the requirement smells like infrastructure the platform probably already provides.
+`native-check` matches against curated **capability cards** in `references/cards/*.json` (one file per domain + `universal`) — see `references/capability-schema.md` for the format and how to add one. The narrative catalogue of *"stop hand-rolling X; Odoo ships Y"* — auto-numbering, periodic jobs, trigger reactions, computed-vs-onchange, chatter/activities, the standard wizards, `_prepare_*`/`_action_*` hooks, reports, feature groups, record rules — is in `references/native-primitives.md`.
 
 ## Reuse, don't avoid — customize the gap at the native hook
 
@@ -83,4 +94,6 @@ Native-first is **not** anti-customization. The goal is: don't rewrite what Odoo
 
 ## References
 
+- `references/cards/*.json` — the curated capability cards `native-check` matches against (one file per domain + `universal`; ~34 cards). CI-validated.
+- `references/capability-schema.md` — the card format (fields + the existence `probe`) and how to author a new card.
 - `references/native-primitives.md` — the anti-pattern → native primitive catalogue (Odoo 17/18/19), with the canonical entrypoint and version notes for each.

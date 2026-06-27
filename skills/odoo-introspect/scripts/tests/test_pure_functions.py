@@ -22,6 +22,7 @@ import preflight    # noqa: E402  (import-safe: run() is gated on `env` in globa
 import state_capture  # noqa: E402  (import-safe: run() is gated on `env` in globals)
 import security_sim  # noqa: E402  (import-safe: run() is gated on `env` in globals)
 import capabilities  # noqa: E402  (import-safe: run() is gated on `env` in globals)
+import native_check  # noqa: E402  (import-safe: run() is gated on `env` in globals)
 
 
 def _load_odoo_ai():
@@ -692,6 +693,101 @@ def test_summ_capabilities_model_and_not_installed():
     assert "not enumerable" in ni
     # malformed payload never raises
     assert odoo_ai._summ("capabilities", {}) is not None
+
+
+# --- native_check (Layer H gate-then-rank) pure helpers ---------------------
+def test_native_check_strip_diacritics_vietnamese():
+    assert native_check.strip_diacritics("Đặt cọc") == "dat coc"
+    assert native_check.strip_diacritics("Hóa đơn") == "hoa don"
+    assert native_check.strip_diacritics("") == ""
+
+
+def test_native_check_tokenize_drops_stopwords_and_noise():
+    assert native_check.tokenize("Khi đặt cọc cho đơn hàng") == ["dat", "coc", "don", "hang"]
+    assert native_check.tokenize("the a to of") == []          # all stopwords
+    assert native_check.tokenize("sale.order") == ["sale", "order"]
+
+
+_CARD = {"id": "sale.dp", "title": "Down payment invoice", "domain": "sale",
+         "primitive": "wizard", "intents": ["down payment", "đặt cọc", "advance invoice"]}
+
+
+def test_native_check_recall_score_phrase_and_overlap():
+    assert native_check.recall_score("I want a down payment invoice", _CARD) >= 2   # phrase bonus
+    assert native_check.recall_score("tạo hóa đơn đặt cọc", _CARD) >= 2             # VN phrase
+    assert native_check.recall_score("change delivery address", _CARD) == 0
+
+
+def test_native_check_match_cards_ranks_and_caps():
+    other = {"id": "stock.scrap", "title": "Scrap", "domain": "stock",
+             "primitive": "wizard", "intents": ["scrap damaged goods"]}
+    out = native_check.match_cards("down payment đặt cọc", [_CARD, other], top_k=5)
+    assert out and out[0][1]["id"] == "sale.dp"
+    assert native_check.match_cards("nothing relevant here", [_CARD, other]) == []  # min_score
+
+
+def test_native_check_eval_probe_any_all_leaf_malformed():
+    def checker(leaf):
+        ok = leaf.get("model") == "sale.advance.payment.inv"
+        return ok, {"check": leaf.get("model"), "found": ok}
+    ok, ev = native_check.eval_probe(
+        {"any": [{"model": "nope"}, {"model": "sale.advance.payment.inv"}]}, checker)
+    assert ok is True and isinstance(ev, list) and len(ev) == 2 and any(e["found"] for e in ev)
+    ok2, _ = native_check.eval_probe(
+        {"all": [{"model": "sale.advance.payment.inv"}, {"model": "nope"}]}, checker)
+    assert ok2 is False
+    ok3, ev3 = native_check.eval_probe({"model": "sale.advance.payment.inv"}, checker)
+    assert ok3 is True and len(ev3) == 1                       # leaf wraps dict → 1-item list
+    ok4, ev4 = native_check.eval_probe("not-a-dict", checker)
+    assert ok4 is False and isinstance(ev4, list)
+
+
+def test_native_check_load_cards():
+    import json as _json, tempfile, os
+    with tempfile.TemporaryDirectory() as d:
+        with open(os.path.join(d, "a.json"), "w") as fh:
+            fh.write(_json.dumps([{"id": "c1", "intents": ["x"], "title": "t"}, {"bad": 1}]))
+        with open(os.path.join(d, "b.json"), "w") as fh:
+            fh.write("{ broken")
+        cards, warns = native_check.load_cards(d)
+        assert [c["id"] for c in cards] == ["c1"]
+        assert any("parse failed" in w for w in warns) and any("missing id/intents" in w for w in warns)
+        assert native_check.load_cards(os.path.join(d, "nope"))[0] == []   # missing dir → []
+
+
+def test_native_check_shipped_card_corpus_is_valid():
+    """The real curated cards parse, are unique, and conform to the schema."""
+    cards_dir = SCRIPTS_DIR.parent.parent / "odoo-capabilities" / "references" / "cards"
+    cards, warns = native_check.load_cards(str(cards_dir))
+    assert not warns, warns
+    assert len(cards) >= 30, f"only {len(cards)} cards loaded"
+    seen = set()
+    valid_kinds = {"module_installed", "model_exists", "field_exists", "method_exists"}
+
+    def probe_kinds(p):
+        if "any" in p:
+            return [k for s in p["any"] for k in probe_kinds(s)]
+        if "all" in p:
+            return [k for s in p["all"] for k in probe_kinds(s)]
+        return [p.get("kind")]
+
+    for c in cards:
+        for key in ("id", "title", "domain", "primitive", "intents", "modules",
+                    "models", "reuse_advice", "when_not_enough", "probe"):
+            assert key in c, f"{c.get('id')} missing {key}"
+        assert c["id"] not in seen, f"duplicate id {c['id']}"
+        seen.add(c["id"])
+        assert isinstance(c["intents"], list) and len(c["intents"]) >= 3
+        for k in probe_kinds(c["probe"]):
+            assert k in valid_kinds, f"{c['id']}: bad probe kind {k}"
+
+
+def test_summ_native_check():
+    d = {"confirmed_candidates": [{"id": "account.payment_register"}],
+         "unconfirmed_candidates": [{"id": "x"}, {"id": "y"}], "considered": 5}
+    out = odoo_ai._summ("native_check", d)
+    assert "1 present / 2 not-here" in out and "account.payment_register" in out
+    assert odoo_ai._summ("native_check", {}) is not None      # never raises
 
 
 if __name__ == "__main__":

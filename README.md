@@ -54,7 +54,7 @@ claude plugin validate /path/to/odoo-ai-skills # check the manifest
 ## How to use
 
 - **New to a task?** Invoke the **`odoo`** skill — it routes you to the right sub-skill.
-- **About to *add* a field/model/wizard/report/cron/automation (or override a core flow)?** Invoke **`odoo-capabilities`** first — `odoo-ai capabilities <model>` / `--module <addon>` — to check what Odoo already ships before reinventing it. The best patch is sometimes no patch.
+- **About to *add* a field/model/wizard/report/cron/automation (or override a core flow)?** Invoke **`odoo-capabilities`** first — `odoo-ai native-check "<requirement>"` (matches curated cards, existence-gated against the instance) or `odoo-ai capabilities <model>` for the full surface — to check what Odoo already ships before reinventing it. The best patch is sometimes no patch.
 - **About to write code?** Invoke **`odoo-introspect`** first to dump the model/flow as JSON (`odoo-ai all <model>`), then the relevant build skill, then **`odoo-testing`**, then **`odoo-review`** before you merge.
 - **Something "didn't apply"?** `odoo-ai preflight <module>` before assuming a code bug.
 - **About to rename/drop a field?** `odoo-ai refs <model> <field>` to see everything that depends on it first.
@@ -70,7 +70,7 @@ claude plugin validate /path/to/odoo-ai-skills # check the manifest
 ### Tier 0 — Foundation (the ground-truth engine)
 | Skill | What it does |
 |-------|--------------|
-| **odoo-capabilities** | **Step 0** — before reinventing platform behavior, enumerate what Odoo already ships: `odoo-ai capabilities <model>` / `--module <addon>` (Layer H) maps the native surface — wizards, actions, crons, automation rules, sequences, mixins, feature groups, functional fields — from the live registry, with xmlids as evidence. Fires only for *additive* / core-override tasks. Carries the anti-pattern → native-primitive catalogue. |
+| **odoo-capabilities** | **Step 0** — before reinventing platform behavior, ask what Odoo already ships. `odoo-ai native-check "<requirement>"` (Layer H gate-then-rank) recall-matches ~34 curated capability cards, then **existence-gates** each against the live instance and returns candidates with cited evidence; `odoo-ai capabilities <model>` / `--module <addon>` maps the full native surface (wizards, actions, crons, automations, sequences, mixins, fields) with xmlids as evidence. Fires only for *additive* / core-override tasks. Carries the cards + the anti-pattern → native-primitive catalogue. |
 | **odoo-introspect** | The engine every other skill calls first. JSON layers — A: fields+MRO+super+security · B: views/buttons · C: menu/data/reports · D: real runtime trace (with SQL-hotspot / write-map / exception summary) · **G: effective per-user/company security** — plus focused scanners: **refs** (reverse field impact, graph-resolved dotted paths), **preflight** (is it even loaded?), and **state_capture** (Layer F: runtime values at a breakpoint + exception post-mortem) — and the `odoo-ai` CLI. |
 
 ### Tier 1 — Core loop

@@ -1,0 +1,46 @@
+[
+  {
+    "id": "purchase.receipt_values",
+    "title": "Influence the receipt (picking) created from a purchase order",
+    "domain": "purchase",
+    "primitive": "hook",
+    "intents": ["receipt values", "incoming shipment fields", "set field on receipt", "stock move from PO",
+                "goods receipt", "giá trị phiếu nhập", "trường trên phiếu nhập kho", "tạo phiếu nhập từ PO",
+                "nhận hàng mua"],
+    "modules": ["purchase_stock"],
+    "models": ["purchase.order", "purchase.order.line"],
+    "hooks": ["_prepare_picking", "_prepare_stock_moves"],
+    "reuse_advice": "Override purchase.order._prepare_picking / purchase.order.line._prepare_stock_moves (only exist with purchase_stock — depend on it, not purchase). Don't hook button_confirm.",
+    "when_not_enough": ["receipt creation outside the standard purchase→stock path"],
+    "probe": {"kind": "method_exists", "model": "purchase.order", "method": "_prepare_picking"}
+  },
+  {
+    "id": "purchase.vendor_bill_values",
+    "title": "Add custom data to the vendor bill created from a purchase order",
+    "domain": "purchase",
+    "primitive": "hook",
+    "intents": ["vendor bill field", "supplier invoice value", "bill from PO", "carry data to vendor bill",
+                "trường hóa đơn nhà cung cấp", "đưa dữ liệu sang hóa đơn mua", "tạo hóa đơn từ PO"],
+    "modules": ["purchase"],
+    "models": ["purchase.order", "purchase.order.line"],
+    "hooks": ["_prepare_invoice", "_prepare_account_move_line"],
+    "reuse_advice": "Override purchase.order._prepare_invoice (header) / purchase.order.line._prepare_account_move_line (line). Don't override _create_invoices wholesale.",
+    "when_not_enough": ["restructuring how bills are grouped across POs"],
+    "probe": {"kind": "method_exists", "model": "purchase.order", "method": "_prepare_invoice"}
+  },
+  {
+    "id": "purchase.approval_double_validation",
+    "title": "Purchase approval workflow (double validation by amount)",
+    "domain": "purchase",
+    "primitive": "feature_group",
+    "intents": ["purchase approval", "double validation", "approve PO over amount", "manager approval order",
+                "approval threshold", "phê duyệt mua hàng", "duyệt hai cấp", "duyệt PO theo số tiền",
+                "ngưỡng phê duyệt"],
+    "modules": ["purchase"],
+    "models": ["purchase.order"],
+    "hooks": ["button_confirm"],
+    "reuse_advice": "Enable double validation in Purchase settings (po_double_validation + amount threshold) — button_confirm routes to 'to approve' automatically. Don't hardcode state/approval checks.",
+    "when_not_enough": ["multi-level approval chains beyond the two-step standard (then an approvals module)"],
+    "probe": {"kind": "module_installed", "module": "purchase"}
+  }
+]

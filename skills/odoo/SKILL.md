@@ -22,7 +22,7 @@ Odoo builds every model, view, security rule, and automation **at runtime** from
 
 ## Always start here
 
-0. **`odoo-capabilities`** — Step 0, *only* when the task would **add** a field/model/wizard/report/cron/automation or **override a core flow**: check what Odoo already ships before reinventing it (`odoo-ai capabilities <model>` / `--module <addon>`). Skip for bug-fixes, view tweaks, or work inside your own module.
+0. **`odoo-capabilities`** — Step 0, *only* when the task would **add** a field/model/wizard/report/cron/automation or **override a core flow**: check what Odoo already ships before reinventing it — `odoo-ai native-check "<requirement>"` (matches curated cards, existence-gated against the instance), or `odoo-ai capabilities <model>` / `--module <addon>` for the full surface. Skip for bug-fixes, view tweaks, or work inside your own module.
 1. **`odoo-introspect`** — Tier 0 ground-truth engine. Dump the model/flow as JSON (Layer A fields+MRO+super+security, B view/buttons, C menu/data/reports, D real runtime trace) with `odoo-ai all <model>`. Do this **before** writing code.
 2. Pick the build skill from the table below.
 3. **`odoo-testing`** — prove it (test fails before, passes after; non-admin / multi-company / batch; `-i` + `-u`).

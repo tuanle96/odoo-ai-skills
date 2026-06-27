@@ -14,6 +14,7 @@ Config (flags override env):
     --out-dir                 where JSON is written   (default: /tmp/odoo-ai/<model>)
 
 Commands:
+    odoo-ai native-check "<requirement>" [--model M]   # does Odoo already ship this? (Layer H gate-then-rank)
     odoo-ai capabilities <model> | --module <addon>   # native surface (Layer H) — run BEFORE writing code
     odoo-ai feature-map  <model>                       # alias: capabilities for a model
     odoo-ai brief       <model> [--methods a,b] [--source] [--code-preview] [--code]
@@ -59,7 +60,13 @@ SCRIPTS = {
     "security":    (HERE / "security_sim.py", "===ODOO_SECURITY_START===", "===ODOO_SECURITY_END==="),
     "state":       (HERE / "state_capture.py", "===ODOO_STATE_START===", "===ODOO_STATE_END==="),
     "capabilities": (HERE / "capabilities.py", "===ODOO_CAP_START===", "===ODOO_CAP_END==="),
+    "native_check": (HERE / "native_check.py", "===ODOO_NCHECK_START===", "===ODOO_NCHECK_END==="),
 }
+
+# Curated capability cards (consumed by native_check) live in the sibling
+# odoo-capabilities skill; resolve the path relative to this CLI so it works in
+# both a clone and the installed-plugin layout.
+CARDS_DIR = HERE.parent.parent / "odoo-capabilities" / "references" / "cards"
 
 
 def run_in_shell(script_path, env_extra, cfg):
@@ -152,6 +159,12 @@ def _summ(step, d):
                        f"{s.get('automation_rules', 0)} automations)"
             return f"(model={d.get('model')}, {s.get('functional_fields', 0)} fn-fields, "\
                    f"{s.get('bound_actions', 0)} bound actions, {s.get('reports', 0)} reports)"
+        if step == "native_check":
+            conf = d.get("confirmed_candidates", [])
+            unconf = d.get("unconfirmed_candidates", [])
+            top = conf[0]["id"] if conf else "—"
+            return f"({len(conf)} present / {len(unconf)} not-here of "\
+                   f"{d.get('considered', 0)} matched; top={top})"
     except Exception:
         return ""
     return ""
@@ -168,6 +181,7 @@ def main():
 
     sc = sub.add_parser("capabilities", help="native capability surface (Layer H) — what this instance already ships; run BEFORE writing code"); sc.add_argument("target", nargs="?", help="a model, e.g. sale.order"); sc.add_argument("--module", help="enumerate everything an addon shipped, e.g. --module sale")
     sfm = sub.add_parser("feature-map", help="alias: capabilities for a model (native surface around it)"); sfm.add_argument("model")
+    snc = sub.add_parser("native-check", help="does Odoo already ship this? recall-match curated capability cards, then existence-gate them against this instance (Layer H gate-then-rank)"); snc.add_argument("requirement", help='free-text requirement, e.g. "auto-number delivery slips"'); snc.add_argument("--model", default="", help="optional model for context, e.g. sale.order")
 
     sb = sub.add_parser("brief"); sb.add_argument("model"); sb.add_argument("--methods", default=""); sb.add_argument("--source", action="store_true"); sb.add_argument("--code-preview", dest="code_preview", action="store_true", help="include a short head-only slice of server-action/cron code (potentially sensitive)"); sb.add_argument("--code", action="store_true", help="include FULL server-action/cron code bodies (may contain secrets — trusted context only)")
     se = sub.add_parser("entrypoints"); se.add_argument("model"); se.add_argument("--views", default="form,list"); se.add_argument("--view-id", dest="view_id", default=""); se.add_argument("--view-xmlid", dest="view_xmlid", default="")
@@ -201,6 +215,11 @@ def main():
                      "or an addon (`capabilities --module sale`).")
     elif a.cmd == "feature-map":
         do_step("capabilities", {"MODEL": a.model}, cfg, out_dir, a.model)
+    elif a.cmd == "native-check":
+        env_extra = {"REQUIREMENT": a.requirement, "CARDS_DIR": str(CARDS_DIR)}
+        if a.model:
+            env_extra["MODEL"] = a.model
+        do_step("native_check", env_extra, cfg, out_dir, a.model or "native-check")
     elif a.cmd == "brief":
         do_step("brief", {"MODEL": a.model, "METHODS": a.methods, "SOURCE": "1" if a.source else "",
                           "CODE_PREVIEW": "1" if a.code_preview else "", "CODE": "1" if a.code else ""}, cfg, out_dir, a.model)

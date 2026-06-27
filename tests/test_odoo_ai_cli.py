@@ -111,6 +111,17 @@ class SummTests(unittest.TestCase):
                 "state": "uninstalled", "_summary": {}}
         self.assertIn("not enumerable", odoo_ai._summ("capabilities", data))
 
+    def test_native_check_summary(self):
+        data = {"confirmed_candidates": [{"id": "account.payment_register"}],
+                "unconfirmed_candidates": [{"id": "x"}, {"id": "y"}], "considered": 5}
+        out = odoo_ai._summ("native_check", data)
+        self.assertIn("1 present / 2 not-here", out)
+        self.assertIn("account.payment_register", out)
+
+    def test_native_check_summary_empty(self):
+        data = {"confirmed_candidates": [], "unconfirmed_candidates": [], "considered": 0}
+        self.assertIn("top=—", odoo_ai._summ("native_check", data))
+
 
 if __name__ == "__main__":
     unittest.main()

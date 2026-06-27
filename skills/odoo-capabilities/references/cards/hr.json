@@ -1,0 +1,32 @@
+[
+  {
+    "id": "hr.leave_approval",
+    "title": "Time-off approval chain (configurable validation steps)",
+    "domain": "hr",
+    "primitive": "hook",
+    "intents": ["leave approval", "time off approval", "approve holiday", "validate leave", "reject leave",
+                "approval workflow time off", "duyệt nghỉ phép", "phê duyệt nghỉ", "xác nhận nghỉ phép",
+                "từ chối nghỉ", "quy trình duyệt nghỉ"],
+    "modules": ["hr_holidays"],
+    "models": ["hr.leave"],
+    "hooks": ["action_approve", "action_validate", "action_refuse"],
+    "reuse_advice": "Approval steps are CONFIG via leave_validation_type (no_validation/hr/manager/both) per leave type — don't hardcode states. Extend action_approve/action_validate (call super()) only for side-effects.",
+    "when_not_enough": ["an approval chain with more levels than the standard validation types"],
+    "probe": {"kind": "model_exists", "model": "hr.leave"}
+  },
+  {
+    "id": "hr.activity_plan",
+    "title": "Onboarding / multi-step activity plans (mail.activity.plan)",
+    "domain": "hr",
+    "primitive": "feature_group",
+    "intents": ["onboarding plan", "activity plan", "sequence of tasks", "employee onboarding", "checklist of activities",
+                "kế hoạch onboarding", "kế hoạch hoạt động", "chuỗi công việc", "quy trình nhận việc",
+                "danh sách việc cần làm cho nhân viên"],
+    "modules": ["mail"],
+    "models": ["mail.activity.plan"],
+    "hooks": [],
+    "reuse_advice": "Use Activity Plans (mail.activity.plan, 17+) to launch a predefined set of activities (e.g. onboarding) at once. Don't build a custom checklist/task model.",
+    "when_not_enough": ["plans with conditional branching no static plan can express"],
+    "probe": {"kind": "model_exists", "model": "mail.activity.plan"}
+  }
+]
