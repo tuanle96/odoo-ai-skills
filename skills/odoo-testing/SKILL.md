@@ -107,3 +107,4 @@ odoo-bin -d clean_db -u my_module --test-enable --stop-after-init \
 ## References
 
 - `references/testing-patterns.md` — runnable skeletons: `TransactionCase`, `Form()` onchange, `with_user` non-admin, multi-company leak assert, batch create override, `HttpCase` tour.
+- **Generate the required scenarios** (Layer I): `odoo-ai scenarios <model> [--methods a,b]` classifies the change risk and emits the *mandatory* test matrix (non-admin / multi-company / batch / `-i`+`-u` / locked-period for accounting) plus a `TransactionCase` skeleton with a failing stub per scenario — the test gate as a generator, not a memory check.

@@ -1,0 +1,260 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# odoo-ai-gate.yml
+#
+# Runs the LOCAL Layer-I enforcement gates on every pull request and posts a
+# sticky comment with the verdict.  Copy-paste this into any Odoo repo that
+# uses odoo-ai-skills; adjust `addons_path` if your layout differs.
+#
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │  WHAT RUNS HERE  (no Odoo instance, no DB — plain Python 3)            │
+# │                                                                         │
+# │  validate       Static anti-pattern linter: attrs/states, <tree>,      │
+# │                 name_get, type='json' on 19+, create() without          │
+# │                 @api.model_create_multi, search()/browse() in loops,    │
+# │                 f-string cr.execute, uncommented sudo(), leftover debug  │
+# │  scan-secrets   Secret/token scan on changed files before they merge   │
+# │  deploy-gate    Aggregates an evidence bundle → approve/needs-human/block│
+# │  evidence       Renders the bundle as PR-comment Markdown (v0.8+)      │
+# └─────────────────────────────────────────────────────────────────────────┘
+#
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │  WHAT DOES NOT RUN HERE  (needs a real Odoo + odoo-bin shell)          │
+# │                                                                         │
+# │  all / brief / entrypoints / metadata   Layers A–C live-registry reads │
+# │  trace                                  Layer D: real runtime sequence  │
+# │  security                               Layer G: effective ACL sim      │
+# │  scenarios                              Layer I: risk-based test gen    │
+# │  env-fingerprint / upgrade-check        Layer I: instance-side checks   │
+# │                                                                         │
+# │  Run these on odoo.sh staging (where you have a shell + a copy of      │
+# │  production data) or against a Docker/self-hosted instance.  Commit    │
+# │  the resulting JSON to an evidence_bundle/ dir on the branch; the      │
+# │  deploy-gate step will pick it up automatically.                       │
+# │                                                                         │
+# │  See skills/odoo-deploy/references/ci-integration.md for the           │
+# │  odoo.sh recipe, Docker wrapper, and MCP integration notes.            │
+# └─────────────────────────────────────────────────────────────────────────┘
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: odoo-ai gate
+
+on:
+  pull_request:
+    # Trigger on code and XML changes, or when an evidence bundle is committed.
+    paths:
+      - "**.py"
+      - "**.xml"
+      - "evidence_bundle/**"
+
+  # Allow a manual run against any branch (useful for one-off audits).
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: >
+          Space-separated .py/.xml paths or an addons dir to validate.
+          Leave empty to diff against the base branch automatically.
+        required: false
+        default: ""
+
+jobs:
+  gate:
+    name: Layer I — local gates
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write   # required to post / update the sticky PR comment
+
+    steps:
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so git diff against the base branch works reliably.
+          fetch-depth: 0
+
+      # ── 2. Python ───────────────────────────────────────────────────────────
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ── 3. Resolve targets ──────────────────────────────────────────────────
+      # Determine which .py / .xml files to lint.
+      # • pull_request: diff against the PR base branch.
+      # • workflow_dispatch: use the manual input if provided.
+      # The targets are passed as a space-separated list to odoo-ai validate.
+      - name: Resolve changed Odoo files
+        id: targets
+        run: |
+          if [ -n "${{ inputs.targets }}" ]; then
+            PATHS="${{ inputs.targets }}"
+          else
+            BASE="${{ github.base_ref }}"
+            PATHS=$(git diff --name-only "origin/${BASE:-main}...HEAD" \
+                    | grep -E '\.(py|xml)$' \
+                    | tr '\n' ' ')
+          fi
+          echo "paths=${PATHS}" >> "$GITHUB_OUTPUT"
+          echo "Resolved targets: ${PATHS:-(none — docs-only change?)}"
+
+      # ── 4. validate (LOCAL) ─────────────────────────────────────────────────
+      # Runs the odoo-review checklist as a linter.
+      # No Odoo, no DB.  Exits non-zero when blocking issues are found; we
+      # continue-on-error so the PR comment is always posted either way.
+      - name: odoo-ai validate
+        id: validate
+        run: |
+          TARGETS="${{ steps.targets.outputs.paths }}"
+          mkdir -p /tmp/odoo-ai-gate
+
+          if [ -z "$TARGETS" ]; then
+            echo '{"skipped": true, "reason": "no .py/.xml files changed"}' \
+              > /tmp/odoo-ai-gate/validate.json
+            echo "Nothing to validate."
+            exit 0
+          fi
+
+          # validate accepts a list of files or a directory (e.g. addons/my_module).
+          # It exits 1 when blocking issues are found; the outcome is captured below.
+          python3 skills/odoo-introspect/scripts/odoo-ai validate $TARGETS \
+            | tee /tmp/odoo-ai-gate/validate.json
+        continue-on-error: true
+
+      # ── 5. scan-secrets (LOCAL) ─────────────────────────────────────────────
+      # Catches secrets/tokens accidentally committed in .py or .xml files.
+      # No Odoo, no DB.
+      - name: odoo-ai scan-secrets
+        id: scan
+        run: |
+          TARGETS="${{ steps.targets.outputs.paths }}"
+          mkdir -p /tmp/odoo-ai-gate
+
+          if [ -z "$TARGETS" ]; then
+            echo '{"skipped": true}' > /tmp/odoo-ai-gate/scan.json
+            exit 0
+          fi
+
+          for f in $TARGETS; do
+            [ -f "$f" ] && python3 skills/odoo-introspect/scripts/odoo-ai scan-secrets "$f" \
+              | tee -a /tmp/odoo-ai-gate/scan.json
+          done
+        continue-on-error: true
+
+      # ── 6. deploy-gate + evidence (LOCAL, if bundle present) ────────────────
+      # These steps only run when an evidence bundle exists on this branch.
+      #
+      # How to produce a bundle (outside this workflow):
+      #   On odoo.sh staging or a Docker instance run:
+      #     odoo-ai --db <DB> scenarios sale.order  → evidence_bundle/scenarios.json
+      #     odoo-ai --db <DB> env-fingerprint       → evidence_bundle/fingerprint.json
+      #     odoo-ai --db <DB> upgrade-check <model> --against old_brief.json
+      #     odoo-ai --db <DB> security <model> --user <user>
+      #     odoo-ai --db <DB> trace <model> <id> <method>
+      #   Commit evidence_bundle/ to the branch.  This job picks it up here.
+      #
+      # deploy-gate  aggregates the JSON → approve / needs-human / block.
+      # evidence     renders the bundle as Markdown for the PR comment (v0.8+).
+      # Both LOCAL: no Odoo, no DB.
+      - name: odoo-ai deploy-gate + evidence
+        id: gate
+        run: |
+          # Detect a committed bundle dir.
+          BUNDLE=""
+          for candidate in evidence_bundle /tmp/odoo-ai/evidence_bundle; do
+            if [ -d "$candidate" ] && [ "$(ls -A "$candidate" 2>/dev/null)" ]; then
+              BUNDLE="$candidate"
+              break
+            fi
+          done
+          echo "bundle=${BUNDLE}" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$BUNDLE" ]; then
+            echo "No evidence bundle found — deploy-gate and evidence skipped."
+            echo "Run the shell-bound layers on staging and commit evidence_bundle/ to this branch."
+            exit 0
+          fi
+
+          echo "Bundle: $BUNDLE"
+          mkdir -p /tmp/odoo-ai-gate
+
+          # deploy-gate: reads the bundle and emits JSON with a top-level `verdict` key.
+          python3 skills/odoo-introspect/scripts/odoo-ai deploy-gate "$BUNDLE" \
+            | tee /tmp/odoo-ai-gate/deploy_gate.json
+
+          # evidence: renders the bundle as Markdown for the PR comment (added v0.8.0).
+          python3 skills/odoo-introspect/scripts/odoo-ai evidence "$BUNDLE" \
+            > /tmp/odoo-ai-gate/evidence.md 2>/dev/null || \
+            echo "_evidence command not available — upgrade to v0.8.0+_" \
+            > /tmp/odoo-ai-gate/evidence.md
+        continue-on-error: true
+
+      # ── 7. Build PR comment ─────────────────────────────────────────────────
+      - name: Build comment body
+        run: |
+          {
+            echo "## odoo-ai gate · Layer I"
+            echo ""
+            echo "| gate | result |"
+            echo "|---|---|"
+
+            # validate row
+            if grep -q '"skipped": true' /tmp/odoo-ai-gate/validate.json 2>/dev/null; then
+              echo "| \`validate\` | ⏭ skipped (no .py/.xml changed) |"
+            elif [ "${{ steps.validate.outcome }}" = "success" ]; then
+              echo "| \`validate\` | ✅ clean |"
+            else
+              echo "| \`validate\` | ❌ issues found — see output below |"
+            fi
+
+            # scan-secrets row
+            if grep -q '"skipped": true' /tmp/odoo-ai-gate/scan.json 2>/dev/null; then
+              echo "| \`scan-secrets\` | ⏭ skipped |"
+            elif grep -q '"findings": \[\]' /tmp/odoo-ai-gate/scan.json 2>/dev/null; then
+              echo "| \`scan-secrets\` | ✅ clean |"
+            elif [ -f /tmp/odoo-ai-gate/scan.json ]; then
+              echo "| \`scan-secrets\` | ⚠ findings — review below |"
+            else
+              echo "| \`scan-secrets\` | ⏭ skipped |"
+            fi
+
+            # deploy-gate row
+            if [ -z "${{ steps.gate.outputs.bundle }}" ]; then
+              echo "| \`deploy-gate\` | ⏭ no bundle |"
+            elif grep -q '"verdict": "approve"' /tmp/odoo-ai-gate/deploy_gate.json 2>/dev/null; then
+              echo "| \`deploy-gate\` | ✅ approve |"
+            elif grep -q '"verdict": "block"' /tmp/odoo-ai-gate/deploy_gate.json 2>/dev/null; then
+              echo "| \`deploy-gate\` | 🚫 block |"
+            else
+              echo "| \`deploy-gate\` | 👤 needs-human |"
+            fi
+
+            echo ""
+            echo "### \`validate\` output"
+            echo '```'
+            cat /tmp/odoo-ai-gate/validate.json 2>/dev/null || echo "(no output)"
+            echo '```'
+
+            # Include the evidence bundle render if present.
+            if [ -s /tmp/odoo-ai-gate/evidence.md ]; then
+              echo ""
+              echo "---"
+              cat /tmp/odoo-ai-gate/evidence.md
+            fi
+
+            echo ""
+            echo "---"
+            echo "> **Shell-bound layers** (introspect · scenarios · env-fingerprint · upgrade-check · security · trace)"
+            echo "> require a real Odoo instance and do not run here."
+            echo "> Run them on odoo.sh staging or a Docker instance, commit \`evidence_bundle/\` to this branch,"
+            echo "> and re-push — deploy-gate and evidence will pick it up automatically."
+            echo "> See [ci-integration.md](skills/odoo-deploy/references/ci-integration.md)."
+          } > /tmp/odoo-ai-gate/comment.md
+
+      # ── 8. Post sticky PR comment ───────────────────────────────────────────
+      # marocchino/sticky-pull-request-comment upserts a single comment per
+      # `header` key — one comment that updates on every push, no spam.
+      - name: Post PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        if: github.event_name == 'pull_request'
+        with:
+          header: odoo-ai-gate
+          path: /tmp/odoo-ai-gate/comment.md

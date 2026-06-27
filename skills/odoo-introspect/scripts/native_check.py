@@ -206,6 +206,137 @@ def eval_probe(probe, checker):
     return passed, [evidence]
 
 
+# Supported existence-probe leaf kinds (the env-bound handlers live in run();
+# this dispatcher stays pure so the grammar is unit-testable with fake handlers):
+#   module_installed{module} · model_exists{model} · field_exists{model,field}
+#   method_exists{model,method} · xmlid_exists{xmlid} · action_window_exists{model}
+#   group_exists{xmlid} · cron_exists{model} · sequence_exists{code}
+#   selection_has_value{model,field,value} · mixin_inherited{model,mixin}
+#   edition{edition: "enterprise"|"community"}
+PROBE_KINDS = frozenset({
+    "module_installed", "model_exists", "field_exists", "method_exists",
+    "xmlid_exists", "action_window_exists", "group_exists", "cron_exists",
+    "sequence_exists", "selection_has_value", "mixin_inherited", "edition",
+})
+
+
+def dispatch_leaf(leaf, handlers, on_error=None):
+    """Evaluate ONE probe leaf via a {kind: handler} map. Pure + injected.
+
+    `handlers[kind](leaf) -> (passed, evidence_dict)` is the only env-dependent
+    part; passing it in keeps the dispatch (and every new probe kind) testable
+    with fakes while the real registry-bound handlers stay in run(). An unknown
+    kind, or a handler that raises, yields (False, evidence) and (optionally)
+    calls on_error(msg) so the failure surfaces in _warnings, never vanishes.
+    """
+    kind = leaf.get("kind")
+    handler = handlers.get(kind)
+    if handler is None:
+        if on_error:
+            on_error(f"unknown probe kind: {kind}")
+        return False, {"check": f"unknown probe kind {kind}", "found": False}
+    try:
+        return handler(leaf)
+    except Exception as e:  # noqa: BLE001
+        if on_error:
+            on_error(f"probe {leaf} failed ({type(e).__name__}: {e})")
+        return False, {"check": str(leaf)[:60], "found": False, "detail": "probe error"}
+
+
+def make_handlers(env):
+    """Build the {kind: handler(leaf) -> (passed, evidence)} map bound to a live
+    `env` (registry). Module-level so OTHER tools (the BYO claim-verify adapter)
+    reuse the exact same existence probes instead of re-implementing them.
+    Evidence-or-silence: a probe is only ever satisfied if it returns True for
+    THIS instance + version.
+    """
+    def _h_module(leaf):
+        m = leaf["module"]
+        ok = bool(env["ir.module.module"].sudo().search(
+            [("name", "=", m), ("state", "=", "installed")], limit=1))
+        return ok, {"check": f"module {m} installed", "found": ok}
+
+    def _h_model(leaf):
+        m = leaf["model"]
+        ok = m in env   # Environment.__contains__ → registry
+        return ok, {"check": f"model {m} in registry", "found": ok}
+
+    def _h_field(leaf):
+        m, f = leaf["model"], leaf["field"]
+        ok = (m in env) and (f in env[m]._fields)
+        return ok, {"check": f"{m}.{f} field present", "found": ok}
+
+    def _h_method(leaf):
+        m, meth = leaf["model"], leaf["method"]
+        ok = (m in env) and hasattr(env[m], meth)
+        return ok, {"check": f"{m}.{meth}() present", "found": ok}
+
+    def _h_xmlid(leaf):
+        x = leaf["xmlid"]
+        rec = env.ref(x, raise_if_not_found=False)
+        ok = bool(rec)
+        ev = {"check": f"xmlid {x} present", "found": ok}
+        if ok:
+            ev["model"] = rec._name
+        return ok, ev
+
+    def _h_action_window(leaf):
+        m = leaf["model"]
+        ok = bool(env["ir.actions.act_window"].sudo().search([("res_model", "=", m)], limit=1))
+        return ok, {"check": f"window action for {m}", "found": ok}
+
+    def _h_group(leaf):
+        x = leaf["xmlid"]
+        rec = env.ref(x, raise_if_not_found=False)
+        ok = bool(rec) and rec._name == "res.groups"
+        return ok, {"check": f"group {x} present", "found": ok}
+
+    def _h_cron(leaf):
+        m = leaf["model"]
+        ok = bool(env["ir.cron"].sudo().search([("model_id.model", "=", m)], limit=1))
+        return ok, {"check": f"cron on {m}", "found": ok}
+
+    def _h_sequence(leaf):
+        code = leaf["code"]
+        ok = bool(env["ir.sequence"].sudo().search([("code", "=", code)], limit=1))
+        return ok, {"check": f"sequence code {code}", "found": ok}
+
+    def _h_selection(leaf):
+        m, f, val = leaf["model"], leaf["field"], leaf["value"]
+        ok = False
+        if m in env and f in env[m]._fields:
+            fld = env[m]._fields[f]
+            try:
+                sel = dict(fld._description_selection(env))
+            except Exception:
+                sel = dict(getattr(fld, "selection", None) or [])
+            ok = val in sel
+        return ok, {"check": f"{m}.{f} selection has '{val}'", "found": ok}
+
+    def _h_mixin(leaf):
+        m, mixin = leaf["model"], leaf["mixin"]
+        ok = (m in env) and any(
+            getattr(b, "_name", None) == mixin for b in type(env[m]).__mro__)
+        return ok, {"check": f"{m} inherits {mixin}", "found": ok}
+
+    def _h_edition(leaf):
+        want = (leaf.get("edition") or "").lower()
+        is_ent = bool(env["ir.module.module"].sudo().search(
+            [("name", "=", "web_enterprise"), ("state", "=", "installed")], limit=1))
+        edition = "enterprise" if is_ent else "community"
+        return (edition == want), {"check": f"edition is {want}", "found": edition == want,
+                                   "detail": f"instance is {edition}"}
+
+    return {
+        "module_installed": _h_module, "model_exists": _h_model,
+        "field_exists": _h_field, "method_exists": _h_method,
+        "xmlid_exists": _h_xmlid, "action_window_exists": _h_action_window,
+        "group_exists": _h_group, "cron_exists": _h_cron,
+        "sequence_exists": _h_sequence, "selection_has_value": _h_selection,
+        "mixin_inherited": _h_mixin, "edition": _h_edition,
+    }
+
+
 def load_cards(cards_dir):
     """Load + flatten every *.json card file in a directory. Returns (cards, warnings)."""
     cards, warns = [], []
@@ -266,31 +397,12 @@ def run():
     req_for_match = REQUIREMENT + (" " + MODEL if MODEL else "")
     matched = match_cards(req_for_match, cards)
 
+    # Existence-probe handlers, bound to this live env (built by the module-level
+    # make_handlers so the BYO claim-verify adapter reuses the exact same probes).
+    handlers = make_handlers(env)  # noqa: F821  (env injected by odoo-bin shell)
+
     def checker(leaf):
-        kind = leaf.get("kind")
-        try:
-            if kind == "module_installed":
-                m = leaf["module"]
-                ok = bool(env["ir.module.module"].sudo().search(  # noqa: F821
-                    [("name", "=", m), ("state", "=", "installed")], limit=1))
-                return ok, {"check": f"module {m} installed", "found": ok}
-            if kind == "model_exists":
-                m = leaf["model"]
-                ok = m in env  # noqa: F821  (Environment.__contains__ → registry)
-                return ok, {"check": f"model {m} in registry", "found": ok}
-            if kind == "field_exists":
-                m, f = leaf["model"], leaf["field"]
-                ok = (m in env) and (f in env[m]._fields)  # noqa: F821
-                return ok, {"check": f"{m}.{f} field present", "found": ok}
-            if kind == "method_exists":
-                m, meth = leaf["model"], leaf["method"]
-                ok = (m in env) and hasattr(env[m], meth)  # noqa: F821
-                return ok, {"check": f"{m}.{meth}() present", "found": ok}
-        except Exception as e:  # noqa: BLE001
-            WARNINGS.append(f"probe {leaf} failed ({type(e).__name__}: {e})")
-            return False, {"check": str(leaf)[:60], "found": False, "detail": "probe error"}
-        WARNINGS.append(f"unknown probe kind: {kind}")
-        return False, {"check": f"unknown probe kind {kind}", "found": False}
+        return dispatch_leaf(leaf, handlers, on_error=WARNINGS.append)
 
     confirmed, unconfirmed = [], []
     for score, card in matched:

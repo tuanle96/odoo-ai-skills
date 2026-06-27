@@ -762,7 +762,7 @@ def test_native_check_shipped_card_corpus_is_valid():
     assert not warns, warns
     assert len(cards) >= 30, f"only {len(cards)} cards loaded"
     seen = set()
-    valid_kinds = {"module_installed", "model_exists", "field_exists", "method_exists"}
+    valid_kinds = set(native_check.PROBE_KINDS)  # full grammar (12 kinds as of v0.8)
 
     def probe_kinds(p):
         if "any" in p:

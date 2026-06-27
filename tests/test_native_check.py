@@ -44,6 +44,49 @@ class PureHelperTests(unittest.TestCase):
             {"all": [{"model": "good.model"}, {"model": "bad"}]}, checker)
         self.assertFalse(ok2)
 
+    def test_dispatch_leaf_routes_and_is_defensive(self):
+        handlers = {
+            "model_exists": lambda l: (l["model"] == "ok.model",
+                                       {"check": l["model"], "found": l["model"] == "ok.model"}),
+        }
+        warns = []
+        ok, _ = native_check.dispatch_leaf(
+            {"kind": "model_exists", "model": "ok.model"}, handlers, on_error=warns.append)
+        self.assertTrue(ok)
+        # unknown kind -> False + a surfaced warning, never a crash
+        ok2, _ = native_check.dispatch_leaf({"kind": "nope"}, handlers, on_error=warns.append)
+        self.assertFalse(ok2)
+        self.assertTrue(any("unknown probe kind" in w for w in warns))
+
+        # a handler that raises is caught and reported, not propagated
+        def _boom(_leaf):
+            raise KeyError("missing field")
+        ok3, ev3 = native_check.dispatch_leaf(
+            {"kind": "boom"}, {"boom": _boom}, on_error=warns.append)
+        self.assertFalse(ok3)
+        self.assertFalse(ev3["found"])
+
+    def test_eval_probe_with_extended_kinds(self):
+        # the new (v0.8) probe grammar composes through any/all + dispatch_leaf
+        handlers = {
+            "edition": lambda l: (l["edition"] == "enterprise",
+                                  {"check": "edition", "found": l["edition"] == "enterprise"}),
+            "sequence_exists": lambda l: (l["code"] == "sale.order",
+                                          {"check": "seq", "found": l["code"] == "sale.order"}),
+            "mixin_inherited": lambda l: (l["mixin"] == "mail.thread",
+                                          {"check": "mixin", "found": l["mixin"] == "mail.thread"}),
+        }
+        def checker(leaf):
+            return native_check.dispatch_leaf(leaf, handlers)
+        passing = {"all": [{"kind": "sequence_exists", "code": "sale.order"},
+                           {"kind": "mixin_inherited", "mixin": "mail.thread"}]}
+        ok, ev = native_check.eval_probe(passing, checker)
+        self.assertTrue(ok)
+        self.assertEqual(len(ev), 2)
+        failing = {"all": [{"kind": "edition", "edition": "community"},
+                           {"kind": "sequence_exists", "code": "sale.order"}]}
+        self.assertFalse(native_check.eval_probe(failing, checker)[0])
+
 
 class TfidfAndLearningTests(unittest.TestCase):
     def test_tfidf_cosine(self):
@@ -78,7 +121,7 @@ class TfidfAndLearningTests(unittest.TestCase):
 
 class ShippedCardCorpusTests(unittest.TestCase):
     """Guards the curated cards in always-on CI (tests.yml)."""
-    VALID_KINDS = {"module_installed", "model_exists", "field_exists", "method_exists"}
+    VALID_KINDS = set(native_check.PROBE_KINDS)
     REQUIRED = ("id", "title", "domain", "primitive", "intents", "modules",
                 "models", "reuse_advice", "when_not_enough", "probe")
 

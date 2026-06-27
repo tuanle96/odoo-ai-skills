@@ -123,8 +123,17 @@ See `references/sample-output.md` for the JSON shape each layer returns.
 - `scripts/preflight.py` — module preflight: installed/loaded state, load path, shadow/duplicate `addons_path` traps.
 - `scripts/state_capture.py` — Layer F: runtime state — breakpoint snapshot (args/locals/`self` at a `model.method` or source line) + exception post-mortem (full call stack with each frame's locals). Non-interactive, JSON.
 - `scripts/capabilities.py` — Layer H: native capability surface (wizards/actions/crons/automations/sequences/mixins/functional fields) for a model or module, from the live registry. Exposed as `odoo-ai capabilities <model>` / `--module <addon>` and driven by the **`odoo-capabilities`** skill (Step 0: is it already native?).
-- `scripts/native_check.py` — Layer H gate-then-rank: recall-matches the `odoo-capabilities` curated cards against a requirement, then existence-gates each against the live registry. Exposed as `odoo-ai native-check "<requirement>"`.
-- `scripts/odoo-ai` — CLI that runs all four and writes a JSON folder.
+- `scripts/native_check.py` — Layer H gate-then-rank: recall-matches the `odoo-capabilities` curated cards against a requirement, then existence-gates each against the live registry (12 probe kinds). Exposed as `odoo-ai native-check "<requirement>"`.
+- `scripts/scenario_gen.py` — **Layer I** risk-based scenario test generator: required scenarios (non-admin/multi-company/batch/upgrade) + a `TransactionCase` skeleton. `odoo-ai scenarios <model>`.
+- `scripts/env_diff.py` — **Layer I** environment parity: fingerprint this instance (`odoo-ai env-fingerprint`) and diff dev-vs-prod (`odoo-ai env-diff a.json b.json`, local).
+- `scripts/upgrade_check.py` — **Layer I** upgrade/migration harness: rename-vs-drop, new-required, `noupdate` risks + a pre-migrate scaffold. `odoo-ai upgrade-check <model> --against old.json` (or `upgrade-diff`, local).
+- `scripts/patch_validator.py` — **Layer I** static Odoo anti-pattern linter (the `odoo-review` checklist, executable). `odoo-ai validate <path...>` — **local, no DB**.
+- `scripts/redaction.py` — **Layer I** enforced privacy redaction for external-LLM-safe output. `odoo-ai redact <file>` / `odoo-ai scan-secrets <file>` — **local, no DB**.
+- `scripts/deploy_gate.py` — **Layer I** deploy approval orchestrator: aggregate evidence → approve/needs-human/block. `odoo-ai deploy-gate <bundle_dir>` — **local, no DB**.
+- `scripts/evidence_bundle.py` — **Layer I** flagship: render a folder of gate outputs into a deploy verdict + a **PR-comment Markdown**. `odoo-ai evidence <bundle_dir>` — **local, no DB**.
+- `scripts/claim_verify.py` — **Layer I** BYO-index claim verifier: check external-source claims against the live instance (confirmed/contradicted/needs-shell/needs-human). `odoo-ai verify-claims <claims.json>`.
+- `scripts/doc_index.py` — **Layer J** local Odoo dev-docs index (TF-IDF, build-local, never vendored). `odoo-ai docs-build` / `odoo-ai docs` — **local, no DB**; driven by the **odoo-docs** skill.
+- `scripts/odoo-ai` — CLI that runs every layer and writes a JSON folder.
 - `references/introspection.md` — RPC fallback for SaaS + mcp-odoo integration.
 - `references/sample-output.md` — abbreviated sample JSON for each of the four layers.
 - `references/version-matrix.md` — v16/v17/v18 API differences this suite depends on.

@@ -147,6 +147,19 @@ Odoo terms*, the fix, and — for correctness — the test that should prove it.
 Don't rewrite the whole patch; point to the smallest correct change (the
 `odoo-dev` ethos).
 
+## Run the checklist as a linter (Layer I)
+
+Much of the checklist above is now **executable**: `odoo-ai validate <path...>`
+(local, no DB) statically flags the high-signal, mechanical defects — `attrs`/
+`states`, `<tree>`, `name_get`, `type='json'` on 19+, `create()` without
+`@api.model_create_multi`, `search()`/`browse()` in loops, f-string `cr.execute`,
+uncommented `sudo()`, `self._cr`/`_uid`/`_context`, fragile xpath, leftover debug.
+Run it first to clear the mechanical issues, then spend your judgement on what a
+linter can't see (MRO layer, security intent, data-loss, right hook) — confirmed
+against the brief. It complements, never replaces, the confirm-against-the-instance
+rule. Before sharing any introspection JSON with an external LLM, run
+`odoo-ai redact <file>` / `odoo-ai scan-secrets <file>`.
+
 ## References & related skills
 
 - `odoo-testing` — turn each correctness finding into a failing-then-passing

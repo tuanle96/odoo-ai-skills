@@ -6,6 +6,125 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-28
+
+**The verification gate.** Repositions the suite around its real category —
+*static indexes suggest; the running instance disposes* — and ships the pieces
+that make that real: a flagship one-command evidence bundle, a bring-your-own-index
+claim verifier, a local Odoo-docs index (Layer J), and CI integration. (Strategic
+basis: the competitive analysis under `plans/reports/`.)
+
+### Added
+- **`odoo-ai evidence <bundle_dir>`** (`evidence_bundle.py`, local) — the flagship
+  artifact: aggregates the gate outputs into the deploy verdict and renders a
+  **PR-ready Markdown comment** (verdict badge, risk tier, gate-evidence table,
+  blocking findings, required approvals). The "agent-written, tool-verified,
+  human-approved" artifact for CI/procurement.
+- **`odoo-ai verify-claims <claims.json>`** (`claim_verify.py`) — the **BYO-index
+  adapter**: treat any external source's claims (a hosted index, OCA docs, `grep`,
+  the doc-index, another agent) as hypotheses and verify each against THIS instance
+  → `confirmed / contradicted / needs_shell / needs_human / absent`. Reuses
+  native_check's existence probes (the new module-level `make_handlers`). Ecosystem
+  breadth without trusting an index — and without the re-indexing treadmill.
+- **Layer J — local Odoo-docs index** (`doc_index.py` + the `odoo-docs` skill):
+  `odoo-ai docs-build --version 18` builds a TF-IDF index of `content/developer/`
+  **locally** (in `~/.odoo-ai/docs-index/`, never vendored into the repo — clean
+  CC-BY-SA hygiene, no plugin bloat, no maintenance treadmill); `odoo-ai docs
+  "<q>" --version 18` returns ranked chunks + canonical odoo.com URLs. Subordinate
+  to introspection (docs propose, the instance disposes); reuses the suite's
+  offline TF-IDF (no embeddings, no network at query time).
+- **CI integration** — `.github/workflows/odoo-ai-gate.yml` (an example PR workflow
+  that runs the local gates and posts a sticky verdict comment),
+  `skills/odoo-deploy/references/ci-integration.md` (GitHub Action / odoo.sh recipe
+  / Docker + MCP wrappers, plus an **honest RPC-degraded capability table**), and
+  `docs/high-risk-playbooks.md` (the failures a static index can't catch).
+- **`SUSTAINABILITY.md`** — the engine stays LGPL and complete; sustainability is
+  services (support, implementation, sponsored compatibility, training), not seats.
+
+### Changed
+- **Repositioned** the README + landing page from "skills suite" to the
+  **local-first verification & deploy gate**: *static indexes suggest;
+  `odoo-ai-skills` verifies against the running instance.* No SaaS, no seats, no
+  API key, no metadata leaves the box.
+- `native_check.py` — the existence-probe handlers are extracted to a reusable
+  module-level `make_handlers(env)`, shared by native-check and the claim verifier.
+
+### Tests
+- Pure helpers unit-tested for evidence-bundle (Markdown render + verdicts),
+  claim-verify (claim→probe mapping, verdict classification), and doc-index (RST
+  chunking, canonical URLs, TF-IDF query). The integration smoke is extended to
+  verify-claims against the live registry.
+
+## [0.8.0] - 2026-06-27
+
+**Layer I — enforcement gates.** Where Layers A–H *produce evidence*, this release
+starts *enforcing verification*: the seven recommendations from the v0.7 codebase
+evaluation, built as real tools. The thesis grows from "read ground truth, don't
+guess" to "**read ground truth → prove the change against the exact users,
+companies, env, and upgrade path → gate the deploy**". Four gates are **pure and
+local** (no `odoo-bin shell`, no DB) so they run in CI or on a laptop.
+
+### Added
+- **Risk-based scenario test generator** — `odoo-ai scenarios <model> [--methods a,b]`
+  (`scenario_gen.py`). Classifies the change risk (critical/high/normal by model)
+  and emits the *mandatory* test scenarios (non-admin, multi-company, batch,
+  `at_install`/`post_install`, `-i`/`-u`, locked-period for accounting) plus a
+  runnable `TransactionCase` skeleton with one failing stub per scenario.
+- **Environment parity & drift detector** — `odoo-ai env-fingerprint` captures a
+  parity fingerprint (installed modules+versions, edition, model/rule/cron counts,
+  Studio fields, `ir.config_parameter` **key names only**); `odoo-ai env-diff
+  <base.json> <target.json>` (LOCAL) diffs dev vs prod and refuses false
+  "production-safe" confidence when they diverge (`env_diff.py`).
+- **Static Odoo patch validator** — `odoo-ai validate <path...>` (LOCAL,
+  `patch_validator.py`). The `odoo-review` checklist as an executable linter:
+  flags `attrs`/`states`, `<tree>`, `name_get`, `type='json'` on 19+, `create()`
+  without `@api.model_create_multi`, `search()`/`browse()` in loops, f-string
+  `cr.execute`, uncommented `sudo()`, `self._cr`/`_uid`/`_context`, fragile xpath,
+  leftover debug — with low false positives.
+- **Enforced privacy redaction** — `odoo-ai redact <file> [--mode external|local]`
+  and `odoo-ai scan-secrets <file>` (LOCAL, `redaction.py`). Turns the suite's
+  prior *warning* into *enforcement*: external mode strips `source`/`locals`/`code`,
+  redacts secret-named keys, and masks PII (email/phone/IBAN/card/JWT/token);
+  model-level sensitivity labels for `res.partner`/`account.move`/`hr.*`/`payment.*`.
+- **Layer H deeper probe grammar** — `native_check` grows from 4 probe kinds to
+  **12**: adds `xmlid_exists`, `action_window_exists`, `group_exists`, `cron_exists`,
+  `sequence_exists`, `selection_has_value`, `mixin_inherited`, `edition`. The leaf
+  dispatch is refactored into a pure, unit-testable `dispatch_leaf` (+ `PROBE_KINDS`);
+  cards can now gate Enterprise-only capabilities and prove a state literal exists
+  (the `sale.order` confirm card now probes both the hook *and* `state='sale'`).
+- **Migration & upgrade harness** — `odoo-ai upgrade-check <model> --against
+  <old_brief.json>` (needs DB) and `odoo-ai upgrade-diff <old> <new>` (LOCAL),
+  `upgrade_check.py`. Distinguishes a **rename** from a **drop** (data loss),
+  flags new-required-without-default and `noupdate`-protected edits, and scaffolds
+  a `pre-migrate.py`. Fresh-install success is never reported as upgrade safety.
+- **Deployment approval orchestrator** — `odoo-ai deploy-gate <bundle_dir>`
+  (LOCAL, `deploy_gate.py`). Aggregates the other tools' JSON into a risk
+  classification and an **approve / needs-human / block** decision, requiring
+  explicit human sign-off for high-risk models (accounting, stock valuation,
+  payroll, payments, access rules, public controllers).
+
+### Notes
+- **Positioning.** This is the suite repositioned as an *Odoo agent safety &
+  grounding layer*: the realistic target is **agent-written, tool-verified,
+  human-approved**, not blind autonomous production mutation. See the v0.7
+  evaluation report under `plans/reports/`.
+- **Local-first gates.** `validate`/`redact`/`scan-secrets`/`deploy-gate` (and the
+  `env-diff`/`upgrade-diff` modes) need no instance — closing part of the
+  no-shell/SaaS gap for the checks that don't require the live registry.
+
+### Tests
+- Pure helpers for every new tool are unit-tested without Odoo (risk classes,
+  scenario matrix, fingerprint diff, each validator rule with positive+clean
+  cases, PII masking + secret scan, rename-vs-drop detection, gate decisions),
+  plus `dispatch_leaf` and the extended probe grammar for native-check.
+- **Real-tested against a live Odoo 18 instance** (and CI-runnable on 17/18/19):
+  the integration smoke (`scripts/tests/integration_smoke.py`, opt-in via
+  `ODOO_DB`) now also exercises the shell-bound `run()` paths of
+  `scenarios`/`env-fingerprint`/`upgrade-check` and the new probe kinds
+  (xmlid/group/action_window/cron/selection_has_value/edition) against the live
+  registry via a base-safe fixture corpus — **57/57 checks** (was 44). The four
+  local gates need no instance and are covered by the unit suite.
+
 ## [0.7.0] - 2026-06-27
 
 Completes the Native Capability Atlas roadmap: **smarter recall + a learning

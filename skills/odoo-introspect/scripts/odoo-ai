@@ -26,10 +26,30 @@ Commands:
     odoo-ai security    <model> [--user login_or_id] [--company id_or_name] [--allowed-companies a,b]
     odoo-ai all         <model> [--methods a,b] [--source] [--code-preview] [--code] [--record-id N --method M]
 
+Enforcement gates (Layer I) — turn introspection into proof before merge/deploy:
+    odoo-ai scenarios   <model> [--methods a,b]        # required risk scenarios + a TransactionCase skeleton (needs DB)
+    odoo-ai env-fingerprint                            # capture a parity fingerprint of THIS instance (needs DB)
+    odoo-ai env-diff    <base.json> <target.json>      # dev-vs-prod drift — LOCAL, no DB
+    odoo-ai validate    <path...>                      # static Odoo anti-pattern linter — LOCAL, no DB
+    odoo-ai redact      <file.json> [--mode external|local]   # make introspection JSON safe to share — LOCAL, no DB
+    odoo-ai scan-secrets <file>                        # secret/key scan before sharing — LOCAL, no DB
+    odoo-ai upgrade-check <model> --against <old_brief.json>  # upgrade/migration risks + pre-migrate scaffold (needs DB)
+    odoo-ai upgrade-diff <old_brief.json> <new_brief.json>    # same, from two briefs — LOCAL, no DB
+    odoo-ai deploy-gate <bundle_dir>                   # aggregate evidence → go/no-go — LOCAL, no DB
+    odoo-ai evidence    <bundle_dir>                   # ^ + render a PR-comment Markdown (the flagship artifact) — LOCAL
+    odoo-ai verify-claims <claims.json>                # verify external-index/agent claims vs THIS instance (BYO-index)
+    odoo-ai docs-build  --version 18 [--src <dir>]     # build a LOCAL Odoo dev-docs index (Layer J; stays outside the repo)
+    odoo-ai docs "<question>" --version 18             # query that local docs index (subordinate to introspect) — LOCAL
+
 `all` = brief + entrypoints + metadata (+ optional trace when --record-id and
 --method are given). It does NOT run refs, preflight, or state — run those
 explicitly (refs before a field change, preflight to confirm your code loads,
 state for post-mortem locals).
+
+The LOCAL gates need no running instance — they run with plain python3 (great
+for CI). `redact`/`scan-secrets` enforce the privacy posture the suite previously
+only warned about; `deploy-gate` reads a folder of the other tools' JSON and
+returns approve / needs-human / block.
 
 Server-action / cron code bodies are GATED by default (only present/len, no
 preview) because even a head-only slice can carry a token, webhook URL, or API
@@ -62,6 +82,25 @@ SCRIPTS = {
     "state":       (HERE / "state_capture.py", "===ODOO_STATE_START===", "===ODOO_STATE_END==="),
     "capabilities": (HERE / "capabilities.py", "===ODOO_CAP_START===", "===ODOO_CAP_END==="),
     "native_check": (HERE / "native_check.py", "===ODOO_NCHECK_START===", "===ODOO_NCHECK_END==="),
+    # Enforcement gates (Layer I) that still need the live registry:
+    "scenarios":   (HERE / "scenario_gen.py", "===ODOO_SCEN_START===", "===ODOO_SCEN_END==="),
+    "env_fingerprint": (HERE / "env_diff.py", "===ODOO_ENVFP_START===", "===ODOO_ENVFP_END==="),
+    "upgrade_check": (HERE / "upgrade_check.py", "===ODOO_UPG_START===", "===ODOO_UPG_END==="),
+    "claim_verify": (HERE / "claim_verify.py", "===ODOO_CLAIMS_START===", "===ODOO_CLAIMS_END==="),
+}
+
+# Pure local tools (Layer I/J) — no odoo-bin shell / no DB. Run with python3 and
+# capture stdout JSON. Keyed by CLI command; value is the script filename.
+LOCAL_SCRIPTS = {
+    "validate": "patch_validator.py",
+    "redact": "redaction.py",
+    "scan-secrets": "redaction.py",
+    "deploy-gate": "deploy_gate.py",
+    "env-diff": "env_diff.py",
+    "upgrade-diff": "upgrade_check.py",
+    "evidence": "evidence_bundle.py",
+    "docs-build": "doc_index.py",
+    "docs": "doc_index.py",
 }
 
 # Curated capability cards (consumed by native_check) live in the sibling
@@ -74,7 +113,10 @@ def run_in_shell(script_path, env_extra, cfg):
     cmd = [cfg["odoo_bin"], "shell", "-d", cfg["db"], "--no-http", "--log-level=warn"]
     if cfg.get("conf"):
         cmd += ["-c", cfg["conf"]]
-    env = {**os.environ, **{k: str(v) for k, v in env_extra.items()}}
+    # Export SCRIPTS_DIR so a stdin-piped script can import a sibling (e.g.
+    # claim_verify → native_check); piped scripts have no __file__ to derive it.
+    env = {**os.environ, "SCRIPTS_DIR": str(HERE),
+           **{k: str(v) for k, v in env_extra.items()}}
     try:
         with open(script_path) as fh:
             proc = subprocess.run(cmd, stdin=fh, env=env,
@@ -166,9 +208,77 @@ def _summ(step, d):
             top = conf[0]["id"] if conf else "—"
             return f"({len(conf)} present / {len(unconf)} not-here of "\
                    f"{d.get('considered', 0)} matched; top={top})"
+        if step == "scenarios":
+            r = d.get("risk", {})
+            return f"(risk={r.get('tier', '?')}, {len(d.get('scenarios', []))} required scenarios)"
+        if step == "env_fingerprint":
+            return f"(edition={d.get('edition', '?')}, {len(d.get('modules', {}))} modules, "\
+                   f"{len(d.get('studio_fields', []))} studio fields)"
+        if step == "upgrade_check":
+            s = d.get("summary", {})
+            return f"({len(d.get('renames', []))} renames, {s.get('blocking', 0)} blocking risks)"
+        if step == "claim_verify":
+            s = d.get("summary", {})
+            return f"({d.get('total', 0)} claims: {s.get('confirmed', 0)} confirmed / "\
+                   f"{s.get('contradicted', 0)} contradicted / {s.get('needs_shell', 0)} need-shell)"
     except Exception:
         return ""
     return ""
+
+
+def _summ_local(cmd, d):
+    """One-line summary for the pure local enforcement tools."""
+    try:
+        if cmd == "validate":
+            s = d.get("summary", {})
+            return f"({s.get('files', 0)} files: {s.get('blocking', 0)} blocking / "\
+                   f"{s.get('warning', 0)} warning)"
+        if cmd == "env-diff":
+            return f"(severity={d.get('summary', {}).get('severity', '?')})"
+        if cmd == "upgrade-diff":
+            s = d.get("summary", {})
+            return f"({len(d.get('renames', []))} renames, {s.get('blocking', 0)} blocking)"
+        if cmd == "deploy-gate":
+            dec = d.get("decision", {})
+            return f"(decision={dec.get('decision', '?')}, risk={d.get('risk', {}).get('tier', '?')})"
+        if cmd == "redact":
+            return "(redacted for external use)"
+        if cmd == "scan-secrets":
+            return f"({d.get('count', len(d.get('hits', [])))} potential secrets)"
+        if cmd == "evidence":
+            return f"(decision={d.get('decision', '?')})"
+        if cmd == "docs":
+            return f"({len(d.get('results', []))} doc hits for v{d.get('version', '?')})"
+    except Exception:
+        return ""
+    return ""
+
+
+def do_local(cmd, argv, out_dir, label):
+    """Run a PURE local enforcement tool (no odoo-bin shell / no DB).
+
+    The Layer-I gates (validate / redact / scan-secrets / deploy-gate, and the
+    diff modes of env-diff / upgrade-diff) need no running instance — run them
+    with plain python3, capture the JSON they print, write it next to the other
+    artifacts, and print a one-line summary like the shell steps do.
+    """
+    script = HERE / LOCAL_SCRIPTS[cmd]
+    try:
+        proc = subprocess.run([sys.executable, str(script), *argv],
+                              capture_output=True, text=True, timeout=300)
+    except Exception as e:  # noqa: BLE001
+        sys.exit(f"❌ {cmd}: {type(e).__name__}: {e}")
+    body = (proc.stdout or "").strip()
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        tail = (proc.stderr or body or "").strip().splitlines()[-8:]
+        print(f"  ⚠️  {cmd}: no JSON returned. Last lines:\n     " + "\n     ".join(tail))
+        return None
+    path = out_dir / f"{str(label).replace('.', '_')}.{cmd}.json"
+    path.write_text(json.dumps(data, indent=2))
+    print(f"  ✓ {cmd:<13} -> {path}  {_summ_local(cmd, data)}")
+    return data
 
 
 DEFAULT_LEARN_FILE = Path.home() / ".odoo-ai" / "learned.json"
@@ -227,10 +337,68 @@ def main():
     ss = sub.add_parser("state"); ss.add_argument("model"); ss.add_argument("record_id"); ss.add_argument("method"); ss.add_argument("--break", dest="break_at", default=""); ss.add_argument("--line", dest="break_line"); ss.add_argument("--fields", default=""); ss.add_argument("--on-exception", action="store_true"); ss.add_argument("--max-hits", default="3"); ss.add_argument("--commit", action="store_true"); ss.add_argument("--no-redact", action="store_true", help="disable default redaction of password/token/secret/... (trusted dev box only)"); ss.add_argument("--redact-extra", default="", help="comma-separated extra key names to redact")
     sa = sub.add_parser("all", help="brief + entrypoints + metadata (+ optional trace); NOT refs/preflight/state"); sa.add_argument("model"); sa.add_argument("--methods", default=""); sa.add_argument("--source", action="store_true"); sa.add_argument("--code-preview", dest="code_preview", action="store_true", help="include a short head-only slice of server-action/cron code (potentially sensitive)"); sa.add_argument("--code", action="store_true", help="include FULL server-action/cron code bodies (may contain secrets — trusted context only)"); sa.add_argument("--views", default="form,list"); sa.add_argument("--record-id"); sa.add_argument("--method")
 
+    # --- Enforcement gates (Layer I): turn introspection into proof ----------
+    ssc = sub.add_parser("scenarios", help="risk-based scenario test generator: required test scenarios + a TransactionCase skeleton (needs DB)"); ssc.add_argument("model"); ssc.add_argument("--methods", default="")
+    sub.add_parser("env-fingerprint", help="capture this instance's parity fingerprint (modules/edition/counts/studio/config) for a later env-diff (needs DB)")
+    sed = sub.add_parser("env-diff", help="diff two env fingerprints (dev vs prod) — LOCAL, no DB"); sed.add_argument("base"); sed.add_argument("target")
+    sval = sub.add_parser("validate", help="static Odoo patch validator (attrs/sudo/N+1/batch/version anti-patterns) — LOCAL, no DB"); sval.add_argument("paths", nargs="+")
+    srd = sub.add_parser("redact", help="redact introspection JSON before sharing with an external LLM — LOCAL, no DB"); srd.add_argument("file"); srd.add_argument("--mode", choices=["external", "local"], default="external")
+    sss = sub.add_parser("scan-secrets", help="scan a file for secrets/keys before it leaves the environment — LOCAL, no DB"); sss.add_argument("file")
+    suc = sub.add_parser("upgrade-check", help="upgrade/migration risks vs an OLD brief + a pre-migrate scaffold (needs DB)"); suc.add_argument("model"); suc.add_argument("--against", required=True, help="path to an OLD brief JSON from a prior `odoo-ai brief`"); suc.add_argument("--module", default=""); suc.add_argument("--version", default="")
+    sud = sub.add_parser("upgrade-diff", help="diff two brief JSONs for upgrade risks — LOCAL, no DB"); sud.add_argument("old"); sud.add_argument("new"); sud.add_argument("--module", default=""); sud.add_argument("--version", default="")
+    sdg = sub.add_parser("deploy-gate", help="aggregate evidence (native-check/env-diff/scenarios/validate/security/trace/upgrade) into a go/no-go — LOCAL, no DB"); sdg.add_argument("bundle_dir")
+    svc = sub.add_parser("verify-claims", help="verify external-index/agent CLAIMS against THIS instance (BYO-index: confirmed/contradicted/needs-shell)"); svc.add_argument("claims", help="path to a claims JSON file: list of {source, model, field?, method?, xmlid?, claim?, probe?}")
+    sev = sub.add_parser("evidence", help="render a folder of gate outputs into a deploy verdict + a PR-comment Markdown — LOCAL, no DB"); sev.add_argument("bundle_dir"); sev.add_argument("--md-out", dest="md_out", default="")
+    sdb = sub.add_parser("docs-build", help="build a LOCAL TF-IDF index of Odoo developer docs for a version (Layer J; the index stays OUTSIDE the repo)"); sdb.add_argument("--version", required=True); sdb.add_argument("--src", default=""); sdb.add_argument("--out", default="")
+    sdq = sub.add_parser("docs", help="query the local Odoo-docs index (Layer J) — subordinate to introspect; results carry canonical URLs"); sdq.add_argument("query"); sdq.add_argument("--version", required=True); sdq.add_argument("--top", default=""); sdq.add_argument("--index-dir", dest="index_dir", default="")
+
     a = p.parse_args()
     # native-learn is a local file op — no DB / odoo shell needed.
     if a.cmd == "native-learn":
         do_native_learn(a.requirement, a.card, resolve_learn_file(a.learn_file))
+        return
+    # Pure local enforcement gates (Layer I) — no DB / odoo shell. Dispatch
+    # before the db check so they work anywhere (CI, a laptop, no instance).
+    if a.cmd in LOCAL_SCRIPTS:
+        out_dir = Path(a.out_dir) if a.out_dir else Path("/tmp/odoo-ai") / "enforce"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        if a.cmd == "validate":
+            do_local("validate", list(a.paths), out_dir, "patch")
+        elif a.cmd == "redact":
+            do_local("redact", ["redact", a.file, "--mode", a.mode], out_dir, Path(a.file).stem)
+        elif a.cmd == "scan-secrets":
+            do_local("scan-secrets", ["scan-secrets", a.file], out_dir, Path(a.file).stem)
+        elif a.cmd == "deploy-gate":
+            do_local("deploy-gate", [a.bundle_dir], out_dir, "deploy")
+        elif a.cmd == "env-diff":
+            do_local("env-diff", ["diff", a.base, a.target], out_dir, "env")
+        elif a.cmd == "upgrade-diff":
+            argv = ["diff", a.old, a.new]
+            if a.module:
+                argv += ["--module", a.module]
+            if a.version:
+                argv += ["--version", a.version]
+            do_local("upgrade-diff", argv, out_dir, "upgrade")
+        elif a.cmd == "evidence":
+            argv = [a.bundle_dir] + (["--md-out", a.md_out] if a.md_out else [])
+            do_local("evidence", argv, out_dir, "evidence")
+        elif a.cmd == "docs":
+            argv = ["query", a.query, "--version", a.version]
+            if a.top:
+                argv += ["--top", a.top]
+            if a.index_dir:
+                argv += ["--index-dir", a.index_dir]
+            do_local("docs", argv, out_dir, f"docs_{a.version}")
+        elif a.cmd == "docs-build":
+            # A build step streams progress (not a single JSON blob) — run it
+            # directly instead of through do_local's JSON capture.
+            script = HERE / LOCAL_SCRIPTS["docs-build"]
+            argv = ["build", "--version", a.version]
+            if a.src:
+                argv += ["--src", a.src]
+            if a.out:
+                argv += ["--out", a.out]
+            subprocess.run([sys.executable, str(script), *argv])
         return
     if not a.db:
         sys.exit("❌ No database. Pass --db or set ODOO_DB.")
@@ -314,6 +482,15 @@ def main():
             print("  · trace skipped (pass --record-id and --method to include the runtime layer)")
         print("  · scope: brief + entrypoints + metadata (+trace). NOT refs/preflight/state — "
               "run `odoo-ai refs|preflight|state` explicitly when you need them.")
+    elif a.cmd == "scenarios":
+        do_step("scenarios", {"MODEL": a.model, "METHODS": a.methods}, cfg, out_dir, a.model)
+    elif a.cmd == "env-fingerprint":
+        do_step("env_fingerprint", {}, cfg, out_dir, "env")
+    elif a.cmd == "upgrade-check":
+        do_step("upgrade_check", {"MODEL": a.model, "AGAINST": a.against,
+                                  "MODULE": a.module, "VERSION": a.version}, cfg, out_dir, a.model)
+    elif a.cmd == "verify-claims":
+        do_step("claim_verify", {"CLAIMS_FILE": a.claims}, cfg, out_dir, "verify-claims")
     print(f"\nFeed the JSON in {out_dir} to the agent BEFORE asking it to write code.")
 
 

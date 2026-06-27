@@ -1,0 +1,41 @@
+[
+  {"id": "zz.xmlid", "title": "xmlid probe", "domain": "universal", "primitive": "field",
+   "intents": ["zzprobe xmlid", "zzprobe alpha", "zzprobe one"], "modules": ["base"], "models": ["res.company"],
+   "hooks": [], "reuse_advice": "x", "when_not_enough": ["x"],
+   "probe": {"kind": "xmlid_exists", "xmlid": "base.main_company"}},
+
+  {"id": "zz.group", "title": "group probe", "domain": "universal", "primitive": "feature_group",
+   "intents": ["zzprobe group", "zzprobe beta", "zzprobe two"], "modules": ["base"], "models": ["res.groups"],
+   "hooks": [], "reuse_advice": "x", "when_not_enough": ["x"],
+   "probe": {"kind": "group_exists", "xmlid": "base.group_user"}},
+
+  {"id": "zz.action_window", "title": "window action probe", "domain": "universal", "primitive": "field",
+   "intents": ["zzprobe action", "zzprobe gamma", "zzprobe three"], "modules": ["base"], "models": ["res.partner"],
+   "hooks": [], "reuse_advice": "x", "when_not_enough": ["x"],
+   "probe": {"kind": "action_window_exists", "model": "res.partner"}},
+
+  {"id": "zz.cron", "title": "cron probe", "domain": "universal", "primitive": "cron",
+   "intents": ["zzprobe cron", "zzprobe delta", "zzprobe four"], "modules": ["base"], "models": ["ir.autovacuum"],
+   "hooks": [], "reuse_advice": "x", "when_not_enough": ["x"],
+   "probe": {"kind": "cron_exists", "model": "ir.autovacuum"}},
+
+  {"id": "zz.selection_ok", "title": "selection present", "domain": "universal", "primitive": "field",
+   "intents": ["zzprobe selection", "zzprobe epsilon", "zzprobe five"], "modules": ["base"], "models": ["res.partner"],
+   "hooks": [], "reuse_advice": "x", "when_not_enough": ["x"],
+   "probe": {"kind": "selection_has_value", "model": "res.partner", "field": "type", "value": "contact"}},
+
+  {"id": "zz.selection_bad", "title": "selection absent", "domain": "universal", "primitive": "field",
+   "intents": ["zzprobe selection", "zzprobe zeta", "zzprobe six"], "modules": ["base"], "models": ["res.partner"],
+   "hooks": [], "reuse_advice": "x", "when_not_enough": ["x"],
+   "probe": {"kind": "selection_has_value", "model": "res.partner", "field": "type", "value": "zz_ghost_value"}},
+
+  {"id": "zz.edition_community", "title": "community edition", "domain": "universal", "primitive": "feature_group",
+   "intents": ["zzprobe edition", "zzprobe eta", "zzprobe seven"], "modules": ["base"], "models": ["base"],
+   "hooks": [], "reuse_advice": "x", "when_not_enough": ["x"],
+   "probe": {"kind": "edition", "edition": "community"}},
+
+  {"id": "zz.edition_enterprise", "title": "enterprise edition", "domain": "universal", "primitive": "feature_group",
+   "intents": ["zzprobe edition", "zzprobe theta", "zzprobe eight"], "modules": ["base"], "models": ["base"],
+   "hooks": [], "reuse_advice": "x", "when_not_enough": ["x"],
+   "probe": {"kind": "edition", "edition": "enterprise"}}
+]

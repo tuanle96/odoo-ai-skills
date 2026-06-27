@@ -30,11 +30,13 @@ Config (env):
     SMOKE_RECORD_ID (opt)    record id for Layer F (state); auto-resolved from
                              the DB when unset, so redaction is always exercised
 """
+import ast
 import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent          # .../odoo-introspect/scripts
@@ -54,6 +56,10 @@ SENTINELS = {
     "state_capture.py": ("===ODOO_STATE_START===", "===ODOO_STATE_END==="),
     "capabilities.py":  ("===ODOO_CAP_START===", "===ODOO_CAP_END==="),
     "native_check.py":  ("===ODOO_NCHECK_START===", "===ODOO_NCHECK_END==="),
+    "scenario_gen.py":  ("===ODOO_SCEN_START===", "===ODOO_SCEN_END==="),
+    "env_diff.py":      ("===ODOO_ENVFP_START===", "===ODOO_ENVFP_END==="),
+    "upgrade_check.py": ("===ODOO_UPG_START===", "===ODOO_UPG_END==="),
+    "claim_verify.py":  ("===ODOO_CLAIMS_START===", "===ODOO_CLAIMS_END==="),
 }
 
 
@@ -381,6 +387,102 @@ def smoke_native_check():
     check("native_check unconfirmed carry why_absent", not bad_unconf, str(bad_unconf[:3]))
 
 
+def smoke_layer_i():
+    """Layer I enforcement gates whose run() touches the live registry:
+    scenario_gen (A), env_diff fingerprint, upgrade_check. Model = MODEL
+    (res.partner by default → base-only safe)."""
+    print(f"Layer I — scenarios on {MODEL}")
+    sc = _shell("scenario_gen.py", {"MODEL": MODEL, "METHODS": "write,create"})
+    keys = {s.get("key") for s in sc.get("scenarios", [])}
+    check("scenarios.risk tier present", sc.get("risk", {}).get("tier") in ("critical", "high", "normal"),
+          str(sc.get("risk")))
+    # res.partner has company_id and write/create were passed → these must appear
+    check("scenarios cover non_admin/multi_company/batch",
+          {"non_admin", "multi_company", "batch"} <= keys, str(sorted(keys)))
+    try:
+        ast.parse(sc.get("skeleton", ""))
+        check("scenarios.skeleton is valid Python", True)
+    except SyntaxError as e:
+        check("scenarios.skeleton is valid Python", False, str(e))
+
+    print("Layer I — env-fingerprint")
+    fp = _shell("env_diff.py", {})
+    check("env_fingerprint.edition", fp.get("edition") in ("community", "enterprise"), str(fp.get("edition")))
+    check("env_fingerprint.modules has base", "base" in (fp.get("modules") or {}))
+    check("env_fingerprint.counts.ir.model > 0", (fp.get("counts") or {}).get("ir.model", 0) > 0,
+          str(fp.get("counts")))
+
+    print("Layer I — upgrade-check")
+    old = {"fields": {"name": {"type": "char", "required": False, "has_default": True, "store": True},
+                      "zz_legacy_field": {"type": "char", "required": False, "has_default": False, "store": True}}}
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        json.dump(old, fh)
+        old_path = fh.name
+    try:
+        up = _shell("upgrade_check.py", {"MODEL": MODEL, "AGAINST": old_path,
+                                         "MODULE": "smoke_mod", "VERSION": "18.0"})
+    finally:
+        os.unlink(old_path)
+    check("upgrade_check.renames is a list", isinstance(up.get("renames"), list))
+    check("upgrade_check.risks is a list", isinstance(up.get("risks"), list))
+    check("upgrade_check.summary has blocking/warning",
+          {"blocking", "warning"} <= set(up.get("summary", {})), str(up.get("summary")))
+    try:
+        ast.parse(up.get("migration_script", ""))
+        check("upgrade_check.migration_script is valid Python", True)
+    except SyntaxError as e:
+        check("upgrade_check.migration_script is valid Python", False, str(e))
+
+
+def smoke_native_check_probe_kinds():
+    """Exercise the v0.8 probe grammar (xmlid/group/action_window/cron/
+    selection_has_value/edition) against the live registry via a base-safe
+    fixture corpus. (mixin_inherited + sequence_exists need mail/sale and are
+    covered by the model_brief/native_check shipped-card paths.)"""
+    cards = SCRIPTS / "tests" / "probe_cards"
+    print(f"Layer I — native-check extended probe kinds (fixture: {cards.name}/)")
+    d = _shell("native_check.py", {"REQUIREMENT": "zzprobe", "CARDS_DIR": str(cards)})
+    conf = {c.get("id") for c in d.get("confirmed_candidates", [])}
+    unconf = {c.get("id") for c in d.get("unconfirmed_candidates", [])}
+    # base-guaranteed truths (CE/EE-agnostic)
+    check("probe xmlid/group/action_window/cron/selection confirmed",
+          {"zz.xmlid", "zz.group", "zz.action_window", "zz.cron", "zz.selection_ok"} <= conf,
+          f"confirmed={sorted(conf)}")
+    check("probe selection_bad unconfirmed", "zz.selection_bad" in unconf, f"unconfirmed={sorted(unconf)}")
+    # edition: exactly one of community/enterprise confirmed for this instance
+    ed = {"zz.edition_community", "zz.edition_enterprise"}
+    check("probe edition resolves to exactly one", len(ed & conf) == 1, f"edition∩confirmed={sorted(ed & conf)}")
+
+
+def smoke_claim_verify():
+    """Layer I BYO-index claim verifier against the live registry (base-safe
+    claims on res.partner). claim_verify imports its sibling native_check, so we
+    pass SCRIPTS_DIR the way the CLI does."""
+    print("Layer I — verify-claims (BYO-index) on res.partner")
+    claims = [
+        {"source": "smoke", "model": "res.partner", "field": "name", "claim": "has a name field"},
+        {"source": "smoke", "model": "res.partner", "field": "zz_made_up_field", "claim": "has field"},
+        {"source": "smoke", "model": "res.partner", "method": "write", "claim": "write is a safe override point"},
+        {"source": "smoke", "claim": "this is the best architecture"},
+    ]
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        json.dump(claims, fh)
+        path = fh.name
+    try:
+        d = _shell("claim_verify.py", {"CLAIMS_FILE": path, "SCRIPTS_DIR": str(SCRIPTS)})
+    finally:
+        os.unlink(path)
+    verdicts = {v.get("target"): v.get("verdict") for v in d.get("verified", [])}
+    check("claim_verify.confirmed for a real field",
+          verdicts.get("res.partner.name") == "confirmed", str(verdicts))
+    check("claim_verify.contradicted for a made-up field",
+          verdicts.get("res.partner.zz_made_up_field") == "contradicted", str(verdicts))
+    check("claim_verify.needs_shell for a safety claim on an existing method",
+          verdicts.get("res.partner.write()") == "needs_shell", str(verdicts))
+    check("claim_verify.needs_human for a subjective claim",
+          "needs_human" in d.get("summary", {}), str(d.get("summary")))
+
+
 def main():
     if not DB:
         print("SKIP integration_smoke: ODOO_DB not set (pure-function CI is unaffected).")
@@ -388,7 +490,8 @@ def main():
     print(f"integration_smoke · db={DB} · model={MODEL} · odoo_bin={ODOO_BIN}\n")
     for fn in (smoke_brief, smoke_entrypoints, smoke_metadata, smoke_refs,
                smoke_security, smoke_security_multicompany, smoke_state,
-               smoke_capabilities, smoke_native_check):
+               smoke_capabilities, smoke_native_check,
+               smoke_layer_i, smoke_native_check_probe_kinds, smoke_claim_verify):
         try:
             fn()
         except Exception as e:  # noqa: BLE001

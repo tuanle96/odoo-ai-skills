@@ -55,7 +55,8 @@
     "hooks": ["_action_confirm", "action_confirm"],
     "reuse_advice": "React: extend sale.order._action_confirm (the real worker) calling super(). Block: @api.constrains or an early raise in _action_confirm. Don't override the action_confirm button shell.",
     "when_not_enough": ["a cross-document approval workflow (then a state machine / studio approval)"],
-    "probe": {"kind": "method_exists", "model": "sale.order", "method": "_action_confirm"}
+    "probe": {"all": [{"kind": "method_exists", "model": "sale.order", "method": "_action_confirm"},
+                      {"kind": "selection_has_value", "model": "sale.order", "field": "state", "value": "sale"}]}
   },
   {
     "id": "sale.order_discount",

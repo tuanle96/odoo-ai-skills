@@ -103,3 +103,4 @@ Renames touch far more than one column (domains, `ir_filters`, views, server act
 - Field/type ground truth before writing: `odoo-introspect` `model_brief.py`.
 - Proving the upgrade path (`-u` on a data DB, `--test-enable`): `odoo-testing`.
 - Per-version API renames/deprecations: `skills/odoo-introspect/references/version-matrix.md`.
+- **Upgrade-safety harness** (Layer I): `odoo-ai upgrade-check <model> --against <old_brief.json>` (or `upgrade-diff` over two briefs, local) distinguishes a **rename** from a data-losing **drop**, flags new-required-without-default and `noupdate`-protected edits, and scaffolds a `pre-migrate.py`. Capture the OLD brief with `odoo-ai brief <model>` before the change; fresh-install success is never upgrade safety.

@@ -24,7 +24,7 @@ A card describes *one* native capability: what it's for, how to recognise the ne
 
 A probe is evaluated against the live registry; a card only becomes a `confirmed_candidate` (one the agent may recommend) if its probe passes **here**. This is what keeps native-check evidence-grounded rather than a memorised list.
 
-**Leaf probes:**
+**Leaf probes** (the full grammar — `native_check.PROBE_KINDS`):
 
 | `kind` | Fields | Passes when |
 |--------|--------|-------------|
@@ -32,8 +32,23 @@ A probe is evaluated against the live registry; a card only becomes a `confirmed
 | `model_exists` | `model` | the model is in the registry. |
 | `field_exists` | `model`, `field` | the field is on that model. |
 | `method_exists` | `model`, `method` | that method exists on the model (the right hook is present). |
+| `xmlid_exists` | `xmlid` | `env.ref(xmlid)` resolves (an action/view/record/group seeded here). |
+| `action_window_exists` | `model` | a window action (`ir.actions.act_window`) targets that `res_model`. |
+| `group_exists` | `xmlid` | that xmlid resolves to a `res.groups` (a feature/security group is present). |
+| `cron_exists` | `model` | a scheduled action (`ir.cron`) is bound to that model. |
+| `sequence_exists` | `code` | an `ir.sequence` with that `code` exists. |
+| `selection_has_value` | `model`, `field`, `value` | that selection field actually offers that literal (kills guessed `state` values). |
+| `mixin_inherited` | `model`, `mixin` | the model's MRO includes that mixin (`mail.thread`, `mail.activity.mixin`, `portal.mixin`, …). |
+| `edition` | `edition` (`enterprise`/`community`) | the instance matches (Enterprise detected via `web_enterprise`). |
 
-**Combinators:** `{"any": [ ...leaves ]}` (≥1 passes) and `{"all": [ ...leaves ]}` (all pass). They nest.
+**Combinators:** `{"any": [ ...leaves ]}` (≥1 passes) and `{"all": [ ...leaves ]}` (all pass). They nest — e.g. prove both a hook *and* the canonical state literal:
+
+```json
+{"all": [{"kind": "method_exists", "model": "sale.order", "method": "_action_confirm"},
+         {"kind": "selection_has_value", "model": "sale.order", "field": "state", "value": "sale"}]}
+```
+
+> Prefer the **most precise** probe available: `selection_has_value` over a bare `field_exists` for a state-machine card; `mixin_inherited` over `model_exists` when the card is "inherit this mixin"; `edition` to gate an Enterprise-only capability so it lands in `unconfirmed_candidates` (not a false recommendation) on Community.
 
 ```json
 {

@@ -8,6 +8,10 @@
 
 A [Claude Code](https://docs.claude.com/en/docs/claude-code) **skills suite for doing Odoo development with an AI agent — correctly.**
 
+> **Static indexes *suggest*; `odoo-ai-skills` *verifies* — against your running Odoo instance.**
+
+It's the **local-first verification & deploy gate for AI-written Odoo changes**. Bring any coding agent, any hosted knowledge index, any `grep` — they propose names and patterns; this suite decides whether the patch is *actually safe on this customer's instance*: real fields, real MRO, real security, real runtime, real upgrade path. **No SaaS, no seats, no API key, no metadata leaves your box.**
+
 🌐 **Landing page: [tuanle96.github.io/odoo-ai-skills](https://tuanle96.github.io/odoo-ai-skills/)**
 
 
@@ -24,6 +28,20 @@ See the full [worked example](examples/sale-order-walkthrough.md) — a real `sa
 ## Why this exists
 
 Left to memory, LLMs invent Odoo field and model names, reach for APIs that were removed (`attrs`/`states`, `<tree>`, `name_get`), call `super()` at the wrong MRO layer, sprinkle `sudo()` to silence access errors, and ship stored computes with an incomplete `@api.depends`. These fail **silently at runtime**, not at lint time — exactly where confidence is most dangerous. This suite closes that gap by making the agent read the live registry before it writes, and by encoding the Odoo-specific contracts (security, MRO, manifest wiring, version deltas) that a generic model doesn't know.
+
+## Not a hosted knowledge index — a runtime verification gate
+
+A hosted Odoo *knowledge index* (a cloud service that pre-indexes Odoo's source across versions) is great at **breadth**: "what does standard `sale.order` look like across v8→19? show me examples from many repos." Use one if you like — as an **upstream source**.
+
+But a static index, by construction, **cannot know what is true in _your_ instance**: which modules are installed, what Studio/OCA/local patches changed the final registry, the effective view arch for this group/company, per-user/per-company security, runtime behaviour, dev↔prod drift, or whether an upgrade preserves real data. Those are exactly the failures that pass review and break in production (see the [high-risk playbooks](docs/high-risk-playbooks.md)).
+
+`odoo-ai-skills` is the other half: it reads **this running instance** and turns a proposed change into proof — then gates the merge. The line is **static indexes suggest; the running instance disposes.**
+
+- **Local-first / sovereign.** Everything runs in your shell. No account, no API key, no per-seat fee; sensitive instance data (that's why [`redact`](#the-enforcement-gates-layer-i) exists) never leaves your environment.
+- **Instance-grounded, not memory-grounded.** The instance *is* the index for what's installed here — no per-version re-indexing treadmill.
+- **Verification & enforcement, not just lookup.** [Layer I](#the-enforcement-gates-layer-i) gates the deploy: scenario tests, env drift, validation, redaction, migration risk, and an `approve / needs-human / block` verdict.
+
+Want ecosystem breadth too? Feed an external index's suggestions in as *claims* — `odoo-ai-skills` verifies each against the live instance rather than trusting it (see `verify-claims`). The suite's own `docs` lookup (Layer J) is just one such upstream source, built locally and existence-gated.
 
 ## Install as a Claude Code plugin
 
@@ -133,6 +151,35 @@ scripts/odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception   # 
 ```
 
 See `skills/odoo-introspect/` for the JSON shape of each layer and the SaaS RPC fallback.
+
+## The enforcement gates (Layer I)
+
+Reading ground truth stops the agent *guessing*; it doesn't yet *prove* the change is safe. Layer I turns the evidence into gates — the realistic target is **agent-written, tool-verified, human-approved**, not blind autonomous deploy. Four of these are **pure and local** (no `odoo-bin shell`, no DB — they run in CI or on a laptop):
+
+```bash
+# turn introspection into the MANDATORY tests for this change (risk-tiered):
+scripts/odoo-ai --db <DB> scenarios sale.order --methods action_confirm   # → required scenarios + a TransactionCase skeleton
+
+# don't claim production safety against a divergent env:
+scripts/odoo-ai --db dev  env-fingerprint   # capture each side, then:
+scripts/odoo-ai env-diff dev.json prod.json                 # LOCAL — modules/edition/studio/config drift
+
+# the odoo-review checklist, as an executable linter (LOCAL, no DB):
+scripts/odoo-ai validate addons/my_module                   # attrs/sudo/N+1/batch/version anti-patterns
+
+# make introspection JSON safe to share with an external LLM (LOCAL):
+scripts/odoo-ai redact /tmp/odoo-ai/sale_order.state.json   # strip source/locals, mask PII, redact secrets
+scripts/odoo-ai scan-secrets path/to/file                   # secret/key scan before it leaves the box
+
+# upgrade safety: a RENAME (keep data) vs a DROP (lose it), + a pre-migrate scaffold:
+scripts/odoo-ai --db <DB> upgrade-check sale.order --against old_brief.json
+scripts/odoo-ai upgrade-diff old_brief.json new_brief.json  # LOCAL
+
+# aggregate all the evidence into a go/no-go for high-risk modules (LOCAL):
+scripts/odoo-ai deploy-gate /tmp/odoo-ai/evidence_bundle/   # → approve | needs-human | block
+```
+
+These came out of the v0.7 codebase evaluation (under `plans/reports/`), which found the suite excellent at *grounding* but advisory-only at *enforcement*. Each gate's pure logic is unit-tested without Odoo.
 
 ## Security — handling introspection output
 

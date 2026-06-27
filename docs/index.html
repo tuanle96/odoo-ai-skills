@@ -154,9 +154,11 @@
   <div class="wrap">
     <span class="tag"><b>Claude Code plugin</b> · Odoo 17 / 18 / 19</span>
     <h1>Stop letting AI <span class="grad">guess</span> how Odoo works.</h1>
-    <p class="sub">A skills suite that makes an AI agent read ground truth from your running
-      instance first — fields, MRO &amp; <code>super()</code> chains, views, security, runtime
-      flow — then build the smallest correct change, prove it with a test, and review it before merge.</p>
+    <p class="sub"><b>Static indexes suggest; this verifies — against your running instance.</b>
+      The local-first verification &amp; deploy gate for AI-written Odoo changes: it reads ground truth
+      from your live instance — fields, MRO &amp; <code>super()</code> chains, views, security, runtime
+      flow — builds the smallest correct change, proves it with a test, and gates the merge.
+      No SaaS, no seats, no API key — nothing leaves your box.</p>
     <div class="cmd">
       <span class="pr">$</span>
       <span id="cmd">claude plugin install odoo-ai-skills@odoo-ai</span>
