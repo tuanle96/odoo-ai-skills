@@ -72,7 +72,7 @@ claude plugin validate /path/to/odoo-ai-skills # check the manifest
 | **odoo-security** | ACL, record rules, groups, multi-company — authoring + the real eval order. |
 | **odoo-testing** | The test gate: `at_install`/`post_install`, non-admin, multi-company, batch, `-i`/`-u`. |
 | **odoo-review** | The review gate: catch the security / data-loss / silent-correctness / perf defects AI ships before merge. |
-| **odoo-debug** | Symptom→tool table, traceback decoder, `--dev`, runtime tracing, "my change didn't apply" preflight. |
+| **odoo-debug** | Symptom→tool table, traceback decoder, `--dev`, runtime tracing + **runtime state capture / exception post-mortem** (Layer F) and **debugpy/DAP** step-through, "my change didn't apply" preflight. |
 
 ### Tier 2 — Frontend & reporting
 | Skill | What it does |
@@ -127,6 +127,7 @@ See `skills/odoo-introspect/` for the JSON shape of each layer and the SaaS RPC 
 
 ```
 .claude-plugin/plugin.json       # plugin manifest
+.claude-plugin/marketplace.json  # self-hosted marketplace (install source)
 skills/<name>/SKILL.md           # one skill per directory
 skills/<name>/references/        # progressive-disclosure deep dives
 skills/odoo-introspect/scripts/  # the introspection engine + odoo-ai CLI
