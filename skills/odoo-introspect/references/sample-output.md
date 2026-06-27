@@ -62,14 +62,14 @@ Abbreviated, realistic JSON for each script (model: `sale.order`, Odoo 18), trim
     "server_actions": [
       {"id": 7, "name": "Notify finance", "state": "code", "usage": "ir_actions_server",
        "code_present": true, "code_len": 834,
-       "code_preview": "for rec in records:\n    rec.message_post(body=…  (set CODE=1 for full body)"}
+       "code_preview": null}
     ],
     "automated_actions": [
       {"id": 2, "name": "Auto-confirm web orders", "trigger": "on_create_or_write",
        "filter_domain": "[('state','=','draft')]", "active": true}
     ],
     "crons": [],
-    "_code_gating": "redacted (set CODE=1 for full bodies)"
+    "_code_gating": "redacted (present/len only; CODE_PREVIEW=1 for a head slice, CODE=1 for full bodies)"
   },
   "overridden_methods": ["action_confirm", "write", "create"],
   "methods": {

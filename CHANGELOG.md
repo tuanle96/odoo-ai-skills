@@ -6,6 +6,41 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-06-27
+
+A correctness and hygiene patch on top of 0.4.0: company-aware record-rule
+simulation, no code preview by default, multi-create field capture, and docs
+synced to the 17/18/19 integration matrix.
+
+### Fixed
+- **Layer G (`security_sim.py`) now binds the rule engine to the simulated
+  company.** `ir.rule._compute_domain` was called under `with_user(user)` only,
+  so company-dependent record rules (those referencing `user.company_id` /
+  `allowed_company_ids`) resolved against the user's *default* company even when
+  `AS_COMPANY` was set — the ACL/field checks honored the company but the
+  effective record-rule domain could silently diverge. The engine is now
+  `with_company(company).with_context(allowed_company_ids=[company.id])` so the
+  effective domain matches what that company actually sees at runtime.
+- **`brief` no longer emits a code preview by default.** `auto_triggers`
+  server-action / cron bodies now report `code_present` / `code_len` with
+  `code_preview = null`; even a 200-char head slice can leak a token, webhook
+  URL, or API key. A short head slice is opt-in via `CODE_PREVIEW=1`, and full
+  bodies still require `CODE=1` (both trusted-context only). `_code_gating`
+  records which mode produced the output.
+- **Layer D (`trace_flow.py`) captures field names for multi-create.** Modern
+  `@api.model_create_multi def create(self, vals_list)` stores the payload in
+  `vals_list`, not `vals`, so `writes_by_model` reported the create count but an
+  empty field list. The tracer now falls back to `vals_list` when `vals` is
+  absent.
+
+### Changed
+- Docs synced to the integration matrix: README and CONTRIBUTING now state the
+  smoke test runs against official `odoo:17.0` / `18.0` / `19.0` images (README
+  also notes the `sale_confirm_guard` worked-example job on `odoo:18.0`).
+- `CODE_PREVIEW` added to the container env pass-through list in
+  `references/introspection.md`; the `odoo-introspect` SKILL code-gating note and
+  `sample-output.md` updated for the no-preview default.
+
 ## [0.4.0] - 2026-06-27
 
 A feature release building on the 0.3.x hardening: two new introspection layers
@@ -185,7 +220,8 @@ against a live Odoo 18 instance.
 - Pure-function unit tests and a compile/test CI workflow.
 - Odoo version coverage extended to 19 (current LTS).
 
-[Unreleased]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.3.0...v0.3.1

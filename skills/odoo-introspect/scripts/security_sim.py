@@ -186,7 +186,15 @@ def run():
     }
 
     # --- 2. Record rules: effective domain via Odoo's own combiner -----------
+    # Bind the rule engine to the SAME user AND company as the simulated
+    # recordset; otherwise _compute_domain() resolves company-dependent rules
+    # (user.company_id / allowed_company_ids in the domain_force) against the
+    # user's default company, and the effective domain would silently diverge
+    # from what AS_COMPANY actually sees at runtime.
     Rule = env["ir.rule"].with_user(user)          # noqa: F821
+    if company:
+        Rule = Rule.with_company(company).with_context(
+            allowed_company_ids=[company.id])
     rule_recs = env["ir.rule"].sudo().search(      # noqa: F821
         [("model_id.model", "=", MODEL), ("active", "=", True)])
 

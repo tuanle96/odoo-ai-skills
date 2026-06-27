@@ -189,8 +189,14 @@ def run():
                           "method": code.co_name, "line": code.co_firstlineno, "sql_count": None})
             # Capture create/write field NAMES (never values) for the write map.
             if code.co_name in ("create", "write"):
+                # Modern create is `@api.model_create_multi def create(self,
+                # vals_list)`, so the local is `vals_list`, not `vals`; fall back
+                # to it so multi-create field names aren't silently dropped.
+                f_locals = frame.f_locals
+                raw_vals = (f_locals["vals"] if "vals" in f_locals
+                            else f_locals.get("vals_list"))
                 write_events.append({"model": model_name, "method": code.co_name,
-                                     "fields": _vals_field_names(frame.f_locals.get("vals"))})
+                                     "fields": _vals_field_names(raw_vals)})
             depth["n"] += 1
         elif event == "return":
             idx = frame_idx.pop(id(frame), None)

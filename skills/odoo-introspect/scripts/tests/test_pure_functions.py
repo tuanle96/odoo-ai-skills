@@ -136,12 +136,22 @@ def test_classify_addon_path():
 
 # --- model_brief.gate_code ---------------------------------------------------
 def test_gate_code_redacts_by_default():
+    # Default: NO preview — a head slice can still leak a token/URL/key.
     recs = [{"name": "a", "code": "x = secret_token\n" + "y" * 500}]
     out = model_brief.gate_code(recs, want_code=False, preview_len=100)
     rec = out[0]
     assert "code" not in rec                       # full body removed
     assert rec["code_present"] is True
     assert rec["code_len"] == len("x = secret_token\n") + 500
+    assert rec["code_preview"] is None             # no preview by default
+
+
+def test_gate_code_preview_when_opted_in():
+    recs = [{"name": "a", "code": "x = secret_token\n" + "y" * 500}]
+    out = model_brief.gate_code(recs, want_code=False, want_preview=True, preview_len=100)
+    rec = out[0]
+    assert "code" not in rec                       # full body still removed
+    assert rec["code_present"] is True
     assert rec["code_preview"].endswith("…")       # truncated preview
     assert len(rec["code_preview"]) == 101
 

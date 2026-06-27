@@ -86,7 +86,7 @@ scripts/odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception   # 
 
 > **Layer F redacts sensitive data by default.** Locals, dict keys, and field names that look like secrets (`password`, `token`, `secret`, `api_key`, `authorization`, `session`, …) are emitted as `<redacted>`. Add more with `--redact-extra ssn,iban`; turn it off with `--no-redact` on a trusted dev box only. Redaction is key-name based — it won't catch a secret stored under a benign name, and source bodies (`--source`) / explicit `--fields` values are **not** redacted. Don't paste raw `state`/source JSON into an external LLM unless reviewed.
 
-> **Code bodies are gated, not dumped.** `brief` returns server-action and cron `code` as a redacted summary (`code_present`, `code_len`, `code_preview`) by default, because those bodies often embed secrets, endpoints, and sensitive business logic. Pass `--source` (method source) or set `CODE=1` (action/cron bodies) only in trusted context — and review before pasting into an external LLM.
+> **Code bodies are gated, not dumped.** `brief` returns server-action and cron `code` as `code_present` / `code_len` only — `code_preview` is `null` by default, because even a head-only slice can carry a token, webhook URL, or API key. Set `CODE_PREVIEW=1` for a short head slice, or `CODE=1` for full bodies (and `--source` for method source) — all trusted context only, and review before pasting into an external LLM.
 
 > **`all` scope.** `odoo-ai all` runs `brief + entrypoints + metadata` (plus `trace` when you pass `--record-id` and `--method`). It does **not** run `refs`, `preflight`, or `state` — run those explicitly when you need reverse-impact, load-verification, or runtime values.
 

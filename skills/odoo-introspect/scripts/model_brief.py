@@ -35,8 +35,11 @@ Usage
     MODEL=sale.order METHODS=action_confirm SOURCE=1 odoo-bin shell -d <DB> < model_brief.py
 
     # include full server-action / cron CODE bodies (may contain secrets —
-    # trusted context only; default is a redacted preview):
+    # trusted context only; default emits only present/len, no preview):
     MODEL=sale.order CODE=1 odoo-bin shell -d <DB> < model_brief.py
+
+    # opt in to a short head-only code preview (still potentially sensitive):
+    MODEL=sale.order CODE_PREVIEW=1 odoo-bin shell -d <DB> < model_brief.py
 
     # write to file:
     MODEL=sale.order OUT=/tmp/brief.json odoo-bin shell -d <DB> < model_brief.py
@@ -163,14 +166,16 @@ def repr_domain(dom, max_len=300):
         return "<unrepresentable>"
 
 
-def gate_code(records, field="code", want_code=False, preview_len=200):
+def gate_code(records, field="code", want_code=False, want_preview=False, preview_len=200):
     """Replace a raw code body with a safe summary unless want_code is set.
 
     Server-action / cron code bodies routinely embed secrets, endpoints, and
     sensitive business logic. Dumping them by default is a leak risk on an
-    open-source tool whose output gets pasted into an external LLM. By default
-    we emit has_code / code_len / code_preview (a short, head-only slice) and
-    require CODE=1 to include the full body. Mutates each record in place and
+    open-source tool whose output gets pasted into an external LLM — and even a
+    head-only slice can carry a token, webhook URL, or API key, so a preview is
+    NOT safe by default. By default we emit only code_present / code_len with
+    code_preview = None. CODE_PREVIEW=1 adds the head slice; CODE=1 includes the
+    full body (both trusted-context only). Mutates each record in place and
     returns the same list for convenience.
     """
     for rec in records or []:
@@ -188,7 +193,10 @@ def gate_code(records, field="code", want_code=False, preview_len=200):
         rec.pop(field, None)
         rec[field + "_present"] = True
         rec[field + "_len"] = len(body)
-        rec[field + "_preview"] = body[:preview_len] + ("…" if len(body) > preview_len else "")
+        # No preview by default — a 200-char head slice can still leak secrets.
+        rec[field + "_preview"] = (
+            body[:preview_len] + ("…" if len(body) > preview_len else "")
+            if want_preview else None)
     return records
 
 
@@ -220,6 +228,7 @@ def run():
     METHODS = [m.strip() for m in os.environ.get("METHODS", "").split(",") if m.strip()]
     WANT_SOURCE = os.environ.get("SOURCE") in ("1", "true", "yes")
     WANT_CODE = os.environ.get("CODE") in ("1", "true", "yes")
+    WANT_PREVIEW = os.environ.get("CODE_PREVIEW") in ("1", "true", "yes")
     OUT = os.environ.get("OUT")
 
     model = env[MODEL]            # noqa: F821  (env comes from the odoo shell)
@@ -347,15 +356,16 @@ def run():
     }
 
     # --- 4. Auto-trigger surface (fires WITHOUT a user clicking) -------------
-    # Code bodies (server actions / crons) are gated behind CODE=1: by default
-    # we emit a redacted summary (present/len/preview) so secrets and sensitive
-    # business logic don't leak into an external LLM. Set CODE=1 to include full
-    # bodies (trusted context only).
+    # Code bodies (server actions / crons) are gated: by default we emit only
+    # present/len (code_preview = None) so secrets and sensitive business logic
+    # don't leak into an external LLM. Even a head-only preview can carry a
+    # token/URL, so it is opt-in via CODE_PREVIEW=1; CODE=1 includes full bodies
+    # (both trusted context only).
     triggers = {
         "server_actions": gate_code(_safe_read(
             "ir.actions.server", [("model_id.model", "=", MODEL)],
             ["name", "state", "usage", "code"],
-        ), want_code=WANT_CODE),
+        ), want_code=WANT_CODE, want_preview=WANT_PREVIEW),
         "automated_actions": _safe_read(
             "base.automation", [("model_id.model", "=", MODEL)],
             ["name", "trigger", "filter_domain", "active"],
@@ -363,8 +373,10 @@ def run():
         "crons": gate_code(_safe_read(
             "ir.cron", [("model_id.model", "=", MODEL)],
             ["name", "active", "interval_number", "interval_type", "code"],
-        ), want_code=WANT_CODE),
-        "_code_gating": "full" if WANT_CODE else "redacted (set CODE=1 for full bodies)",
+        ), want_code=WANT_CODE, want_preview=WANT_PREVIEW),
+        "_code_gating": ("full" if WANT_CODE else
+                         "preview (head slice; set CODE=1 for full bodies)" if WANT_PREVIEW else
+                         "redacted (present/len only; CODE_PREVIEW=1 for a head slice, CODE=1 for full bodies)"),
     }
 
     # --- 5. MRO + source/super analysis per method --------------------------

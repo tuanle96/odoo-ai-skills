@@ -162,7 +162,7 @@ python skills/odoo-introspect/scripts/tests/test_pure_functions.py   # no-pytest
 
 CI (`.github/workflows/`) compiles every script and runs these tests on each push.
 
-**Integration smoke test (needs a real Odoo).** `scripts/tests/integration_smoke.py` runs the layers against a live instance and asserts on the JSON (selection literals, manifest `by_location` split, view `inheritance_chain`, seeded `noupdate`, Layer F redaction). It's opt-in — skipped unless `ODOO_DB` is set — so it never breaks the unit CI. Run it against a dev container or let `.github/workflows/integration.yml` run it on the official `odoo:17.0`/`18.0` images. See `skills/odoo-introspect/references/introspection.md` for the container wrapper and exact invocation.
+**Integration smoke test (needs a real Odoo).** `scripts/tests/integration_smoke.py` runs the layers against a live instance and asserts on the JSON (selection literals, manifest `by_location` split, view `inheritance_chain`, seeded `noupdate`, Layer F redaction). It's opt-in — skipped unless `ODOO_DB` is set — so it never breaks the unit CI. Run it against a dev container or let `.github/workflows/integration.yml` run it on the official `odoo:17.0` / `18.0` / `19.0` images (with a dedicated job running the `sale_confirm_guard` worked example on `odoo:18.0`). See `skills/odoo-introspect/references/introspection.md` for the container wrapper and exact invocation.
 
 ## Contributing & security
 

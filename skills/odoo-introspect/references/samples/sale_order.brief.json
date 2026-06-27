@@ -138,10 +138,19 @@
         ]
     },
     "auto_triggers": {
-        "server_actions": [],
+        "server_actions": [
+            {
+                "name": "Notify finance on confirm",
+                "state": "code",
+                "usage": "ir_actions_server",
+                "code_present": true,
+                "code_len": 834,
+                "code_preview": null
+            }
+        ],
         "automated_actions": [],
         "crons": [],
-        "_code_gating": "redacted (set CODE=1 for full bodies)"
+        "_code_gating": "redacted (present/len only; CODE_PREVIEW=1 for a head slice, CODE=1 for full bodies)"
     },
     "overridden_methods": [
         "action_confirm"

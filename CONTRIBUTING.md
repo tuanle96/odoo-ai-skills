@@ -81,7 +81,7 @@ ODOO_DB=<db> ODOO_CONF=/etc/odoo/odoo.conf ODOO_BIN=/path/to/odoo-docker \
     python skills/odoo-introspect/scripts/tests/integration_smoke.py
 ```
 
-CI runs the same script against official `odoo:17.0`/`18.0` images. If your
+CI runs the same script against official `odoo:17.0` / `18.0` / `19.0` images. If your
 change touches the scripts, please run it against at least one live instance and
 say so in the PR.
 
