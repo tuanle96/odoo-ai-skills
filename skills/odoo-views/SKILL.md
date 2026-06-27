@@ -18,7 +18,7 @@ description: >-
 
 The view you edit is **not** the view that renders. Odoo merges the base arch with every inheriting view across the addon graph at `get_view()` time. An xpath that doesn't match the *resolved* arch silently no-ops — the field you "added" never appears and nothing is logged.
 
-**Read ground truth first.** Run the `odoo-introspect` skill's **entrypoints (Layer B)** on the model: it dumps the inheritance-resolved arch, the buttons (which method/action each fires), and the view-level field modifiers (readonly/invisible/required). Now your xpath targets exist and you won't duplicate a field.
+**Read ground truth first.** Run the `odoo-introspect` skill's **entrypoints (Layer B)** on the model: it dumps the inheritance-resolved arch, the buttons (which method/action each fires), and the view-level field modifiers (readonly/invisible/required). It also returns the **`inheritance_chain`** — the base view plus every applied extension in priority order — so you pick the right view to inherit and can see which siblings already touch your target node. Render one specific view with `--view-xmlid`/`--view-id`. Now your xpath targets exist and you won't duplicate a field.
 
 **Version floor: Odoo 17/18, through Odoo 19 (current LTS).** Pre-17 deltas and the v18.1 → 19 changes → `skills/odoo-introspect/references/version-matrix.md`.
 
@@ -88,7 +88,7 @@ Full mechanics + every position with examples → `references/view-inheritance.m
 
 - xpath doesn't match the **resolved** arch → no-op, no error. Dump the arch first (entrypoints).
 - Adding a field already present in the view → "Field used twice" error, or a silent dedupe depending on placement.
-- `priority` among competing inheriting views changes apply order → your patch lands, then a higher-priority sibling overwrites it.
+- `priority` among competing inheriting views changes apply order → your patch lands, then a higher-priority sibling overwrites it. Check the `inheritance_chain` (entrypoints) to see the order before you pick a priority.
 - `position="replace"` on a node other views also target → their xpath now misses → a cascade of silent no-ops.
 - Editing arch on an installed DB without `-u <module>` (or `--dev=xml`) → the old arch is still served.
 - Plain `invisible` on a list field where you meant to hide the **column** → the cell hides but the header stays.

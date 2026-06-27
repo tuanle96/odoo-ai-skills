@@ -2,6 +2,7 @@
 
 [![ci](https://github.com/tuanle96/odoo-ai-skills/actions/workflows/ci.yml/badge.svg)](https://github.com/tuanle96/odoo-ai-skills/actions/workflows/ci.yml)
 [![tests](https://github.com/tuanle96/odoo-ai-skills/actions/workflows/tests.yml/badge.svg)](https://github.com/tuanle96/odoo-ai-skills/actions/workflows/tests.yml)
+[![integration](https://github.com/tuanle96/odoo-ai-skills/actions/workflows/integration.yml/badge.svg)](https://github.com/tuanle96/odoo-ai-skills/actions/workflows/integration.yml)
 [![Odoo 17/18/19](https://img.shields.io/badge/Odoo-17%20%7C%2018%20%7C%2019-714B67)](https://www.odoo.com)
 [![license: LGPL-3](https://img.shields.io/badge/license-LGPL--3-blue)](#license)
 
@@ -123,6 +124,15 @@ scripts/odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception   # 
 
 See `skills/odoo-introspect/` for the JSON shape of each layer and the SaaS RPC fallback.
 
+## Security — handling introspection output
+
+The introspection layers dump real instance data. **Layer F (`state`) captures runtime args, locals, and `self` field values, and `SOURCE=1` on Layer A includes full method bodies.** This output can contain secrets, tokens, API keys, passwords, customer PII, or proprietary business logic.
+
+- **`state` redacts common sensitive keys by default** — locals/dict-keys/fields named like `password`, `token`, `secret`, `api_key`, `authorization`, `session`, etc. become `<redacted>`. Extend with `--redact-extra ssn,iban`; disable with `--no-redact` only on a trusted dev box. Redaction is key-name based, so it won't catch a secret stored under an innocuous name.
+- **Source bodies and field *values* are not redacted** — `SOURCE=1` and `--fields` can still surface sensitive content. **Do not paste raw `state` / source JSON into an external LLM or a public issue unless it's been reviewed and redacted.**
+- Run introspection against a **dev/staging** DB where practical, not production.
+- Treat the JSON like a debugger session: useful for the agent in-loop, but not something to ship around.
+
 ## Layout
 
 ```
@@ -144,6 +154,14 @@ python skills/odoo-introspect/scripts/tests/test_pure_functions.py   # no-pytest
 
 CI (`.github/workflows/`) compiles every script and runs these tests on each push.
 
+**Integration smoke test (needs a real Odoo).** `scripts/tests/integration_smoke.py` runs the layers against a live instance and asserts on the JSON (selection literals, manifest `by_location` split, view `inheritance_chain`, seeded `noupdate`, Layer F redaction). It's opt-in — skipped unless `ODOO_DB` is set — so it never breaks the unit CI. Run it against a dev container or let `.github/workflows/integration.yml` run it on the official `odoo:17.0`/`18.0` images. See `skills/odoo-introspect/references/introspection.md` for the container wrapper and exact invocation.
+
+## Contributing & security
+
+- Contributions: see `CONTRIBUTING.md` (project layout, the import-safe script pattern, running the unit + integration tests).
+- Changes are tracked in `CHANGELOG.md`.
+- Handling introspection output safely (redaction, what not to share): see `SECURITY.md`.
+
 ## License
 
-LGPL-3. See `.claude-plugin/plugin.json`.
+LGPL-3.0-or-later. See [`LICENSE`](LICENSE).

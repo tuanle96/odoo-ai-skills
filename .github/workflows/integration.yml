@@ -1,0 +1,57 @@
+name: integration
+
+# Heavy (boots a real Odoo + Postgres), so not on every push: run on demand,
+# weekly, and on PRs that touch the introspection scripts.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * 1"   # Mondays 04:00 UTC
+  pull_request:
+    paths:
+      - "skills/odoo-introspect/scripts/**"
+      - ".github/workflows/integration.yml"
+      - ".github/ci-odoo.conf"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        odoo: ["17.0", "18.0"]
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize a clean DB (install base, no demo)
+        run: |
+          docker run --rm --network host -v "$PWD":/repo -w /repo \
+            odoo:${{ matrix.odoo }} \
+            odoo -d ci -c /repo/.github/ci-odoo.conf \
+                 -i base --stop-after-init --log-level=warn
+
+      - name: Run introspection integration smoke
+        run: |
+          # Everything runs INSIDE the odoo image (odoo + python3 on PATH), so
+          # the smoke test's subprocess env reaches the `odoo shell` child
+          # directly — no docker env-forwarding needed.
+          docker run --rm --network host -v "$PWD":/repo -w /repo \
+            -e ODOO_DB=ci \
+            -e ODOO_CONF=/repo/.github/ci-odoo.conf \
+            -e SMOKE_MODEL=res.partner \
+            odoo:${{ matrix.odoo }} \
+            python3 skills/odoo-introspect/scripts/tests/integration_smoke.py

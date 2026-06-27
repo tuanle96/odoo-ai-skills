@@ -24,8 +24,9 @@ Targets Odoo 17/18, through Odoo 19 (current LTS). For older versions check `ski
 Run `odoo-introspect`'s scripts against the live DB before touching data:
 
 ```bash
-# Layer D — seeded external IDs for a model: owning module, xmlid, and noupdate.
-#           noupdate_records is the list whose UI edits revert on -u.
+# Layer C — seeded external IDs for a model: owning module, xmlid, and noupdate.
+#           noupdate_records (noupdate=True) are protected from -u: UI edits stick,
+#           but later XML edits won't apply — change them with a migration.
 MODEL=res.partner odoo-bin shell -d <DB> --no-http < scripts/metadata.py
 # Layer A — field names/types, so record <field name> values aren't guessed.
 MODEL=res.partner odoo-bin shell -d <DB> --no-http < scripts/model_brief.py
@@ -84,5 +85,5 @@ Full XML/CSV syntax, x2many command tuples, and the `Command.*` equivalents are 
 ## References & scripts
 
 - `references/data-and-sequences.md` — full XML/CSV syntax, x2many command tuples + `Command.*`, `ir.sequence` fields & interpolation, `res.config.settings`/`ir.config_parameter` patterns, safe updates to shipped records, i18n note.
-- Uses `odoo-introspect` scripts: `metadata.py` (Layer D — seeded ir.model.data + noupdate), `model_brief.py` (Layer A — field inventory).
+- Uses `odoo-introspect` scripts: `metadata.py` (Layer C — seeded ir.model.data + noupdate), `model_brief.py` (Layer A — field inventory).
 - Changing already-installed protected data → `odoo-migration`. Proving `-i`/`-u` both load cleanly → `odoo-testing`.

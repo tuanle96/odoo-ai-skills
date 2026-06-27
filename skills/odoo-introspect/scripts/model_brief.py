@@ -114,6 +114,71 @@ def _decorator_meta(fn):
     return meta or None
 
 
+def normalize_selection(sel, max_items=60):
+    """Turn a raw selection into a list of {value, label}, or a marker dict.
+
+    Selection fields are the #1 source of AI guessing wrong literals (e.g.
+    `state='confirmed'` when Odoo uses `'sale'`). A list/tuple of pairs becomes
+    [{"value", "label"}]; a method-name string or callable can't be resolved
+    without env, so it returns {"_dynamic": ...}. Returns None for non-selection.
+    """
+    if sel is None:
+        return None
+    if isinstance(sel, str):
+        return {"_dynamic": f"method:{sel}"}
+    if callable(sel):
+        return {"_dynamic": "callable"}
+    try:
+        out = []
+        for pair in list(sel)[:max_items]:
+            if isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                out.append({"value": pair[0], "label": str(pair[1])})
+            elif isinstance(pair, (list, tuple)) and len(pair) == 1:
+                out.append({"value": pair[0]})
+            else:
+                out.append({"value": pair})
+        if len(list(sel)) > max_items:
+            out.append({"_truncated": f"+{len(list(sel)) - max_items} more"})
+        return out or None
+    except Exception:
+        return None
+
+
+def repr_domain(dom, max_len=300):
+    """JSON-safe representation of a field domain: keep str/list, mark callables."""
+    if dom is None:
+        return None
+    if callable(dom):
+        return "<callable>"
+    if isinstance(dom, str):
+        return dom[:max_len] + ("…" if len(dom) > max_len else "")
+    try:
+        s = str(dom)
+        return s[:max_len] + ("…" if len(s) > max_len else "")
+    except Exception:
+        return "<unrepresentable>"
+
+
+def classify_addon_path(module_path, core_dir, enterprise_marker="enterprise"):
+    """Classify a module by its on-disk location — ground truth, not author.
+
+    Returns 'core' (ships under Odoo's base addons dir), 'enterprise' (path has
+    an `enterprise` segment), 'local' (anything else — your/third-party addons,
+    scrutinize before depending), or 'unknown' (no path resolved). The author
+    field is unreliable: custom modules routinely copy `author = 'Odoo S.A.'`.
+    """
+    if not module_path:
+        return "unknown"
+    norm = module_path.rstrip("/")
+    if core_dir:
+        cd = core_dir.rstrip("/")
+        if norm == cd or norm.startswith(cd + "/"):
+            return "core"
+    if enterprise_marker in norm.split("/"):
+        return "enterprise"
+    return "local"
+
+
 # --- Env-dependent work (runs only inside odoo-bin shell) --------------------
 def run():
     MODEL = os.environ.get("MODEL")
@@ -193,12 +258,18 @@ def run():
 
     fields = {}
     for name, f in sorted(fields_set.items()):
-        fields[name] = {
+        info = {
             "type": f.type,
             "string": f.string,
+            "help": getattr(f, "help", None) or None,
             "store": f.store,
             "required": f.required,
             "readonly": f.readonly,
+            "index": bool(getattr(f, "index", False)),
+            "copy": getattr(f, "copy", None),
+            "translate": bool(getattr(f, "translate", False)),
+            "tracking": getattr(f, "tracking", None) or None,
+            "has_default": getattr(f, "default", None) is not None,
             "compute": f.compute,
             "inverse": getattr(f, "inverse", None),
             "search": getattr(f, "search", None),
@@ -209,6 +280,24 @@ def run():
             "company_dependent": getattr(f, "company_dependent", False),
             "modules": field_modules.get(name),
         }
+        # Selection literals — resolve method-based selections via env when possible.
+        if f.type == "selection":
+            sel = None
+            try:
+                sel = normalize_selection(f._description_selection(env))  # noqa: F821
+            except Exception:
+                sel = normalize_selection(getattr(f, "selection", None))
+            info["selection"] = sel
+        # Relational extras the agent otherwise guesses.
+        if f.type in ("many2one", "many2many"):
+            info["ondelete"] = getattr(f, "ondelete", None)
+        if f.type in ("one2many", "many2many"):
+            info["inverse_name"] = getattr(f, "inverse_name", None)
+        if f.type in ("many2one", "one2many", "many2many"):
+            dom = repr_domain(getattr(f, "domain", None))
+            if dom:
+                info["domain"] = dom
+        fields[name] = info
 
     # --- 3. Security dossier -------------------------------------------------
     security = {
@@ -260,11 +349,35 @@ def run():
             a = e.get("addon")
             if a and a not in chain_addons and a != "base":
                 chain_addons.append(a)
+    # Classify by on-disk path (ground truth), NOT module author — custom modules
+    # routinely ship `author = 'Odoo S.A.'`, so author can't be trusted.
+    import odoo  # available inside the shell
+    core_dir, mod_paths = None, {}
+    try:
+        base_path = odoo.modules.module.get_module_path("base", display_warning=False)
+        core_dir = os.path.dirname(base_path) if base_path else None
+        for a in chain_addons:
+            try:
+                mod_paths[a] = odoo.modules.module.get_module_path(a, display_warning=False)
+            except Exception:
+                mod_paths[a] = None
+    except Exception as e:
+        WARNINGS.append(f"module path lookup failed ({type(e).__name__}: {e}); "
+                        "location split unavailable")
+
+    by_location = {"core": [], "enterprise": [], "local": [], "unknown": []}
+    for a in chain_addons:
+        by_location[classify_addon_path(mod_paths.get(a), core_dir)].append(a)
     recommended = {
         "method_chain_addons": chain_addons,
-        "note": "Have your custom module depend on these (or the highest-level one) "
-                "so your override resolves ABOVE them in the MRO. Verify the addon "
-                "you are writing in is not already one of these.",
+        "by_location": by_location,
+        "module_paths": mod_paths,
+        "note": "'core'/'enterprise' addons ship with Odoo — depend on the one that OWNS the "
+                "method you extend so your override resolves ABOVE it in the MRO (the "
+                "highest-level one usually pulls the rest transitively). 'local' addons are "
+                "yours/third-party: do NOT blindly depend on every local addon you traversed — "
+                "that creates accidental coupling. Verify the addon you're writing in isn't "
+                "already in this list. Classification is by on-disk path, not author.",
     }
 
     # --- 7. Emit ------------------------------------------------------------

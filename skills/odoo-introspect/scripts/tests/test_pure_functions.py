@@ -15,6 +15,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent   # .../odoo-introspect/scr
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import model_brief  # noqa: E402  (import-safe: run() is gated on `env` in globals)
+import entrypoints  # noqa: E402  (import-safe: run() is gated on `env` in globals)
 import field_refs   # noqa: E402  (import-safe: run() is gated on `env` in globals)
 import preflight    # noqa: E402  (import-safe: run() is gated on `env` in globals)
 import state_capture  # noqa: E402  (import-safe: run() is gated on `env` in globals)
@@ -80,6 +81,83 @@ def test_analyze_source_returns_before_super():
     out = model_brief.analyze_source(src)
     assert out["has_super"] is True
     assert out["returns_before_super"] is True
+
+
+# --- model_brief.normalize_selection ----------------------------------------
+def test_normalize_selection_pairs():
+    out = model_brief.normalize_selection(
+        [("draft", "Quotation"), ("sale", "Sales Order"), ("done", "Locked")])
+    assert out == [
+        {"value": "draft", "label": "Quotation"},
+        {"value": "sale", "label": "Sales Order"},
+        {"value": "done", "label": "Locked"},
+    ]
+
+
+def test_normalize_selection_dynamic_and_empty():
+    assert model_brief.normalize_selection("_compute_states") == {"_dynamic": "method:_compute_states"}
+    assert model_brief.normalize_selection(lambda self: []) == {"_dynamic": "callable"}
+    assert model_brief.normalize_selection(None) is None
+    assert model_brief.normalize_selection([]) is None
+
+
+def test_normalize_selection_truncates():
+    big = [(str(i), f"L{i}") for i in range(70)]
+    out = model_brief.normalize_selection(big, max_items=60)
+    assert len(out) == 61
+    assert out[-1] == {"_truncated": "+10 more"}
+
+
+def test_repr_domain():
+    assert model_brief.repr_domain(None) is None
+    assert model_brief.repr_domain(lambda self: []) == "<callable>"
+    assert model_brief.repr_domain("[('active','=',True)]") == "[('active','=',True)]"
+    assert model_brief.repr_domain([("a", "=", 1)]) == "[('a', '=', 1)]"
+    long = model_brief.repr_domain("x" * 400, max_len=300)
+    assert long.endswith("…") and len(long) == 301
+
+
+def test_classify_addon_path():
+    core = "/opt/odoo/odoo/addons"
+    # core: under the base addons dir
+    assert model_brief.classify_addon_path("/opt/odoo/odoo/addons/sale", core) == "core"
+    assert model_brief.classify_addon_path(core, core) == "core"
+    # enterprise: an `enterprise` path segment
+    assert model_brief.classify_addon_path("/mnt/extra-addons/enterprise/web_studio", core) == "enterprise"
+    # local: custom path (even if author claims Odoo S.A.)
+    assert model_brief.classify_addon_path("/mnt/extra-addons/bestmix-addons/bm_account", core) == "local"
+    # unknown: no path
+    assert model_brief.classify_addon_path(None, core) == "unknown"
+    # substring trap: a dir literally named like core but not under it
+    assert model_brief.classify_addon_path("/opt/odoo/odoo/addons_custom/x", core) == "local"
+
+
+# --- entrypoints.order_inheritance_chain ------------------------------------
+def test_inheritance_chain_orders_by_priority():
+    views = [
+        {"id": 1, "inherit_id": None, "priority": 16, "xmlid": "sale.form"},
+        {"id": 3, "inherit_id": 1, "priority": 30, "xmlid": "custom.form_inherit"},
+        {"id": 2, "inherit_id": 1, "priority": 20, "xmlid": "sale_stock.form_inherit"},
+    ]
+    out = entrypoints.order_inheritance_chain(views, root_id=1)
+    assert [v["xmlid"] for v in out] == [
+        "sale.form", "sale_stock.form_inherit", "custom.form_inherit"]
+
+
+def test_inheritance_chain_nested_and_unreachable():
+    views = [
+        {"id": 1, "inherit_id": None, "priority": 16},
+        {"id": 2, "inherit_id": 1, "priority": 20},
+        {"id": 3, "inherit_id": 2, "priority": 10},   # grandchild
+        {"id": 9, "inherit_id": 99, "priority": 5},    # unreachable from root 1
+    ]
+    out = entrypoints.order_inheritance_chain(views, root_id=1)
+    assert [v["id"] for v in out] == [1, 2, 3]         # 9 excluded, parents first
+
+
+def test_inheritance_chain_missing_root():
+    assert entrypoints.order_inheritance_chain(
+        [{"id": 2, "inherit_id": 1, "priority": 16}], root_id=1) == []
 
 
 # --- field_refs pure helpers -------------------------------------------------
@@ -270,6 +348,52 @@ def test_state_serialize_locals_skips_dunder_and_caps():
     assert out["vals"] == {"k": "v"} and out["n"] == 3
     capped = state_capture.serialize_locals({f"v{i}": i for i in range(50)}, max_locals=5)
     assert "__truncated__" in capped
+
+
+# --- state_capture redaction -------------------------------------------------
+def test_state_is_sensitive_key():
+    keys = state_capture.DEFAULT_REDACT_KEYS
+    assert state_capture.is_sensitive_key("password", keys)
+    assert state_capture.is_sensitive_key("db_password", keys)        # substring
+    assert state_capture.is_sensitive_key("API_KEY", keys)            # case-insensitive
+    assert state_capture.is_sensitive_key("access_token", keys)
+    assert not state_capture.is_sensitive_key("partner_id", keys)
+    # empty redact set disables redaction (NO_REDACT path)
+    assert not state_capture.is_sensitive_key("password", frozenset())
+    assert not state_capture.is_sensitive_key(None, keys)
+
+
+def test_state_serialize_redacts_dict_keys():
+    keys = state_capture.DEFAULT_REDACT_KEYS
+    val = state_capture.serialize_value(
+        {"login": "joe", "password": "hunter2", "api_key": "sk-123"}, redact_keys=keys)
+    assert val["login"] == "joe"
+    assert val["password"] == state_capture.REDACTED
+    assert val["api_key"] == state_capture.REDACTED
+
+
+def test_state_serialize_redacts_nested():
+    keys = state_capture.DEFAULT_REDACT_KEYS
+    val = state_capture.serialize_value(
+        {"ctx": {"db_password": "x", "uid": 2}}, redact_keys=keys)
+    assert val["ctx"]["db_password"] == state_capture.REDACTED
+    assert val["ctx"]["uid"] == 2
+
+
+def test_state_serialize_no_redact_when_disabled():
+    val = state_capture.serialize_value({"password": "hunter2"}, redact_keys=frozenset())
+    assert val["password"] == "hunter2"
+
+
+def test_state_serialize_locals_redacts_by_name():
+    keys = state_capture.DEFAULT_REDACT_KEYS
+    out = state_capture.serialize_locals(
+        {"password": "hunter2", "vals": {"token": "abc", "name": "ok"}, "n": 1},
+        redact_keys=keys)
+    assert out["password"] == state_capture.REDACTED       # local name redacted
+    assert out["vals"]["token"] == state_capture.REDACTED  # nested dict key redacted
+    assert out["vals"]["name"] == "ok"
+    assert out["n"] == 1
 
 
 if __name__ == "__main__":

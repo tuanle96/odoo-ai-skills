@@ -19,12 +19,31 @@ Abbreviated, realistic JSON for each script (model: `sale.order`, Odoo 18), trim
   "field_count": 142,
   "fields": {
     "amount_total": {
-      "type": "monetary", "string": "Total", "store": true, "required": false,
-      "readonly": true, "compute": "_compute_amounts", "inverse": null, "search": null,
+      "type": "monetary", "string": "Total", "help": "...", "store": true, "required": false,
+      "readonly": true, "index": false, "copy": false, "translate": false, "tracking": null,
+      "has_default": false, "compute": "_compute_amounts", "inverse": null, "search": null,
       "related": null, "depends": ["order_line.price_total"], "comodel": null,
       "groups": null, "company_dependent": false, "modules": "sale"
     },
-    "state": {"type": "selection", "string": "Status", "store": true, "...": "..."}
+    "state": {
+      "type": "selection", "string": "Status", "store": true, "tracking": 3,
+      "has_default": true,
+      "selection": [
+        {"value": "draft", "label": "Quotation"},
+        {"value": "sent", "label": "Quotation Sent"},
+        {"value": "sale", "label": "Sales Order"},
+        {"value": "cancel", "label": "Cancelled"}
+      ],
+      "...": "..."
+    },
+    "partner_id": {
+      "type": "many2one", "string": "Customer", "comodel": "res.partner",
+      "ondelete": "restrict", "domain": "[('type','!=','private')]", "...": "..."
+    },
+    "order_line": {
+      "type": "one2many", "comodel": "sale.order.line",
+      "inverse_name": "order_id", "...": "..."
+    }
   },
   "security": {
     "access_rights": [
@@ -64,7 +83,10 @@ Abbreviated, realistic JSON for each script (model: `sale.order`, Odoo 18), trim
   },
   "manifest_depends": {
     "method_chain_addons": ["sale_stock", "sale"],
-    "note": "Have your custom module depend on these (or the highest-level one) ..."
+    "official_addons": ["sale_stock", "sale"],
+    "custom_addons_seen": [],
+    "unknown_addons": [],
+    "note": "Depend on the official module(s) that own the method ... Do NOT blindly depend on every custom addon in the chain ..."
   },
   "_warnings": [],
   "_caveat": "MRO is the POTENTIAL super() chain. Use has_super / super_position ..."
@@ -72,6 +94,9 @@ Abbreviated, realistic JSON for each script (model: `sale.order`, Odoo 18), trim
 ```
 
 - `methods.<name>` is **MRO order**: index 0 may run first; `super()` descends 0 → 1 → …
+- `fields.<name>.selection` lists the **actual `(value, label)` literals** for selection fields — stop guessing `state='confirmed'` when the real value is `'sale'`. A method-resolved selection shows `{"_dynamic": "method:_name"}`.
+- Per-field `ondelete` / `inverse_name` / `domain` appear on relational fields; `index` / `copy` / `translate` / `tracking` / `has_default` round out the attributes AI most often gets wrong.
+- `manifest_depends` splits the chain into `official_addons` vs `custom_addons_seen` (heuristic: module author) — depend on the official owner, not every custom addon you happened to traverse.
 - `super_position` / `returns_before_super` / `hooks_called` are regex heuristics — every entry carries `"heuristic": true`. Confirm big flows with Layer D.
 - `_warnings` is `[]` when clean; a non-empty entry such as `"field_modules lookup failed (...); 'modules' will be null per field"` means that part of the brief is partial — read it, don't trust silence.
 
@@ -93,14 +118,22 @@ Abbreviated, realistic JSON for each script (model: `sale.order`, Odoo 18), trim
         {"name": "partner_id", "widget": "res_partner_many2one", "groups": null,
          "modifiers": {"readonly": "state in ['sale','cancel']"}},
         {"name": "state", "widget": "statusbar", "groups": null, "modifiers": null}
+      ],
+      "root_view_id": 423,
+      "inheritance_chain": [
+        {"xmlid": "sale.view_order_form", "name": "sale.order.form", "priority": 16, "mode": "primary"},
+        {"xmlid": "sale_stock.view_order_form_inherit", "name": "...", "priority": 20, "mode": "extension"},
+        {"xmlid": "custom_x.view_order_form_inherit", "name": "...", "priority": 30, "mode": "extension"}
       ]
     },
     "list": {"buttons": [], "fields": [{"name": "name", "widget": null,
-             "groups": null, "modifiers": null}]}
+             "groups": null, "modifiers": null}], "root_view_id": 425,
+             "inheritance_chain": ["..."]}
   },
   "window_actions": [
     {"id": 366, "name": "Quotations", "view_mode": "list,kanban,form",
-     "domain": "[]", "context": "{'default_...': 1}", "target": "current"}
+     "domain": "[]", "context": "{'default_...': 1}", "target": "current",
+     "view_id": false}
   ],
   "reports": [
     {"id": 30, "name": "Quotation / Order", "report_name": "sale.report_saleorder",
@@ -110,6 +143,7 @@ Abbreviated, realistic JSON for each script (model: `sale.order`, Odoo 18), trim
 ```
 
 - `button.type`: `"object"` → calls the method named in `name`; `"action"` → runs the action with that xmlid/id.
+- `inheritance_chain` is the base view + every applied **extension** view in application order (parents first, siblings by `priority`). Before writing an xpath, inherit the right view from this list — the resolved arch alone hides which inheritors already touched a node. Render one specific view with `--view-xmlid`/`--view-id`.
 - `modifiers` holds the v17+ direct expressions (`invisible`/`readonly`/`required`/`column_invisible`) — there is no `attrs` (removed in v17).
 - `reports` here is the **quick** list; for QWeb templates + paperformat + parser, use Layer C.
 - A view that fails to load returns `{"_error": "..."}` for that view type.
@@ -142,7 +176,7 @@ Abbreviated, realistic JSON for each script (model: `sale.order`, Odoo 18), trim
 }
 ```
 
-- `noupdate_records` get **re-asserted from XML on `-u`** — a runtime write won't stick. Patch the data file or write a migration.
+- `noupdate_records` (noupdate=True) are loaded once on install, then **protected from `-u`** — later XML edits won't apply; change them on installed DBs with a migration. (Default noupdate=False records are re-asserted from XML on `-u`, so runtime/UI edits revert.)
 - `parser_model` is non-null only when a `report.<report_name>` model exists (custom `_get_report_values`); null means the standard template-only path.
 
 ---

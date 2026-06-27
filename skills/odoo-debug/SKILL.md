@@ -100,6 +100,8 @@ odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception
 
 `exception_stack` is the thing a bare traceback throws away: each addon frame deepest-last, with its locals and `self` recordset. Recordsets serialize to `model + ids` (cheap); pass `--fields` to read named field values off `self`. This is the first move for "the value is wrong / why did it raise", before reaching for an interactive debugger.
 
+Layer F **redacts sensitive locals/keys/fields by default** (`password`, `token`, `secret`, `api_key`, …) as `<redacted>`; extend with `--redact-extra`, disable with `--no-redact` on a trusted box. Note `--fields` values and `--source` bodies are not redacted — don't ship raw output to an external LLM unreviewed.
+
 ### Interactive step-through (debugpy + DAP) — when you must drive it live
 
 For genuine step-into/step-over/watch, attach a DAP debugger. Odoo ships nothing special — it's stock `debugpy` (the Python Debug Adapter Protocol implementation) attached to `odoo-bin`, then VS Code / PyCharm connects. **Odoo-specific traps that stop breakpoints from hitting:**

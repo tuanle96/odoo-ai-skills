@@ -9,7 +9,9 @@ got reverted on -u" bugs:
      navigates to it), plus actions bound to the model's action menu.
   2. SEEDED DATA — ir.model.data external IDs for this model's records: which
      module owns them, the xmlid, and noupdate (a noupdate=True record is
-     re-asserted from XML on module update — DON'T expect your write to stick).
+     loaded once on install, then PROTECTED from `-u` — later XML edits won't
+     apply; change it on installed DBs with a migration. noupdate=False/default
+     records are re-asserted from XML on every `-u`, so UI edits revert).
   3. QWEB REPORTS — the DEEP report wiring: report actions + their QWeb template
      xmlids + paperformat + the parser model (`_get_report_values`). This is the
      full layer to customize a report. (entrypoints.py also lists reports, but
@@ -91,7 +93,7 @@ def seeded_data():
         "count_returned": len(rows),
         "limit": DATA_LIMIT,
         "by_module": by_module,
-        "noupdate_records": protected,   # writes to these get reverted on -u
+        "noupdate_records": protected,   # noupdate=True: protected from -u (XML edits won't apply; use a migration)
         "sample": [f"{r['module']}.{r['name']}" for r in rows[:25]],
     }
 

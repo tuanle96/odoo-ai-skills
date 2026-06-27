@@ -31,8 +31,8 @@ Odoo composes each model class at runtime from the installed addon dependency gr
 
 | Layer | Script | Answers | Run when |
 |-------|--------|---------|----------|
-| **A** | `model_brief.py` | fields (+ which modules touched each), MRO + super analysis, security (ACL + record rules), auto-triggers, recommended `depends` | **Always** |
-| **B** | `entrypoints.py` | form/list buttons (→ which method/action), view modifiers (readonly/invisible/required), window actions, reports (quick) | a button / view / action is in scope |
+| **A** | `model_brief.py` | fields (+ selection literals, `ondelete`/`inverse_name`/`domain`, index/copy/tracking; + which modules touched each), MRO + super analysis, security (ACL + record rules), auto-triggers, recommended `depends` (official vs custom split) | **Always** |
+| **B** | `entrypoints.py` | form/list buttons (→ which method/action), view modifiers (readonly/invisible/required), **view inheritance chain** (base + applied extensions by priority), window actions, reports (quick) | a button / view / action / xpath is in scope |
 | **C** | `metadata.py` | menu graph (navigation paths), seeded `ir.model.data` + `noupdate` records, **deep** report wiring (QWeb templates + paperformat + parser) | navigation, seeded data, or a report is in scope |
 | **D** | `trace_flow.py` | the **real** runtime call sequence + SQL across addons (executes; rolls back by default) | any sizable flow (sale/stock/account/mrp) — MRO alone isn't enough |
 
@@ -78,6 +78,8 @@ scripts/odoo-ai --db <DB> state sale.order 42 action_confirm \
 scripts/odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception   # post-mortem stack + locals
 ```
 
+> **Layer F redacts sensitive data by default.** Locals, dict keys, and field names that look like secrets (`password`, `token`, `secret`, `api_key`, `authorization`, `session`, …) are emitted as `<redacted>`. Add more with `--redact-extra ssn,iban`; turn it off with `--no-redact` on a trusted dev box only. Redaction is key-name based — it won't catch a secret stored under a benign name, and source bodies (`--source`) / explicit `--fields` values are **not** redacted. Don't paste raw `state`/source JSON into an external LLM unless reviewed.
+
 Config via flags or env: `--db/ODOO_DB` (required), `--conf/ODOO_CONF`, `--odoo-bin/ODOO_BIN`, `--out-dir` (default `/tmp/odoo-ai/<model>`). Or run a single script directly: `MODEL=sale.order odoo-bin shell -d <DB> --no-http < scripts/model_brief.py`.
 
 **Path when installed as a Claude Code plugin.** The examples use `scripts/odoo-ai` (relative to a clone). When this suite is installed as a plugin, it lives in Claude's cache, so invoke the CLI via the plugin-root variable instead: `"${CLAUDE_PLUGIN_ROOT}"/skills/odoo-introspect/scripts/odoo-ai --db <DB> all <model>`. The `--odoo-bin` flag still points at the *target instance's* `odoo-bin` (or `odoo`), which is unrelated to where the plugin lives.
@@ -93,7 +95,7 @@ See `references/sample-output.md` for the JSON shape each layer returns.
 ## Gotchas that fail silently
 
 - **MRO ≠ runtime.** The chain lists where overrides *resolve*, not what *runs*. A layer that doesn't call `super()` ends it. `super_position` is a regex heuristic (`"heuristic": true`) — confirm big flows with Layer D.
-- **`noupdate=True` seeded records** (Layer C) get re-asserted from XML on `-u`. Your write won't stick — patch the data file or use a migration.
+- **`noupdate=True` seeded records** (Layer C) are loaded once on install, then **protected from `-u`** — your later XML edits won't apply either. To change one on an installed DB, write a migration. (Default `noupdate=False` records are re-asserted from XML on `-u`, so runtime/UI edits revert.)
 - **Wrong `depends` → wrong MRO layer.** Depend on the addon that owns the method you extend, or your override silently sits below the one that matters and "never runs".
 - **API renames bite across versions** — `name_get`→`_compute_display_name`, `fields_view_get`→`get_view`, `attrs`/`states` removed. See `references/version-matrix.md`.
 - **Empty `_warnings` ≠ nothing wrong**, but a non-empty one (e.g. `field_modules lookup failed`) means a layer is partial — read it.
@@ -101,7 +103,7 @@ See `references/sample-output.md` for the JSON shape each layer returns.
 ## References & scripts
 
 - `scripts/model_brief.py` — Layer A: fields, MRO + super analysis, security, auto-triggers, depends.
-- `scripts/entrypoints.py` — Layer B: buttons, view modifiers, window actions, reports (quick).
+- `scripts/entrypoints.py` — Layer B: buttons, view modifiers, view inheritance chain, window actions, reports (quick). `VIEW_XMLID`/`VIEW_ID` renders one specific view.
 - `scripts/metadata.py` — Layer C: menu graph, seeded data + noupdate, deep report wiring.
 - `scripts/trace_flow.py` — Layer D: real runtime call sequence (executes; rolls back unless `COMMIT=1`).
 - `scripts/field_refs.py` — Layer E: reverse impact of a field (computes/related/views/rules/filters/actions that depend on it) before a rename/retype/drop.

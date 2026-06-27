@@ -76,3 +76,51 @@ Pair it with `get_model_fields` (the `ir.model.fields.search_read` above) and yo
 ### No server access at all (true SaaS lockdown)
 
 You can't install Option A. Fall back to: fields via RPC (works), and MRO inferred from **pinned source** — clone `odoo/odoo` at tag `17.0` or `18.0` (+ enterprise if applicable) and walk the `_inherit` graph by hand. Less exact than the live registry, but correct for the standard addon set. Layer D (runtime trace) has no RPC equivalent — reason from the MRO and the addon graph instead, and verify on any non-SaaS copy you can shell into.
+
+## Running against a Docker container
+
+When Odoo runs in a container (the common dev setup), point the `odoo-ai` CLI at
+a wrapper that runs the shell *inside* the container. `docker exec -i` forwards
+the piped script on stdin; the env vars the scripts read must be forwarded
+explicitly with `-e`:
+
+```sh
+# /usr/local/bin/odoo-docker  (chmod +x)
+#!/bin/sh
+EFLAGS=""
+for v in MODEL METHODS SOURCE OUT VIEWS VIEW_ID VIEW_XMLID FIELD MODULE \
+         RECORD_ID METHOD COMMIT BREAK_AT BREAK_LINE FIELDS MAX_HITS ON_EXCEPTION \
+         NO_REDACT REDACT_EXTRA MAX_DEPTH MAX_STRING MAX_RECORDS DATA_LIMIT; do
+  EFLAGS="$EFLAGS -e $v"
+done
+exec docker exec -i $EFLAGS <container-name> odoo "$@"
+```
+
+```sh
+odoo-ai --db <DB> --conf /etc/odoo/odoo.conf --odoo-bin /usr/local/bin/odoo-docker \
+    all res.partner --methods write,create
+```
+
+The `--conf` / `--db` are resolved *inside* the container, so use the container's
+paths. `--odoo-bin` only needs `odoo` (or `odoo-bin`) on the container's PATH.
+
+## Integration smoke test
+
+`scripts/tests/integration_smoke.py` runs Layers A/B/C (+ F if you pass a record
+id) against a real instance and asserts structural invariants — selection
+literals, the manifest `by_location` split, the view `inheritance_chain`, seeded
+`noupdate` records, and Layer F redaction. It's opt-in: with no `ODOO_DB` it
+skips, so the pure-function CI is unaffected.
+
+```sh
+# against a dev container (via the wrapper above):
+ODOO_DB=<DB> ODOO_CONF=/etc/odoo/odoo.conf ODOO_BIN=/usr/local/bin/odoo-docker \
+    SMOKE_RECORD_ID=<id> python skills/odoo-introspect/scripts/tests/integration_smoke.py
+
+# or inside the container directly (odoo + python3 on PATH):
+docker exec -e ODOO_DB=<DB> -e ODOO_CONF=/etc/odoo/odoo.conf <container> \
+    python3 /path/to/scripts/tests/integration_smoke.py
+```
+
+CI runs the same script against the official `odoo:17.0`/`18.0` images
+(`.github/workflows/integration.yml`) on a clean `base`-only DB.

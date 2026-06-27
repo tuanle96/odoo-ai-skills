@@ -15,10 +15,10 @@ Config (flags override env):
 
 Commands:
     odoo-ai brief       <model> [--methods a,b] [--source]
-    odoo-ai entrypoints <model> [--views form,list]
+    odoo-ai entrypoints <model> [--views form,list] [--view-id N] [--view-xmlid m.view]
     odoo-ai metadata    <model>
     odoo-ai trace       <model> <record_id> <method> [--commit]
-    odoo-ai state       <model> <record_id> <method> [--break model.method] [--line N] [--fields a,b] [--on-exception]
+    odoo-ai state       <model> <record_id> <method> [--break model.method] [--line N] [--fields a,b] [--on-exception] [--redact-extra a,b] [--no-redact]
     odoo-ai all         <model> [--methods a,b] [--source] [--record-id N --method M]
 
 Examples:
@@ -132,12 +132,12 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sb = sub.add_parser("brief"); sb.add_argument("model"); sb.add_argument("--methods", default=""); sb.add_argument("--source", action="store_true")
-    se = sub.add_parser("entrypoints"); se.add_argument("model"); se.add_argument("--views", default="form,list")
+    se = sub.add_parser("entrypoints"); se.add_argument("model"); se.add_argument("--views", default="form,list"); se.add_argument("--view-id", dest="view_id", default=""); se.add_argument("--view-xmlid", dest="view_xmlid", default="")
     sm = sub.add_parser("metadata"); sm.add_argument("model")
     st = sub.add_parser("trace"); st.add_argument("model"); st.add_argument("record_id"); st.add_argument("method"); st.add_argument("--commit", action="store_true")
     sr = sub.add_parser("refs"); sr.add_argument("model"); sr.add_argument("field")
     sp = sub.add_parser("preflight"); sp.add_argument("module", nargs="?")
-    ss = sub.add_parser("state"); ss.add_argument("model"); ss.add_argument("record_id"); ss.add_argument("method"); ss.add_argument("--break", dest="break_at", default=""); ss.add_argument("--line", dest="break_line"); ss.add_argument("--fields", default=""); ss.add_argument("--on-exception", action="store_true"); ss.add_argument("--max-hits", default="3"); ss.add_argument("--commit", action="store_true")
+    ss = sub.add_parser("state"); ss.add_argument("model"); ss.add_argument("record_id"); ss.add_argument("method"); ss.add_argument("--break", dest="break_at", default=""); ss.add_argument("--line", dest="break_line"); ss.add_argument("--fields", default=""); ss.add_argument("--on-exception", action="store_true"); ss.add_argument("--max-hits", default="3"); ss.add_argument("--commit", action="store_true"); ss.add_argument("--no-redact", action="store_true", help="disable default redaction of password/token/secret/... (trusted dev box only)"); ss.add_argument("--redact-extra", default="", help="comma-separated extra key names to redact")
     sa = sub.add_parser("all"); sa.add_argument("model"); sa.add_argument("--methods", default=""); sa.add_argument("--source", action="store_true"); sa.add_argument("--views", default="form,list"); sa.add_argument("--record-id"); sa.add_argument("--method")
 
     a = p.parse_args()
@@ -153,7 +153,12 @@ def main():
     if a.cmd == "brief":
         do_step("brief", {"MODEL": a.model, "METHODS": a.methods, "SOURCE": "1" if a.source else ""}, cfg, out_dir, a.model)
     elif a.cmd == "entrypoints":
-        do_step("entrypoints", {"MODEL": a.model, "VIEWS": a.views}, cfg, out_dir, a.model)
+        env_extra = {"MODEL": a.model, "VIEWS": a.views}
+        if a.view_id:
+            env_extra["VIEW_ID"] = a.view_id
+        if a.view_xmlid:
+            env_extra["VIEW_XMLID"] = a.view_xmlid
+        do_step("entrypoints", env_extra, cfg, out_dir, a.model)
     elif a.cmd == "metadata":
         do_step("metadata", {"MODEL": a.model}, cfg, out_dir, a.model)
     elif a.cmd == "trace":
@@ -172,6 +177,10 @@ def main():
             env_extra["BREAK_LINE"] = a.break_line
         if a.on_exception:
             env_extra["ON_EXCEPTION"] = "1"
+        if a.no_redact:
+            env_extra["NO_REDACT"] = "1"
+        if a.redact_extra:
+            env_extra["REDACT_EXTRA"] = a.redact_extra
         do_step("state", env_extra, cfg, out_dir, a.model)
     elif a.cmd == "all":
         do_step("brief", {"MODEL": a.model, "METHODS": a.methods, "SOURCE": "1" if a.source else ""}, cfg, out_dir, a.model)

@@ -18,7 +18,8 @@ It does two things, independently or together:
      EVERY addon frame's locals. A normal traceback throws this away; here you
      keep the full stack-with-state that explains the failure.
 
-It reuses Layer D's approach: `sys.settrace` filtered to `/addons/` frames, and a
+It reuses Layer D's approach: `sys.settrace` filtered to `odoo.addons.*` frames
+(by module name, not by a `/addons/` path), and a
 SAVEPOINT that rolls back by default so nothing persists.
 
 ⚠️  This EXECUTES the method. Run on a dev/staging DB, on a throwaway record.
@@ -47,6 +48,11 @@ Usage
 
     MAX_HITS=3 MAX_DEPTH=20 MAX_STRING=200 MAX_RECORDS=10 OUT=/tmp/state.json ...
 
+    # redaction is ON by default (password/token/secret/... → "<redacted>");
+    # add keys, or turn it off on a trusted dev box:
+    ... REDACT_EXTRA=ssn,iban ...        # extend the default key set
+    ... NO_REDACT=1 ...                  # disable redaction entirely
+
 Output: pure JSON wrapped in ===ODOO_STATE_START=== / ===ODOO_STATE_END===.
 """
 import os
@@ -64,6 +70,31 @@ ADDON_MOD_RE = re.compile(r"^odoo\.addons\.([^.]+)")
 
 # Type names treated as scalars by repr (avoid importing datetime/decimal here).
 _STR_LIKE_TYPES = {"datetime", "date", "time", "timedelta", "Decimal", "UUID"}
+
+# Default-on redaction. Layer F dumps args/locals/self field values, so a local
+# named `password` or a vals dict carrying `access_token` would otherwise land
+# in the JSON. Keys are matched case-insensitively as substrings, so `password`
+# also catches `db_password` / `smtp_password`, and `token` catches `csrf_token`.
+# Bias is toward over-redaction; disable with NO_REDACT=1 on a trusted dev box.
+DEFAULT_REDACT_KEYS = frozenset({
+    "password", "passwd", "pwd", "secret", "secret_key", "client_secret",
+    "token", "access_token", "refresh_token", "security_token", "csrf_token",
+    "api_key", "apikey", "authorization", "auth", "cookie", "session",
+    "private_key", "passphrase", "credential", "credentials", "otp", "totp",
+})
+REDACTED = "<redacted>"
+
+
+def is_sensitive_key(name, redact_keys):
+    """True if a var/field/dict-key name should be redacted.
+
+    Case-insensitive substring match against `redact_keys` (a set). Empty/falsey
+    `redact_keys` disables redaction entirely (NO_REDACT path).
+    """
+    if not name or not redact_keys:
+        return False
+    low = str(name).lower()
+    return any(k in low for k in redact_keys)
 
 
 # --- Pure helpers (no Odoo needed — unit-testable) ---------------------------
@@ -132,12 +163,14 @@ def summarize_recordset(rs, max_records=10):
     }
 
 
-def serialize_value(v, depth=0, max_depth=3, max_string=200, max_records=10, max_items=50):
+def serialize_value(v, depth=0, max_depth=3, max_string=200, max_records=10, max_items=50,
+                    redact_keys=None):
     """JSON-safe, bounded representation of an arbitrary runtime value.
 
     Recordsets become a model+ids summary (no field reads → no surprise queries
-    or recursion). Containers recurse with depth/element caps. Everything else
-    falls back to a guarded, truncated repr. Never raises.
+    or recursion). Containers recurse with depth/element caps. Dict values whose
+    key looks sensitive (see `is_sensitive_key`) are replaced with `<redacted>`.
+    Everything else falls back to a guarded, truncated repr. Never raises.
     """
     if v is None or isinstance(v, (bool, int, float)):
         return v
@@ -158,14 +191,20 @@ def serialize_value(v, depth=0, max_depth=3, max_string=200, max_records=10, max
                 if i >= max_items:
                     extra = len(v) - max_items
                     break
-                out[truncate(str(k), 80)] = serialize_value(
-                    val, depth + 1, max_depth, max_string, max_records, max_items)
+                key = truncate(str(k), 80)
+                if is_sensitive_key(k, redact_keys):
+                    out[key] = REDACTED
+                else:
+                    out[key] = serialize_value(
+                        val, depth + 1, max_depth, max_string, max_records, max_items,
+                        redact_keys)
             if extra:
                 out["__truncated__"] = f"+{extra} more keys"
             return out
         if isinstance(v, (list, tuple, set, frozenset)):
             seq = list(v)
-            out = [serialize_value(x, depth + 1, max_depth, max_string, max_records, max_items)
+            out = [serialize_value(x, depth + 1, max_depth, max_string, max_records, max_items,
+                                   redact_keys)
                    for x in seq[:max_items]]
             if len(seq) > max_items:
                 out.append(f"…(+{len(seq) - max_items} more items)")
@@ -178,8 +217,13 @@ def serialize_value(v, depth=0, max_depth=3, max_string=200, max_records=10, max
         return f"<unreprable {type(v).__name__}>"
 
 
-def serialize_locals(frame_locals, max_string=200, max_records=10, max_locals=40):
-    """Serialize a frame's locals dict, capping count and hiding obvious junk."""
+def serialize_locals(frame_locals, max_string=200, max_records=10, max_locals=40,
+                     redact_keys=None):
+    """Serialize a frame's locals dict, capping count and hiding obvious junk.
+
+    A local whose name looks sensitive is replaced with `<redacted>` before its
+    value is ever serialized.
+    """
     out, count = {}, 0
     for name, val in frame_locals.items():
         if name.startswith("__") and name.endswith("__"):
@@ -187,7 +231,11 @@ def serialize_locals(frame_locals, max_string=200, max_records=10, max_locals=40
         if count >= max_locals:
             out["__truncated__"] = f"+{len(frame_locals) - count} more locals"
             break
-        out[name] = serialize_value(val, max_string=max_string, max_records=max_records)
+        if is_sensitive_key(name, redact_keys):
+            out[name] = REDACTED
+        else:
+            out[name] = serialize_value(val, max_string=max_string, max_records=max_records,
+                                        redact_keys=redact_keys)
         count += 1
     return out
 
@@ -215,6 +263,12 @@ def run():
     COMMIT = os.environ.get("COMMIT") in ("1", "true", "yes")
     OUT = os.environ.get("OUT")
 
+    # Redaction (default ON). NO_REDACT=1 disables it; REDACT_EXTRA=a,b adds keys.
+    NO_REDACT = os.environ.get("NO_REDACT") in ("1", "true", "yes")
+    REDACT_EXTRA = [k.strip().lower()
+                    for k in (os.environ.get("REDACT_EXTRA") or "").split(",") if k.strip()]
+    REDACT = frozenset() if NO_REDACT else (DEFAULT_REDACT_KEYS | set(REDACT_EXTRA))
+
     record = env[MODEL].browse(RECORD_ID)        # noqa: F821
     if not record.exists():
         raise SystemExit(f"{MODEL},{RECORD_ID} does not exist")
@@ -231,7 +285,7 @@ def run():
             "method": frame.f_code.co_name,
             "file_line": frame.f_lineno,
             "depth": depth["n"],
-            "locals": serialize_locals(frame.f_locals, MAX_STRING, MAX_RECORDS),
+            "locals": serialize_locals(frame.f_locals, MAX_STRING, MAX_RECORDS, redact_keys=REDACT),
         }
         self_obj = frame.f_locals.get("self")
         if is_recordset(self_obj):
@@ -239,9 +293,13 @@ def run():
             if FIELDS and len(self_obj.ids) <= MAX_RECORDS:
                 vals = {}
                 for f in FIELDS:
+                    if is_sensitive_key(f, REDACT):
+                        vals[f] = REDACTED
+                        continue
                     try:
                         vals[f] = [serialize_value(rec[f], max_string=MAX_STRING,
-                                                   max_records=MAX_RECORDS) for rec in self_obj]
+                                                   max_records=MAX_RECORDS, redact_keys=REDACT)
+                                   for rec in self_obj]
                     except Exception as e:        # noqa: BLE001
                         vals[f] = f"<unreadable: {type(e).__name__}>"
                 snap["self_fields"] = vals
@@ -295,7 +353,7 @@ def run():
                         "method": fr.f_code.co_name,
                         "file_line": tb.tb_lineno,
                         "self": summarize_recordset(self_obj, MAX_RECORDS) if is_recordset(self_obj) else None,
-                        "locals": serialize_locals(fr.f_locals, MAX_STRING, MAX_RECORDS),
+                        "locals": serialize_locals(fr.f_locals, MAX_STRING, MAX_RECORDS, redact_keys=REDACT),
                     })
                 tb = tb.tb_next
     finally:
@@ -313,6 +371,11 @@ def run():
         "break_at": BREAK_AT or None,
         "break_line": BREAK_LINE,
         "captured_fields": FIELDS,
+        "redaction": {
+            "enabled": not NO_REDACT,
+            "key_count": len(REDACT),
+            "extra": REDACT_EXTRA,
+        },
         "error": error,
         "breakpoint_hits": len(snapshots),
         "breakpoints": snapshots,
