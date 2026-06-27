@@ -7,9 +7,14 @@ automation -> computes) is a GRAPH across many models. This actually executes
 the method on a real record and records the call sequence through addon code,
 so you see what really runs and in what order.
 
-It traces with sys.settrace filtered to '/addons/' frames (this naturally drops
-core ORM plumbing under odoo/ and keeps business logic), attaches the recordset
-model to each frame, and counts SQL per call (cumulative, including children).
+It traces with sys.settrace filtered to ADDON frames — detected by MODULE NAME
+(`odoo.addons.<module>...` via frame.f_globals['__name__']), NOT by the source
+file path. A path filter like "/addons/" misses custom/enterprise addons mounted
+at e.g. /mnt/extra-addons/<repo>/<module>/ (no "/addons/" segment), while the
+module name is "odoo.addons.<module>" for every addon wherever it lives on disk;
+core ORM plumbing (odoo.models / odoo.api / odoo.fields) is naturally excluded.
+It attaches the recordset model to each frame, and counts SQL per call
+(cumulative, including children).
 
 ⚠️  This EXECUTES the method. Run on a dev/staging DB. By default the work is
 wrapped in a SAVEPOINT and rolled back so nothing persists.
@@ -48,7 +53,7 @@ MAX_CALLS = int(os.environ.get("MAX_CALLS", "4000"))
 COMMIT = os.environ.get("COMMIT") in ("1", "true", "yes")
 OUT = os.environ.get("OUT")
 
-ADDON_RE = re.compile(r"/addons/([^/]+)/")
+ADDON_MOD_RE = re.compile(r"^odoo\.addons\.([^.]+)")
 
 record = env[MODEL].browse(RECORD_ID)   # noqa: F821
 if not record.exists():
@@ -71,8 +76,8 @@ calls, depth, sql_at_call, frame_idx = [], {"n": 0}, {}, {}
 
 def tracer(frame, event, arg):
     code = frame.f_code
-    m = ADDON_RE.search(code.co_filename)
-    if not m:                            # only business/addon code, skip core ORM
+    addon = ADDON_MOD_RE.match(frame.f_globals.get("__name__") or "")
+    if not addon:                        # only business/addon code, skip core ORM
         return tracer
     if code.co_name.startswith("<"):     # <module>, <listcomp>, <lambda>, <genexpr> — not method calls
         return tracer
@@ -84,7 +89,7 @@ def tracer(frame, event, arg):
         idx = len(calls)
         frame_idx[id(frame)] = idx
         sql_at_call[idx] = sql_counter["n"]
-        calls.append({"depth": depth["n"], "addon": m.group(1), "model": model_name,
+        calls.append({"depth": depth["n"], "addon": addon.group(1), "model": model_name,
                       "method": code.co_name, "line": code.co_firstlineno, "sql_count": None})
         depth["n"] += 1
     elif event == "return":
