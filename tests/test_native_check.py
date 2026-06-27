@@ -45,6 +45,37 @@ class PureHelperTests(unittest.TestCase):
         self.assertFalse(ok2)
 
 
+class TfidfAndLearningTests(unittest.TestCase):
+    def test_tfidf_cosine(self):
+        cards = [{"id": "a", "title": "down payment", "domain": "sale", "primitive": "w", "intents": ["down payment"]},
+                 {"id": "b", "title": "scrap", "domain": "stock", "primitive": "w", "intents": ["scrap"]}]
+        idf = native_check.corpus_idf(cards)
+        v = native_check.tfidf_vector(["down", "payment"], idf)
+        self.assertAlmostEqual(native_check.cosine(v, v), 1.0)
+        self.assertEqual(native_check.cosine(native_check.tfidf_vector(["down"], idf),
+                                             native_check.tfidf_vector(["scrap"], idf)), 0.0)
+
+    def test_match_cards_ranks_and_empty_for_nonsense(self):
+        cards = [{"id": "sale.dp", "title": "Down payment", "domain": "sale", "primitive": "w",
+                  "intents": ["down payment", "đặt cọc"]},
+                 {"id": "stock.scrap", "title": "Scrap", "domain": "stock", "primitive": "w",
+                  "intents": ["scrap goods"]}]
+        out = native_check.match_cards("hóa đơn đặt cọc", cards, top_k=5)
+        self.assertEqual(out[0][1]["id"], "sale.dp")
+        self.assertEqual(native_check.match_cards("xyzzy plugh frobnicate", cards), [])
+
+    def test_merge_learned_round_trip(self):
+        cards = [{"id": "u.act", "title": "t", "domain": "u", "primitive": "m",
+                  "intents": ["reminder"], "probe": {}}]
+        req = "ping the rep about stalled opportunities"
+        self.assertEqual(native_check.match_cards(req, cards), [])
+        merged, _ = native_check.merge_learned(
+            [dict(c, intents=list(c["intents"])) for c in cards],
+            [{"id": "u.act", "learned_intents": [req]}])
+        out = native_check.match_cards(req, merged, top_k=2)
+        self.assertTrue(out and out[0][1]["id"] == "u.act")
+
+
 class ShippedCardCorpusTests(unittest.TestCase):
     """Guards the curated cards in always-on CI (tests.yml)."""
     VALID_KINDS = {"module_installed", "model_exists", "field_exists", "method_exists"}

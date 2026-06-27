@@ -6,6 +6,39 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-27
+
+Completes the Native Capability Atlas roadmap: **smarter recall + a learning
+loop**. native-check now ranks with a vector-space score and gets better from
+real usage.
+
+### Added
+- **Learning loop** — `odoo-ai native-learn "<requirement>" --card <id>` records
+  a requirement→card mapping (a local file op, no DB; default
+  `~/.odoo-ai/learned.json`, or `--learn-file`). `native-check` folds these
+  mappings back into the corpus: a learned phrase **augments** the matching
+  card's intents (or, with full fields, adds a **new learned card**), so a
+  phrasing that recalled nothing today recalls its card tomorrow. `native-check`
+  reports `learned_mappings`.
+- **Vector-space recall** — recall now ranks cards by **TF-IDF cosine** over the
+  card text + an intent-phrase bonus (IDF down-weights tokens common to many
+  cards, up-weights distinctive ones), replacing raw token-overlap. Pure-Python,
+  deterministic, dependency-free.
+
+### Notes
+- **Dense neural embeddings are deliberately not used.** They'd require a model
+  at runtime (a heavy dependency or a network/API call from inside
+  `odoo-bin shell`), against this tool's offline-in-shell design, and the agent
+  already does the final semantic ranking. The TF-IDF recall + the learning loop
+  are the model-free path to better recall; `capability-schema.md` documents the
+  seam where a dense embedder could later plug in over the same merged corpus.
+
+### Tests
+- TF-IDF (`corpus_idf`/`tfidf_vector`/`cosine`), `phrase_bonus`, `merge_learned`,
+  a learning round-trip (zero-recall phrase → top hit after learning), and the
+  `native-learn` CLI file op (append + dedup) — in both suites. Real-tested via
+  docker-compose: the learning round-trip and TF-IDF recall against live Odoo.
+
 ## [0.6.0] - 2026-06-27
 
 Builds on the v0.5 Native Capability Atlas with **native-check — gate-then-rank

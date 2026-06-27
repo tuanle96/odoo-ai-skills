@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "odoo-ai-skills",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "license": "LGPL-3.0-or-later",
   "description": "A Claude Code skills suite for Odoo 17/18/19 development with an AI agent: read ground truth from the running instance first (fields, MRO/super chains, views, security, runtime flow, runtime state + exception post-mortem, reverse field impact, effective per-user/company security, module load state), build the smallest correct change, prove it with tests, and review it before merge — never guess. Covers models, scaffolding, views, OWL, public web (controllers/website/portal), security, reports, data, migration, performance, deploy (incl. odoo.sh), and domain playbooks.",
   "author": {

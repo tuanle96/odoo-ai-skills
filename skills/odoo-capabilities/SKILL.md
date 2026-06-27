@@ -88,6 +88,17 @@ Don't just dump the dossier — decide on it. Before writing code, state:
 
 `native-check` matches against curated **capability cards** in `references/cards/*.json` (one file per domain + `universal`) — see `references/capability-schema.md` for the format and how to add one. The narrative catalogue of *"stop hand-rolling X; Odoo ships Y"* — auto-numbering, periodic jobs, trigger reactions, computed-vs-onchange, chatter/activities, the standard wizards, `_prepare_*`/`_action_*` hooks, reports, feature groups, record rules — is in `references/native-primitives.md`.
 
+## The learning loop — teach it what worked
+
+When a native-check (or your own digging) establishes that a requirement maps to a native card, record it so the next, differently-worded ask recalls it too:
+
+```bash
+# "this phrasing maps to that card" — no DB needed, it's a local file op
+odoo-ai native-learn "gọi điện chăm sóc khách hàng sau bán" --card universal.mail_activity
+```
+
+It appends the phrase to a learned-mappings file (`~/.odoo-ai/learned.json` by default, or `--learn-file`); `native-check` folds those mappings back into the corpus, so recall improves from real usage — the practical way the atlas becomes semantically smarter without an embedding model. (Recall itself ranks by TF-IDF cosine over the card text + an intent-phrase bonus; the final relevance judgement stays yours.)
+
 ## Reuse, don't avoid — customize the gap at the native hook
 
 Native-first is **not** anti-customization. The goal is: don't rewrite what Odoo does well; when native covers 80%, extend the native flow at its proper hook (a `_prepare_invoice` override, an automation rule, a computed field) rather than rebuilding the other 20% from scratch. Once you've decided what to build, hand off to **`odoo-introspect`** for the exact names/MRO/super-chain, then **`odoo-dev`** / the relevant build skill.

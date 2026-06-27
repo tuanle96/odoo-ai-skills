@@ -32,6 +32,7 @@ Output: pure JSON wrapped in ===ODOO_NCHECK_START=== / ===ODOO_NCHECK_END===.
 import os
 import re
 import json
+import math
 import unicodedata
 from pathlib import Path
 
@@ -73,29 +74,107 @@ def card_tokens(card):
     return out
 
 
-def recall_score(requirement, card):
-    """Wide-net recall score (NOT final relevance — the agent ranks that).
-
-    Counts requirement↔card token overlap, plus a strong bonus when a full
-    intent phrase appears verbatim (diacritic-folded) in the requirement — so
-    "down payment" / "đặt cọc" land hard even amid other words.
-    """
+def phrase_bonus(requirement, card):
+    """Strong precision signal: a full intent phrase appearing verbatim
+    (diacritic-folded) in the requirement — so "down payment" / "đặt cọc" land
+    hard even amid other words."""
     req_norm = strip_diacritics(requirement or "")
-    req_toks = set(tokenize(requirement))
-    score = len(req_toks & card_tokens(card))
+    bonus = 0.0
     for intent in card.get("intents", []) or []:
         folded = strip_diacritics(intent)
         if folded and folded in req_norm:
-            score += 2
-    return score
+            bonus += 2.0
+    return bonus
 
 
-def match_cards(requirement, cards, top_k=8, min_score=1):
-    """Recall-filter: score every card, keep score>=min_score, top_k by score."""
-    scored = [(recall_score(requirement, c), c) for c in cards]
-    scored = [(s, c) for s, c in scored if s >= min_score]
-    scored.sort(key=lambda sc: sc[0], reverse=True)
-    return [(s, c) for s, c in scored[:top_k]]
+def recall_score(requirement, card):
+    """Lexical baseline: token overlap + phrase bonus (corpus-free, per-card).
+
+    match_cards ranks with the corpus-aware TF-IDF cosine below; this stays the
+    simple signal, exposed for clarity and unit-tested.
+    """
+    overlap = len(set(tokenize(requirement)) & card_tokens(card))
+    return overlap + phrase_bonus(requirement, card)
+
+
+# --- TF-IDF vector-space recall (dependency-free "embeddings") ---------------
+# Dense neural embeddings would need a model at runtime (a heavy dep, or a
+# network/API call from inside odoo-bin shell) — against this tool's offline
+# design, and the agent already does the final semantic ranking. So recall uses
+# classical sparse TF-IDF cosine over the card corpus: IDF down-weights tokens
+# common to many cards (create/order/value) and up-weights the distinctive ones.
+def corpus_idf(cards):
+    """Smoothed inverse document frequency per token over the card corpus."""
+    n = len(cards) or 1
+    df = {}
+    for c in cards:
+        for t in card_tokens(c):
+            df[t] = df.get(t, 0) + 1
+    return {t: math.log((1 + n) / (1 + d)) + 1.0 for t, d in df.items()}
+
+
+def tfidf_vector(tokens, idf):
+    """Sparse TF-IDF vector {token: weight} for a token iterable."""
+    tf = {}
+    for t in tokens:
+        tf[t] = tf.get(t, 0) + 1
+    return {t: c * idf.get(t, 0.0) for t, c in tf.items()}
+
+
+def cosine(a, b):
+    """Cosine similarity of two sparse vectors (dicts). 0 when either is empty."""
+    if not a or not b:
+        return 0.0
+    dot = sum(a[t] * b[t] for t in (set(a) & set(b)))
+    na = math.sqrt(sum(v * v for v in a.values()))
+    nb = math.sqrt(sum(v * v for v in b.values()))
+    return dot / (na * nb) if na and nb else 0.0
+
+
+def match_cards(requirement, cards, top_k=8, min_score=0.0):
+    """Vector-space recall: rank cards by TF-IDF cosine + intent-phrase bonus.
+
+    A wide net (the agent ranks final precision) — keep every card with any
+    signal (score > min_score), best top_k first.
+    """
+    if not cards:
+        return []
+    idf = corpus_idf(cards)
+    qv = tfidf_vector(tokenize(requirement), idf)
+    out = []
+    for c in cards:
+        score = cosine(qv, tfidf_vector(card_tokens(c), idf)) + phrase_bonus(requirement, c)
+        if score > min_score:
+            out.append((round(score, 4), c))
+    out.sort(key=lambda sc: sc[0], reverse=True)
+    return out[:top_k]
+
+
+def merge_learned(cards, learned):
+    """Fold learned mappings into the corpus (the learning loop).
+
+    Each learned entry `{id, learned_intents:[...]}` augments that card's intents
+    (so a real-world phrasing recalls it next time); an entry carrying full card
+    fields (intents + probe) is added as a new learned card. Returns
+    (cards, learned_card_count). Mutates the freshly-loaded card dicts in place.
+    """
+    by_id = {c.get("id"): c for c in cards}
+    added = 0
+    for entry in learned or []:
+        cid = entry.get("id")
+        if not cid:
+            continue
+        extra = entry.get("learned_intents") or []
+        if cid in by_id:
+            card = by_id[cid]
+            existing = set(card.get("intents", []))
+            card["intents"] = (card.get("intents", [])
+                               + [p for p in extra if p and p not in existing])
+        elif entry.get("intents") and entry.get("probe"):
+            cards.append(entry)
+            by_id[cid] = entry
+            added += 1
+    return cards, added
 
 
 def eval_probe(probe, checker):
@@ -162,12 +241,25 @@ def run():
         raise SystemExit('Set REQUIREMENT, e.g. REQUIREMENT="auto-number delivery slips"')
     MODEL = os.environ.get("MODEL") or None
     CARDS_DIR = os.environ.get("CARDS_DIR")
+    LEARN_FILE = os.environ.get("LEARN_FILE")
     OUT = os.environ.get("OUT")
     if not CARDS_DIR:
         raise SystemExit("Set CARDS_DIR (the odoo-capabilities/references/cards path).")
 
     cards, warns = load_cards(CARDS_DIR)
     WARNINGS.extend(warns)
+
+    # Learning loop: fold any captured requirement→card mappings into the corpus
+    # so real-world phrasings recall better over time (see `odoo-ai native-learn`).
+    learned_mappings = 0
+    if LEARN_FILE and Path(LEARN_FILE).is_file():
+        try:
+            data = json.loads(Path(LEARN_FILE).read_text())
+            entries = data if isinstance(data, list) else data.get("learned", [])
+            cards, _ = merge_learned(cards, entries)
+            learned_mappings = len(entries)
+        except Exception as e:  # noqa: BLE001
+            WARNINGS.append(f"learn file {LEARN_FILE}: {type(e).__name__}: {e}")
 
     # MODEL tokens help recall (e.g. "sale.order" → sale/order); the agent still
     # ranks true relevance afterwards.
@@ -221,6 +313,7 @@ def run():
         "requirement": REQUIREMENT,
         "model": MODEL,
         "cards_loaded": len(cards),
+        "learned_mappings": learned_mappings,
         "considered": len(matched),
         "confirmed_candidates": confirmed,
         "unconfirmed_candidates": unconfirmed,

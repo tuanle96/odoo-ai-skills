@@ -57,3 +57,15 @@ A probe is evaluated against the live registry; a card only becomes a `confirmed
 - **Recall is a wide net; the agent ranks precision.** Generous, natural-language `intents` (EN + VN) improve recall. Don't try to make the probe or intents do the agent's relevance judgement.
 - **`when_not_enough` is mandatory and honest.** Native-first is not anti-customization — say when custom code is the right call.
 - **Cards are validated in CI** (`tests/test_native_check.py`, `test_pure_functions.py`): every card must have all fields, a unique id, ≥3 intents, and only valid probe kinds. Add a card → those tests guard it.
+
+## Recall and the learning loop
+
+`native-check` ranks cards against the requirement with **TF-IDF cosine** over the card text (intents + title + domain) plus an **intent-phrase bonus** (a full intent appearing verbatim, diacritic-folded). This is a deliberately dependency-free, offline vector-space recall — *not* dense neural embeddings, which would need a model at runtime (a heavy dependency or a network/API call from inside `odoo-bin shell`) and aren't warranted at this corpus size; the agent already does the final relevance ranking.
+
+**Learned mappings** grow recall from real usage. `odoo-ai native-learn "<phrase>" --card <id>` appends to a learned file (`~/.odoo-ai/learned.json` by default):
+
+```json
+[ { "id": "universal.mail_activity", "learned_intents": ["gọi điện chăm sóc khách hàng sau bán"] } ]
+```
+
+At check time these are merged into the corpus: an entry whose `id` matches a shipped card **augments its intents**; an entry carrying the full card fields (`intents` + `probe`) is added as a **new learned card**. So a phrasing that recalled nothing today will recall its card tomorrow — the practical, model-free path to semantic improvement (and the seam where a dense embedder could later plug in, scoring the same merged corpus).

@@ -790,6 +790,70 @@ def test_summ_native_check():
     assert odoo_ai._summ("native_check", {}) is not None      # never raises
 
 
+# --- native_check v0.7: TF-IDF vector-space recall --------------------------
+def test_native_check_tfidf_and_cosine():
+    cards = [{"id": "a", "title": "down payment", "domain": "sale", "primitive": "w", "intents": ["down payment"]},
+             {"id": "b", "title": "scrap", "domain": "stock", "primitive": "w", "intents": ["scrap goods"]}]
+    idf = native_check.corpus_idf(cards)
+    assert idf and all(v > 0 for v in idf.values())
+    v = native_check.tfidf_vector(["down", "payment"], idf)
+    assert abs(native_check.cosine(v, v) - 1.0) < 1e-9          # identical → 1
+    assert native_check.cosine(native_check.tfidf_vector(["down"], idf),
+                               native_check.tfidf_vector(["scrap"], idf)) == 0.0  # disjoint → 0
+    assert native_check.cosine({}, v) == 0.0
+
+
+def test_native_check_phrase_bonus():
+    card = {"id": "x", "title": "t", "domain": "d", "primitive": "w", "intents": ["down payment", "đặt cọc"]}
+    assert native_check.phrase_bonus("a down payment now", card) == 2.0
+    assert native_check.phrase_bonus("hóa đơn đặt cọc", card) == 2.0
+    assert native_check.phrase_bonus("delivery address", card) == 0.0
+
+
+# --- native_check v0.7: learning loop ---------------------------------------
+def test_native_check_merge_learned_augments_and_adds():
+    base = [{"id": "universal.ir_cron", "intents": ["cron", "periodic"], "title": "t",
+             "domain": "u", "primitive": "cron", "probe": {}}]
+    merged, added = native_check.merge_learned(
+        [dict(c, intents=list(c["intents"])) for c in base],
+        [{"id": "universal.ir_cron", "learned_intents": ["frobnicate the gizmo", "cron"]},  # 'cron' dedup'd
+         {"id": "new.card", "intents": ["brand new"], "probe": {"kind": "model_exists", "model": "x"}, "title": "n"},
+         {"id": "incomplete"}])   # no intents/probe → ignored
+    ircron = next(c for c in merged if c["id"] == "universal.ir_cron")
+    assert ircron["intents"] == ["cron", "periodic", "frobnicate the gizmo"]   # dedup, append
+    assert added == 1 and any(c["id"] == "new.card" for c in merged)
+    assert not any(c["id"] == "incomplete" for c in merged)
+
+
+def test_native_check_learning_round_trip():
+    """A phrase with zero prior recall recalls its card once learned."""
+    cards = [{"id": "u.act", "title": "Activities", "domain": "u", "primitive": "mixin",
+              "intents": ["reminder", "follow up"], "probe": {}}]
+    req = "ping the rep about stalled opportunities"
+    assert native_check.match_cards(req, cards) == []                      # no recall before
+    merged, _ = native_check.merge_learned(
+        [dict(c, intents=list(c["intents"])) for c in cards],
+        [{"id": "u.act", "learned_intents": [req]}])
+    out = native_check.match_cards(req, merged, top_k=2)
+    assert out and out[0][1]["id"] == "u.act"                              # top recall after
+
+
+def test_native_learn_cli_appends_and_dedups():
+    import tempfile, json as _json
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as d:
+        lf = Path(d) / "learned.json"
+        odoo_ai.do_native_learn("req one", "sale.x", lf)
+        odoo_ai.do_native_learn("req one", "sale.x", lf)      # dedup
+        odoo_ai.do_native_learn("req two", "sale.x", lf)
+        odoo_ai.do_native_learn("other", "stock.y", lf)
+        data = _json.loads(lf.read_text())
+        sale = next(e for e in data if e["id"] == "sale.x")
+        assert sale["learned_intents"] == ["req one", "req two"]
+        assert any(e["id"] == "stock.y" for e in data)
+    assert odoo_ai.resolve_learn_file("").name == "learned.json"          # default path
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]
