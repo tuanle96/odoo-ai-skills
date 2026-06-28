@@ -69,6 +69,7 @@
     background:linear-gradient(135deg, rgba(143,106,166,.65), rgba(57,212,180,.5) 70%, rgba(91,140,255,.4));
     box-shadow:0 44px 120px -44px rgba(0,0,0,.92); animation:shotIn .85s cubic-bezier(.2,.7,.2,1) both}
   .shot::before{content:""; position:absolute; inset:-16% -8% -26%; z-index:-1; border-radius:34px;
+    pointer-events:none;   /* purely decorative glow — must never intercept clicks (e.g. the hero CTAs above it) */
     background:radial-gradient(58% 60% at 50% 0%, rgba(143,106,166,.5), transparent 70%),
                radial-gradient(50% 55% at 50% 100%, rgba(57,212,180,.34), transparent 72%);
     filter:blur(44px)}
