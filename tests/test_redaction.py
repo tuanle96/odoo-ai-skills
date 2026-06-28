@@ -169,6 +169,32 @@ class ScanSecretsTests(unittest.TestCase):
         text = "The sale.order model has fields name, state, and amount_total."
         self.assertEqual(redaction.scan_secrets(text), [])
 
+    def test_no_false_positive_on_paths_and_slash_lists(self):
+        # file paths and slash/word lists are NOT secrets (the old heuristic
+        # flagged every one of these as a base64 token)
+        for text in (
+            "skills/odoo-introspect/references/enforcement-hooks.md",
+            "addons/my_module/models/sale_order.py",
+            "web/static/src/components/some_widget/some_widget.js",
+            "non_admin/multi_company/batch/upgrade scenarios",
+            "send/mail/payment/print/unlink are blocked",
+            "https://github.com/tuanle96/odoo-ai-skills/pull/6",
+            "ir.actions.act_window / ir.actions.server / ir.cron registries",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(redaction.scan_secrets(text), [], text)
+
+    def test_still_finds_real_base64_tokens(self):
+        # genuine high-entropy tokens must still be caught
+        for text in (
+            "token=aGVsbG8gd29ybGQ/Zm9vYmFyNjc4OQ",      # classic base64 with '/'
+            "key=YWJjMTIzREVGNDU2Z2hpNzg5SktMqr+s/t==",   # '+', '/', padding
+            "secret=Tk9XaXNUaEVUaW1lMTIzNDU2Nzg5MFFX",    # mixed case + digits, 24+
+        ):
+            with self.subTest(text=text):
+                kinds = {h["kind"] for h in redaction.scan_secrets(text)}
+                self.assertIn("generic_token", kinds, text)
+
 
 # ---------------------------------------------------------------------------
 # redact_payload: external mode

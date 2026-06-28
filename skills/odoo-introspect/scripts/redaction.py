@@ -193,6 +193,32 @@ def classify_field_sensitivity(model, field):
     return "normal"
 
 
+def _looks_like_b64_secret(raw):
+    """True when a 24+ char ``[A-Za-z0-9+/\\-_]`` run is plausibly a real base64
+    token, not a file path or a slash/word list.
+
+    The old test ("contains ``+`` or ``/``, or mixed case+digit") flagged every
+    long path (``web/static/src/components``, ``references/enforcement-hooks``) and
+    slash word list (``send/mail/payment/print``) as a secret — a scanner that
+    cries wolf on file paths trains people to ignore it. A genuine token does NOT
+    mix the classic base64 alphabet (``+/``) with the url-safe one (``-_``) the way
+    a kebab/underscore path does, and base64 of real (random) bytes carries mixed
+    case AND digits.
+    """
+    if "+" in raw:                       # '+' never appears in a path/identifier
+        return True
+    if raw.endswith("="):                # base64 padding is a strong signal
+        return True
+    has_slash = "/" in raw
+    has_urlsafe = "-" in raw or "_" in raw
+    if has_slash and has_urlsafe:        # mixing alphabets → a path/word list, not b64
+        return False
+    # require entropy: upper AND lower AND digit (base64 of binary data). An all-
+    # lowercase slash path (`send/mail/payment`) or kebab id fails this → not a secret.
+    return bool(re.search(r"[A-Z]", raw) and re.search(r"[a-z]", raw)
+                and re.search(r"[0-9]", raw))
+
+
 def scan_secrets(text):
     """Scan *text* for high-risk secret patterns; return a list of hit dicts.
 
@@ -228,9 +254,7 @@ def scan_secrets(text):
     for m in _HEX_TOKEN_RE.finditer(text):
         _add(m, "generic_token")
     for m in _B64_TOKEN_RE.finditer(text):
-        raw = m.group(0)
-        if ("+" in raw or "/" in raw
-                or (re.search(r"[A-Z]", raw) and re.search(r"[a-z]", raw) and re.search(r"[0-9]", raw))):
+        if _looks_like_b64_secret(m.group(0)):
             _add(m, "generic_token")
 
     return hits

@@ -63,6 +63,13 @@ CLI + the passing hook E2E; these are the findings that held up in code):
 - **`pre_edit_gate.py` gains `ODOO_AI_GATE_STRICT=1`** (fail-closed): if the gate
   itself can't run *or returns no valid decision*, block the edit instead of failing
   open (the default stays fail-open so a misconfig never bricks editing).
+- **`scan-secrets` no longer flags file paths as base64 secrets.** The generic-token
+  heuristic treated any 24+ char run containing `/` (or `-`/`_`) as base64, so every
+  path (`web/static/src/components`, `references/enforcement-hooks`) and slash word
+  list (`send/mail/payment`) was a "secret" — a scanner that cries wolf on file paths
+  gets ignored. It now requires real base64/entropy signal (`+`, `=` padding, or mixed
+  case+digit and not a mixed-alphabet path). Real tokens still caught; the E2E test DB
+  is passwordless (`POSTGRES_HOST_AUTH_METHOD=trust`) so no credential literal ships.
 
 ### Fixed
 - **`native-check` under Docker/remote `odoo-bin`** (#3) — the command passed the
