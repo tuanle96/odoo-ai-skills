@@ -63,11 +63,18 @@
   .cmd button{margin-left:auto; background:var(--panel-2); border:1px solid var(--border); color:var(--muted);
     border-radius:7px; padding:5px 10px; font-size:.78rem; cursor:pointer; font-family:Inter,sans-serif}
   .cmd button:hover{color:var(--text); border-color:var(--odoo)}
-  .shot{margin:46px auto 0; max-width:900px; border:1px solid var(--border); border-radius:var(--radius);
-    overflow:hidden; box-shadow:0 30px 80px -30px rgba(0,0,0,.8); background:var(--code)}
-  .shot .bar{display:flex; gap:7px; padding:11px 14px; border-bottom:1px solid var(--border); background:var(--panel)}
-  .shot .bar i{width:11px; height:11px; border-radius:50%; background:#3a3447; display:block}
-  .shot img{display:block; width:100%}
+  /* hero shot — the GIF ships its own window chrome (traffic lights), so the
+     frame here is just an ambient glow + a thin purple→teal gradient ring */
+  .shot{position:relative; margin:56px auto 0; max-width:912px; border-radius:18px; padding:1px;
+    background:linear-gradient(135deg, rgba(143,106,166,.65), rgba(57,212,180,.5) 70%, rgba(91,140,255,.4));
+    box-shadow:0 44px 120px -44px rgba(0,0,0,.92); animation:shotIn .85s cubic-bezier(.2,.7,.2,1) both}
+  .shot::before{content:""; position:absolute; inset:-16% -8% -26%; z-index:-1; border-radius:34px;
+    background:radial-gradient(58% 60% at 50% 0%, rgba(143,106,166,.5), transparent 70%),
+               radial-gradient(50% 55% at 50% 100%, rgba(57,212,180,.34), transparent 72%);
+    filter:blur(44px)}
+  .shot img{display:block; width:100%; border-radius:17px}
+  @keyframes shotIn{from{opacity:0; transform:translateY(22px) scale(.985)} to{opacity:1; transform:none}}
+  @media(prefers-reduced-motion:reduce){ .shot{animation:none} }
 
   /* sections */
   section{padding:64px 0; border-top:1px solid var(--border)}
@@ -169,8 +176,8 @@
       <a class="btn ghost" href="https://github.com/tuanle96/odoo-ai-skills">★ Star on GitHub</a>
     </div>
     <div class="shot">
-      <div class="bar"><i></i><i></i><i></i></div>
-      <img src="assets/demo.gif" alt="odoo-ai workflow: introspect, patch, test">
+      <img src="assets/demo.gif" alt="odoo-ai workflow: introspect ground truth, build the smallest correct patch, prove it with a test, gate the merge"
+           width="1280" height="720" loading="eager" decoding="async">
     </div>
   </div>
 </section>
