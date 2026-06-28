@@ -5,7 +5,10 @@ The CLI only imports the stdlib and guards execution under `if __name__ ==
 "__main__"`, so it can be imported safely outside an Odoo shell. We load it by
 path because the file has no `.py` extension.
 """
+import ast
 import importlib.util
+import json
+import os
 import unittest
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
@@ -121,6 +124,42 @@ class SummTests(unittest.TestCase):
     def test_native_check_summary_empty(self):
         data = {"confirmed_candidates": [], "unconfirmed_candidates": [], "considered": 0}
         self.assertIn("top=—", odoo_ai._summ("native_check", data))
+
+
+class CardInjectionTests(unittest.TestCase):
+    """Issue #3: the CLI ships the card corpus as CONTENT on the script's stdin
+    (base64 preamble), not as a host path — so native-check survives an odoo-bin
+    that runs in Docker/remote and can't read the host cards dir."""
+
+    def test_read_cards_blob_is_the_shipped_corpus(self):
+        cards = json.loads(odoo_ai.read_cards_blob())
+        self.assertIsInstance(cards, list)
+        self.assertGreaterEqual(len(cards), 30)
+        self.assertTrue(all(c.get("id") and c.get("intents") for c in cards))
+
+    def test_inject_preamble_is_ascii_and_valid_python(self):
+        # prepended to a stdin-piped script, so it must parse and be encoding-safe
+        pre = odoo_ai._inject_env_preamble({"CARDS_JSON": '{"vn":"đặt cọc"}'})
+        ast.parse(pre)
+        self.assertTrue(pre.isascii(), "base64 keeps the preamble ASCII across any stdin encoding")
+
+    def test_inject_preamble_roundtrips_unicode_into_environ(self):
+        # exec'ing the preamble (as the shell does) sets os.environ with unicode intact
+        raw = json.dumps([{"id": "x", "intents": ["đặt cọc", "auto số"]}], ensure_ascii=False)
+        pre = odoo_ai._inject_env_preamble({"CARDS_JSON": raw, "LEARNED_JSON": "[]"})
+        sentinel = object()
+        prev = os.environ.get("CARDS_JSON", sentinel)
+        prev_l = os.environ.get("LEARNED_JSON", sentinel)
+        try:
+            exec(pre, {})
+            self.assertEqual(os.environ["CARDS_JSON"], raw)
+            self.assertEqual(os.environ["LEARNED_JSON"], "[]")
+        finally:
+            for key, original in (("CARDS_JSON", prev), ("LEARNED_JSON", prev_l)):
+                if original is sentinel:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = original
 
 
 if __name__ == "__main__":

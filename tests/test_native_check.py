@@ -3,6 +3,7 @@ Unit tests for native_check (Layer H gate-then-rank) pure helpers, and a
 validator for the shipped curated capability cards. Import-safe outside an Odoo
 shell (run() is gated on `env`); the card validation needs no Odoo either.
 """
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -117,6 +118,39 @@ class TfidfAndLearningTests(unittest.TestCase):
             [{"id": "u.act", "learned_intents": [req]}])
         out = native_check.match_cards(req, merged, top_k=2)
         self.assertTrue(out and out[0][1]["id"] == "u.act")
+
+
+class InjectedCorpusTests(unittest.TestCase):
+    """Issue #3: native-check loads its corpus from an INJECTED JSON blob (shipped
+    on the script's stdin), not only a filesystem dir — so it still works when
+    odoo-bin runs in a different namespace than the CLI (Docker/remote), where a
+    host CARDS_DIR path is unreadable."""
+
+    def test_blob_matches_dir_corpus(self):
+        # the blob the CLI injects loads the SAME cards as reading the dir
+        dir_cards, _ = native_check.load_cards(str(CARDS_DIR))
+        blob = json.dumps(dir_cards, ensure_ascii=False)
+        blob_cards, warns = native_check.load_cards_from_json(blob)
+        self.assertEqual(warns, [])
+        self.assertGreaterEqual(len(blob_cards), 30)
+        self.assertEqual({c["id"] for c in dir_cards}, {c["id"] for c in blob_cards})
+
+    def test_accepts_list_and_wrapped_forms(self):
+        one = {"id": "x", "intents": ["a", "b"]}
+        self.assertEqual(len(native_check.load_cards_from_json(json.dumps([one]))[0]), 1)
+        self.assertEqual(
+            len(native_check.load_cards_from_json(json.dumps({"cards": [one]}))[0]), 1)
+
+    def test_bad_blob_warns_not_crashes(self):
+        cards, warns = native_check.load_cards_from_json("{not json")
+        self.assertEqual(cards, [])
+        self.assertTrue(warns and "CARDS_JSON parse failed" in warns[0])
+
+    def test_skips_malformed_cards_with_warning(self):
+        cards, warns = native_check.load_cards_from_json(
+            json.dumps([{"id": "ok", "intents": ["a"]}, {"id": "no-intents"}, {"x": 1}]))
+        self.assertEqual([c["id"] for c in cards], ["ok"])
+        self.assertEqual(len(warns), 2)
 
 
 class ShippedCardCorpusTests(unittest.TestCase):

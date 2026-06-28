@@ -89,7 +89,7 @@ explicitly with `-e`:
 #!/bin/sh
 EFLAGS=""
 for v in MODEL METHODS SOURCE CODE CODE_PREVIEW OUT VIEWS VIEW_ID VIEW_XMLID FIELD RESOLVE_PATHS MODULE AS_USER AS_COMPANY AS_ALLOWED_COMPANIES \
-         RECORD_ID METHOD COMMIT BREAK_AT BREAK_LINE FIELDS MAX_HITS ON_EXCEPTION \
+         RECORD_ID METHOD COMMIT BREAK_AT BREAK_LINE FIELDS MAX_HITS ON_EXCEPTION REQUIREMENT \
          NO_REDACT REDACT_EXTRA MAX_DEPTH MAX_STRING MAX_RECORDS DATA_LIMIT; do
   EFLAGS="$EFLAGS -e $v"
 done
@@ -103,6 +103,15 @@ odoo-ai --db <DB> --conf /etc/odoo/odoo.conf --odoo-bin /usr/local/bin/odoo-dock
 
 The `--conf` / `--db` are resolved *inside* the container, so use the container's
 paths. `--odoo-bin` only needs `odoo` (or `odoo-bin`) on the container's PATH.
+
+`native-check` is the one command that needs **data files** (the capability-card
+corpus), not just scalar args. The CLI ships that corpus — and any learned
+mappings — as content **on the script's stdin**, so it reaches the container the
+same way the script does: the host `CARDS_DIR` / `LEARN_FILE` paths are *not* read
+inside the container and do **not** need to exist there or be forwarded. (Earlier
+versions passed `CARDS_DIR` as a host path, which a container couldn't read —
+yielding a silent "0 matched". That now either works via the injected corpus, or
+fails loudly if the corpus is genuinely empty.)
 
 ## Integration smoke test
 

@@ -21,6 +21,16 @@ The pure helpers (tokenize / strip_diacritics / recall_score / match_cards /
 eval_probe) need no Odoo and are unit-tested; run() executes only inside the
 shell (gated on `env` in globals).
 
+Corpus transport
+----------------
+The `odoo-ai` CLI INJECTS the card corpus (and any learned mappings) as JSON on
+this script's own stdin — env vars `CARDS_JSON` / `LEARNED_JSON` — so it reaches
+the shell wherever odoo-bin runs (local, Docker, ssh). `CARDS_DIR` / `LEARN_FILE`
+remain a filesystem fallback for direct/manual invocation, but only work when the
+path is visible to THIS process — NOT when odoo-bin lives in a container (the host
+path is unreadable there; that silent-empty case is why CARDS_JSON exists, and why
+a zero-card load now fails loudly instead of returning a false "0 matched").
+
 Usage
 -----
     REQUIREMENT="auto-number our delivery slips" MODEL=stock.picking \
@@ -348,6 +358,23 @@ def make_handlers(env):
     }
 
 
+def _flatten(data):
+    """A card file/blob is either a bare list or a {"cards": [...]} wrapper."""
+    return data if isinstance(data, list) else data.get("cards", [])
+
+
+def _collect_valid(items, label, warns):
+    """Keep only well-formed cards (a dict carrying id + intents); warn on each
+    one dropped. Shared by the dir loader and the injected-blob loader."""
+    out = []
+    for c in items:
+        if isinstance(c, dict) and c.get("id") and c.get("intents"):
+            out.append(c)
+        else:
+            warns.append(f"{label}: skipped a card missing id/intents")
+    return out
+
+
 def load_cards(cards_dir):
     """Load + flatten every *.json card file in a directory. Returns (cards, warnings)."""
     cards, warns = [], []
@@ -360,13 +387,24 @@ def load_cards(cards_dir):
         except Exception as e:  # noqa: BLE001
             warns.append(f"{path.name}: parse failed ({type(e).__name__}: {e})")
             continue
-        items = data if isinstance(data, list) else data.get("cards", [])
-        for c in items:
-            if isinstance(c, dict) and c.get("id") and c.get("intents"):
-                cards.append(c)
-            else:
-                warns.append(f"{path.name}: skipped a card missing id/intents")
+        cards += _collect_valid(_flatten(data), path.name, warns)
     return cards, warns
+
+
+def load_cards_from_json(blob):
+    """Load + flatten cards from an INJECTED JSON blob (a list, or {"cards":[...]}).
+
+    The CLI ships the corpus this way — on the script's own stdin — so native-check
+    works when odoo-bin runs in a different filesystem namespace than the CLI
+    (Docker/remote), where a host CARDS_DIR path would be unreadable (issue #3).
+    Returns (cards, warnings).
+    """
+    try:
+        data = json.loads(blob)
+    except Exception as e:  # noqa: BLE001
+        return [], [f"CARDS_JSON parse failed ({type(e).__name__}: {e})"]
+    warns = []
+    return _collect_valid(_flatten(data), "CARDS_JSON", warns), warns
 
 
 def _public(card):
@@ -382,26 +420,58 @@ def run():
     if not REQUIREMENT:
         raise SystemExit('Set REQUIREMENT, e.g. REQUIREMENT="auto-number delivery slips"')
     MODEL = os.environ.get("MODEL") or None
+    CARDS_JSON = os.environ.get("CARDS_JSON")
     CARDS_DIR = os.environ.get("CARDS_DIR")
+    LEARNED_JSON = os.environ.get("LEARNED_JSON")
     LEARN_FILE = os.environ.get("LEARN_FILE")
     OUT = os.environ.get("OUT")
-    if not CARDS_DIR:
-        raise SystemExit("Set CARDS_DIR (the odoo-capabilities/references/cards path).")
 
-    cards, warns = load_cards(CARDS_DIR)
+    # Corpus transport (issue #3): prefer the INJECTED blob — it rides this
+    # script's stdin, so it reaches the shell wherever odoo-bin runs. Only fall
+    # back to reading CARDS_DIR off the filesystem (manual invocation), which
+    # silently finds nothing when odoo-bin is a container that can't see the host.
+    if CARDS_JSON:
+        cards, warns = load_cards_from_json(CARDS_JSON)
+    elif CARDS_DIR:
+        cards, warns = load_cards(CARDS_DIR)
+    else:
+        raise SystemExit("Set CARDS_JSON (injected corpus) or CARDS_DIR "
+                         "(the odoo-capabilities/references/cards path).")
     WARNINGS.extend(warns)
+
+    # Fail LOUDLY on an empty corpus (issue #3). A zero-card load almost always
+    # means the cards never reached this shell — e.g. odoo-bin runs in Docker and
+    # a host CARDS_DIR path isn't visible inside the container. Returning a
+    # confident "0 matched" would be a SILENT false negative ("Odoo ships nothing
+    # for this"), the worst outcome for a does-it-already-exist check — so raise
+    # instead of producing a plausible-looking empty result.
+    if not cards:
+        raise SystemExit(
+            "native-check: 0 capability cards loaded — the corpus is empty or did "
+            "not reach this shell. If odoo-bin runs in Docker/remote, a host card "
+            "path is not visible inside it; upgrade odoo-ai so it injects the "
+            f"corpus on stdin (CARDS_JSON). [CARDS_JSON set={bool(CARDS_JSON)} "
+            f"CARDS_DIR={CARDS_DIR!r} warnings={WARNINGS}]")
 
     # Learning loop: fold any captured requirement→card mappings into the corpus
     # so real-world phrasings recall better over time (see `odoo-ai native-learn`).
+    # Same transport story — prefer an injected LEARNED_JSON blob over a host
+    # LEARN_FILE path the container may not see.
     learned_mappings = 0
-    if LEARN_FILE and Path(LEARN_FILE).is_file():
+    learned_raw = LEARNED_JSON
+    if learned_raw is None and LEARN_FILE and Path(LEARN_FILE).is_file():
         try:
-            data = json.loads(Path(LEARN_FILE).read_text())
+            learned_raw = Path(LEARN_FILE).read_text()
+        except Exception as e:  # noqa: BLE001
+            WARNINGS.append(f"learn file {LEARN_FILE}: {type(e).__name__}: {e}")
+    if learned_raw:
+        try:
+            data = json.loads(learned_raw)
             entries = data if isinstance(data, list) else data.get("learned", [])
             cards, _ = merge_learned(cards, entries)
             learned_mappings = len(entries)
         except Exception as e:  # noqa: BLE001
-            WARNINGS.append(f"learn file {LEARN_FILE}: {type(e).__name__}: {e}")
+            WARNINGS.append(f"learned mappings: {type(e).__name__}: {e}")
 
     # MODEL tokens help recall (e.g. "sale.order" → sale/order); the agent still
     # ranks true relevance afterwards.
