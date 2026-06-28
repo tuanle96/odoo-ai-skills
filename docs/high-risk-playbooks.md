@@ -25,7 +25,7 @@ odoo-ai --db <DB> security sale.order --user <user_c_id> --company 2 --allowed-c
 # A correct rule scopes to the allowed set; a broken one lets Company 1 rows through.
 ```
 
-The Layer G output carries `effective_domain` (the domain Odoo's own `ir.rule._compute_domain` evaluates under `with_company`), `record_rules`, and `multi_company_posture`.  A domain that does not include `company_id in [2]` when `allowed_company_ids=[1,2]` is the bug.
+The Layer G output carries `record_rules.<mode>.effective_domain` (the domain Odoo's own `ir.rule._compute_domain` evaluates under `with_company`) and a `company` block (`acting_company`, `simulated_allowed_company_ids`, `user_allowed_companies`).  A read `effective_domain` that does not include `company_id in [2]` when `simulated_allowed_company_ids=[1,2]` is the bug.
 
 ---
 
@@ -43,8 +43,10 @@ odoo-ai validate path/to/my_module/models/account_move.py
 
 # 2. Confirm what the affected user SHOULD be able to do:
 odoo-ai --db <DB> security account.move --user <affected_user_id>
-# effective_domain will be non-empty (restriction exists);
-# sudo_bypass_note will flag if sudo() is present in the call chain.
+# record_rules.read.effective_domain is non-empty (the restriction exists) and
+# access_rights.odoo_check carries Odoo's own verdict — proving the user is NOT
+# meant to read these rows. (security simulates the acting user; it does NOT
+# detect sudo() itself — step 1's validator / grepping source bodies does that.)
 
 # 3. Trace the actual flow to see where sudo() fires:
 odoo-ai --db <DB> trace account.move <invoice_id> action_post

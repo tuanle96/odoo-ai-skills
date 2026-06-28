@@ -63,6 +63,9 @@ SENTINELS = {
     "claim_verify.py":  ("===ODOO_CLAIMS_START===", "===ODOO_CLAIMS_END==="),
     "trace_flow.py":    ("===ODOO_TRACE_START===", "===ODOO_TRACE_END==="),
     "preflight.py":     ("===ODOO_PREFLIGHT_START===", "===ODOO_PREFLIGHT_END==="),
+    "entrypoint_surface.py": ("===ODOO_SURFACE_START===", "===ODOO_SURFACE_END==="),
+    "esg_sample.py":    ("===ODOO_ESG_START===", "===ODOO_ESG_END==="),
+    "eval_harness.py":  ("===ODOO_EVAL_START===", "===ODOO_EVAL_END==="),
 }
 
 
@@ -558,6 +561,102 @@ def smoke_trace():
     check("trace rolled back by default", d.get("committed") is False, str(d.get("committed")))
 
 
+def smoke_surface():
+    """Layer K — entrypoint discovery. Model scope is base-safe; instance scope
+    must rank object buttons + the action registry; sale (if installed) must
+    surface action_confirm as a trace seed."""
+    print(f"Layer K — surface (entrypoint discovery) on {MODEL}")
+    d = _shell("entrypoint_surface.py", {"MODEL": MODEL})
+    check("surface.mode", d.get("mode") == "surface", str(d.get("mode")))
+    check("surface.entrypoints is a list", isinstance(d.get("entrypoints"), list))
+    check("surface.counts is a dict", isinstance(d.get("counts"), dict))
+    check("surface.top_trace_seeds is a list", isinstance(d.get("top_trace_seeds"), list))
+    # every ranked entry carries a rank + reasons
+    eps = d.get("entrypoints") or []
+    if eps:
+        check("surface.entries carry rank+why",
+              all("rank" in e and "why" in e for e in eps), str(eps[0]))
+
+    print("Layer K — surface (instance-wide; ranking + routes)")
+    inst = _shell("entrypoint_surface.py", {})
+    check("surface.instance scope", inst.get("scope", {}).get("mode") == "instance",
+          str(inst.get("scope")))
+    check("surface.instance has object_button entrypoints",
+          inst.get("counts", {}).get("object_button", 0) > 0, str(inst.get("counts")))
+    # ranking is monotonic non-increasing
+    ranks = [e.get("rank") for e in inst.get("entrypoints", [])]
+    check("surface.ranked descending", ranks == sorted(ranks, reverse=True),
+          f"first 5: {ranks[:5]}")
+    # HTTP routes discovered (base ships controllers like /web)
+    check("surface.routes discovered", inst.get("counts", {}).get("route", 0) > 0,
+          str(inst.get("counts", {}).get("route")))
+
+    if "===SALE=== True" in _shell_code('print("===SALE===", "sale.order" in env)\n'):
+        sd = _shell("entrypoint_surface.py", {"MODEL": "sale.order"})
+        seeds = {(s["model"], s["method"]) for s in sd.get("top_trace_seeds", [])}
+        check("surface surfaces sale.order.action_confirm as a seed",
+              ("sale.order", "action_confirm") in seeds, str(sorted(seeds)[:5]))
+
+
+def smoke_esg():
+    """Layer K — Execution Surface Graph sampling. Needs records, so it uses
+    sale.order (creates one) when sale is installed; base-only DB skips cleanly."""
+    print("Layer K — esg (multi-root trace sampling)")
+    if "===SALE=== True" not in _shell_code('print("===SALE===", "sale.order" in env)\n'):
+        check("esg skipped (sale not installed — base-only DB)", True)
+        return
+    setup = (
+        "p = env['res.partner'].create({'name': 'Smoke ESG Partner'})\n"
+        "prod = env['product.product'].create({'name': 'Smoke ESG Product', 'list_price': 30.0})\n"
+        "env['sale.order'].create({'partner_id': p.id, "
+        "'order_line': [(0, 0, {'product_id': prod.id, 'product_uom_qty': 2})]})\n"
+        "env.cr.commit()\nprint('===ESGSET=== ok')\n")
+    if "===ESGSET=== ok" not in _shell_code(setup):
+        check("esg.setup created a sale.order", False)
+        return
+    d = _shell("esg_sample.py", {"MODEL": "sale.order", "ESG_SEEDS": "3",
+                                 "SCRIPTS_DIR": str(SCRIPTS)})
+    check("esg.mode", d.get("mode") == "esg", str(d.get("mode")))
+    check("esg rolled back by default", d.get("committed") is False)
+    summ = d.get("summary", {})
+    check("esg sampled at least one flow", summ.get("seeds_traced", 0) >= 1, str(summ))
+    check("esg touched models", summ.get("models_touched", 0) >= 1, str(summ))
+    check("esg.graph has models+edges keys",
+          {"models", "edges", "app_edges", "writes"} <= set(d.get("graph", {})),
+          str(list(d.get("graph", {}))))
+    # action_confirm on a real order touches stock → expect a cross-app edge
+    seeds = {s.get("method") for s in d.get("seeds", [])}
+    check("esg sampled action_confirm", "action_confirm" in seeds, str(seeds))
+    # the external-effect blocklist must be active: it never auto-fired a send/mail
+    su = d.get("skipped_unsafe")
+    check("esg.skipped_unsafe is a list (blocklist active)", isinstance(su, list), str(su))
+    check("esg did NOT auto-trace a send/mail/print method",
+          not any(any(w in (m or "") for w in ("send", "mail", "print", "unlink"))
+                  for m in seeds), str(seeds))
+
+
+def smoke_eval():
+    """Layer K — hallucination eval harness. Inject the shipped benchmark on
+    stdin (issue #3) + SCRIPTS_DIR (it imports native_check). The gate must catch
+    every classic hallucination and confirm every applicable real → gate_sound."""
+    bench = SCRIPTS.parent / "references" / "eval-benchmark.json"
+    print(f"Layer K — eval (hallucination benchmark: {bench.name})")
+    d = _shell("eval_harness.py", {"SCRIPTS_DIR": str(SCRIPTS)},
+               stdin_prefix=_inject({"BENCHMARK_JSON": bench.read_text()}))
+    m = d.get("metrics", {})
+    check("eval.detection_rate == 1.0 (all classic hallucinations caught)",
+          m.get("detection_rate") == 1.0, str(m.get("detection_rate")))
+    check("eval.truth_recall == 1.0 (all applicable reals confirmed)",
+          m.get("truth_recall") == 1.0, str(m.get("truth_recall")))
+    check("eval.gate_sound", m.get("gate_sound") is True,
+          f"leaked={d.get('hallucinations_leaked')} missed={d.get('reals_missed')}")
+    # the canonical fakes must be flagged absent (caught), never leaked
+    leaked_ids = {c["id"] for c in d.get("hallucinations_leaked", [])}
+    check("eval.account.invoice not leaked", "absent.model.account_invoice" not in leaked_ids,
+          str(leaked_ids))
+    check("eval.by_category present", isinstance(d.get("by_category"), dict))
+
+
 def main():
     if not DB:
         print("SKIP integration_smoke: ODOO_DB not set (pure-function CI is unaffected).")
@@ -567,7 +666,8 @@ def main():
                smoke_security, smoke_security_multicompany, smoke_state,
                smoke_capabilities, smoke_native_check,
                smoke_layer_i, smoke_native_check_probe_kinds, smoke_claim_verify,
-               smoke_preflight, smoke_trace):
+               smoke_preflight, smoke_trace,
+               smoke_surface, smoke_esg, smoke_eval):
         try:
             fn()
         except Exception as e:  # noqa: BLE001

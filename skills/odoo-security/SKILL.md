@@ -85,6 +85,7 @@ Company isolation is enforced by **global record rules** with `company_id in com
 
 **This skill's reference**
 - `references/security-authoring.md` — ACL CSV columns + the 1/0 perms, `ir.rule` fields, global-vs-group examples, `res.groups` / `implied_ids`, field-level groups, the exact eval algorithm, the multi-company recipe, and testing as a non-admin user.
+- `references/multi-company-and-sudo.md` — the multi-company rule eval order (`company_id in company_ids` vs the default-company trap), `with_company` / `allowed_company_ids`, `sudo()` legitimate vs hole (the one-line-comment rule), the v18 `check_access` / `has_access` rename, and `@api.private` RPC exposure — each provable via `odoo-ai security --user --company --allowed-companies`.
 
 **Other skills in the loop**
 - `odoo-introspect` — Tier 0 engine; `odoo-ai all <model>` → `security{}` dossier (read first). RPC fallback for SaaS.

@@ -162,6 +162,17 @@ rule. Before sharing any introspection JSON with an external LLM, run
 
 ## References & related skills
 
+**This skill's references**
+- `references/review-checklist.md` — the checklist expanded dimension by dimension
+  (security/sudo, data-loss/migration, silent-correctness/MRO+super+depends,
+  performance/N+1, multi-company, version currency), each line with the *why in
+  Odoo terms* and the exact `odoo-ai` command that confirms it.
+- `references/ai-failure-modes.md` — the specific confident-but-wrong patterns AI
+  ships (hallucinated names, memory-era syntax, `sudo()`-to-silence, batch-unsafe
+  `create`, N+1, wrong-hook override, bare rename, slopsquatting, default-company
+  rule), each with the `odoo-ai` command that catches it.
+
+**Other skills in the loop**
 - `odoo-testing` — turn each correctness finding into a failing-then-passing
   test; the PR checklist there is the merge gate this skill feeds.
 - `odoo-introspect` — confirm every suspicion (fields, MRO, security, depends)

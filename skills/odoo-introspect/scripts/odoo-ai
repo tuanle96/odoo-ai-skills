@@ -83,6 +83,9 @@ SCRIPTS = {
     "state":       (HERE / "state_capture.py", "===ODOO_STATE_START===", "===ODOO_STATE_END==="),
     "capabilities": (HERE / "capabilities.py", "===ODOO_CAP_START===", "===ODOO_CAP_END==="),
     "native_check": (HERE / "native_check.py", "===ODOO_NCHECK_START===", "===ODOO_NCHECK_END==="),
+    "surface":     (HERE / "entrypoint_surface.py", "===ODOO_SURFACE_START===", "===ODOO_SURFACE_END==="),
+    "esg":         (HERE / "esg_sample.py", "===ODOO_ESG_START===", "===ODOO_ESG_END==="),
+    "eval":        (HERE / "eval_harness.py", "===ODOO_EVAL_START===", "===ODOO_EVAL_END==="),
     # Enforcement gates (Layer I) that still need the live registry:
     "scenarios":   (HERE / "scenario_gen.py", "===ODOO_SCEN_START===", "===ODOO_SCEN_END==="),
     "env_fingerprint": (HERE / "env_diff.py", "===ODOO_ENVFP_START===", "===ODOO_ENVFP_END==="),
@@ -94,6 +97,7 @@ SCRIPTS = {
 # capture stdout JSON. Keyed by CLI command; value is the script filename.
 LOCAL_SCRIPTS = {
     "validate": "patch_validator.py",
+    "gate-edit": "gate_edit.py",
     "redact": "redaction.py",
     "scan-secrets": "redaction.py",
     "deploy-gate": "deploy_gate.py",
@@ -108,6 +112,10 @@ LOCAL_SCRIPTS = {
 # odoo-capabilities skill; resolve the path relative to this CLI so it works in
 # both a clone and the installed-plugin layout.
 CARDS_DIR = HERE.parent.parent / "odoo-capabilities" / "references" / "cards"
+
+# The shipped hallucination benchmark for the eval harness (Layer K). Read on the
+# HOST and injected on stdin (issue #3) so eval works under a Docker/remote odoo-bin.
+BENCHMARK_FILE_DEFAULT = HERE.parent / "references" / "eval-benchmark.json"
 
 # When --json is set, commands print ONLY the raw JSON to stdout (no human
 # summary / header / footer) so CI can `odoo-ai --json <cmd> > artifact.json`.
@@ -254,6 +262,25 @@ def _summ(step, d):
             top = conf[0]["id"] if conf else "—"
             return f"({len(conf)} present / {len(unconf)} not-here of "\
                    f"{d.get('considered', 0)} matched; top={top})"
+        if step == "surface":
+            if d.get("found") is False:
+                return f"(model not in registry)"
+            c = d.get("counts", {})
+            top = (d.get("entrypoints") or [{}])[0]
+            tl = f"{top.get('model') or top.get('module')}.{top.get('ref') or '?'}" if top else "—"
+            return f"({d.get('returned', 0)}/{d.get('total_entrypoints', 0)} ranked: "\
+                   f"{c.get('object_button', 0)} buttons / {c.get('cron', 0)} crons / "\
+                   f"{c.get('automation', 0)} autos / {c.get('route', 0)} routes; top={tl})"
+        if step == "esg":
+            s = d.get("summary", {})
+            return f"({s.get('seeds_traced', 0)} flows sampled, "\
+                   f"{s.get('models_touched', 0)} models touched, "\
+                   f"{s.get('cross_app_edges', 0)} cross-app edges)"
+        if step == "eval":
+            m = d.get("metrics", {})
+            sound = "✓sound" if m.get("gate_sound") else "✗LEAK"
+            return f"(detect={m.get('detection_rate')} recall={m.get('truth_recall')} "\
+                   f"of {m.get('applicable', 0)} cases; {sound})"
         if step == "scenarios":
             r = d.get("risk", {})
             return f"(risk={r.get('tier', '?')}, {len(d.get('scenarios', []))} required scenarios)"
@@ -279,6 +306,10 @@ def _summ_local(cmd, d):
             s = d.get("summary", {})
             return f"({s.get('files', 0)} files: {s.get('blocking', 0)} blocking / "\
                    f"{s.get('warning', 0)} warning)"
+        if cmd == "gate-edit":
+            miss = d.get("missing_evidence", [])
+            return f"(decision={d.get('decision', '?')}, {len(d.get('touched_models', []))} "\
+                   f"models touched, {len(miss)} need introspect)"
         if cmd == "env-diff":
             return f"(severity={d.get('summary', {}).get('severity', '?')})"
         if cmd == "upgrade-diff":
@@ -378,6 +409,9 @@ def main():
     sfm = sub.add_parser("feature-map", help="alias: capabilities for a model (native surface around it)"); sfm.add_argument("model")
     snc = sub.add_parser("native-check", help="does Odoo already ship this? recall-match curated capability cards, then existence-gate them against this instance (Layer H gate-then-rank)"); snc.add_argument("requirement", help='free-text requirement, e.g. "auto-number delivery slips"'); snc.add_argument("--model", default="", help="optional model for context, e.g. sale.order"); snc.add_argument("--learn-file", default="", help="learned-mappings file to fold in (default: ~/.odoo-ai/learned.json if present)")
     snl = sub.add_parser("native-learn", help="record a solved requirement→card mapping so it recalls next time (the learning loop; no DB needed)"); snl.add_argument("requirement", help="the requirement phrasing that worked"); snl.add_argument("--card", required=True, help="the capability card id it maps to, e.g. sale.down_payment_invoice"); snl.add_argument("--learn-file", default="", help="where to store it (default: ~/.odoo-ai/learned.json)")
+    ssf = sub.add_parser("surface", help="DISCOVER where reality starts (Layer K): rank the live entrypoint surface — object buttons, server actions, crons, automations, routes — so the agent doesn't guess the entry method"); ssf.add_argument("target", nargs="?", help="optional model to scope to, e.g. sale.order; omit for instance-wide"); ssf.add_argument("--module", help="scope to one addon, e.g. --module sale"); ssf.add_argument("--limit", default="", help="max entrypoints after ranking (default 200)"); ssf.add_argument("--no-routes", dest="no_routes", action="store_true", help="skip HTTP-route discovery")
+    sesg = sub.add_parser("esg", help="sample the Execution Surface Graph (Layer K): discover top entrypoints, trace each on a real record, merge into a cross-model flow skeleton (process understanding that EMERGES from traces, not a static map)"); sesg.add_argument("target", nargs="?", help="optional model to scope discovery to; omit for instance-wide"); sesg.add_argument("--module", help="scope discovery to one addon"); sesg.add_argument("--seeds", default="", help="max trace seeds to sample (default 6)"); sesg.add_argument("--commit", action="store_true", help="persist the sampled traces (dev DB only; default rolls back)")
+    sev2 = sub.add_parser("eval", help="hallucination eval harness (Layer K): run the classic-LLM-mistake benchmark against THIS instance and score the gate's detection_rate / truth_recall (measure that hallucinations actually went down)"); sev2.add_argument("--benchmark", default="", help="path to a custom benchmark JSON (default: the shipped one)")
 
     sb = sub.add_parser("brief"); sb.add_argument("model"); sb.add_argument("--methods", default=""); sb.add_argument("--source", action="store_true"); sb.add_argument("--code-preview", dest="code_preview", action="store_true", help="include a short head-only slice of server-action/cron code (potentially sensitive)"); sb.add_argument("--code", action="store_true", help="include FULL server-action/cron code bodies (may contain secrets — trusted context only)")
     se = sub.add_parser("entrypoints"); se.add_argument("model"); se.add_argument("--views", default="form,list"); se.add_argument("--view-id", dest="view_id", default=""); se.add_argument("--view-xmlid", dest="view_xmlid", default="")
@@ -394,6 +428,7 @@ def main():
     sub.add_parser("env-fingerprint", help="capture this instance's parity fingerprint (modules/edition/counts/studio/config) for a later env-diff (needs DB)")
     sed = sub.add_parser("env-diff", help="diff two env fingerprints (dev vs prod) — LOCAL, no DB"); sed.add_argument("base"); sed.add_argument("target")
     sval = sub.add_parser("validate", help="static Odoo patch validator (attrs/sudo/N+1/batch/version anti-patterns) — LOCAL, no DB"); sval.add_argument("paths", nargs="+")
+    sge = sub.add_parser("gate-edit", help="ENFORCE no-introspect-no-edit (Layer K): block an edit to an Odoo model until it has introspection evidence + passes the validator — LOCAL, no DB; wire as a PreToolUse hook"); sge.add_argument("files", nargs="+"); sge.add_argument("--evidence-dir", default="/tmp/odoo-ai", help="where odoo-ai writes briefs (default /tmp/odoo-ai)"); sge.add_argument("--no-validate", action="store_true", help="skip the static validator step (evidence check only)")
     srd = sub.add_parser("redact", help="redact introspection JSON before sharing with an external LLM — LOCAL, no DB"); srd.add_argument("file"); srd.add_argument("--mode", choices=["external", "local"], default="external")
     sss = sub.add_parser("scan-secrets", help="scan a file for secrets/keys before it leaves the environment — LOCAL, no DB"); sss.add_argument("file")
     suc = sub.add_parser("upgrade-check", help="upgrade/migration risks vs an OLD brief + a pre-migrate scaffold (needs DB)"); suc.add_argument("model"); suc.add_argument("--against", required=True, help="path to an OLD brief JSON from a prior `odoo-ai brief`"); suc.add_argument("--module", default=""); suc.add_argument("--version", default="")
@@ -418,6 +453,11 @@ def main():
         out_dir.mkdir(parents=True, exist_ok=True)
         if a.cmd == "validate":
             do_local("validate", list(a.paths), out_dir, "patch")
+        elif a.cmd == "gate-edit":
+            argv = ["gate", *a.files, "--evidence-dir", a.evidence_dir]
+            if a.no_validate:
+                argv.append("--no-validate")
+            do_local("gate-edit", argv, out_dir, "gate-edit")
         elif a.cmd == "redact":
             do_local("redact", ["redact", a.file, "--mode", a.mode], out_dir, Path(a.file).stem)
         elif a.cmd == "scan-secrets":
@@ -491,6 +531,36 @@ def main():
             inject["LEARNED_JSON"] = lf.read_text()
         do_step("native_check", env_extra, cfg, out_dir, a.model or "native-check",
                 stdin_prefix=_inject_env_preamble(inject))
+    elif a.cmd == "surface":
+        env_extra = {}
+        if a.module:
+            env_extra["MODULE"] = a.module
+        elif a.target:
+            env_extra["MODEL"] = a.target
+        if a.limit:
+            env_extra["SURFACE_LIMIT"] = a.limit
+        if a.no_routes:
+            env_extra["INCLUDE_ROUTES"] = "0"
+        do_step("surface", env_extra, cfg, out_dir, a.module or a.target or "surface")
+    elif a.cmd == "esg":
+        env_extra = {}
+        if a.module:
+            env_extra["MODULE"] = a.module
+        elif a.target:
+            env_extra["MODEL"] = a.target
+        if a.seeds:
+            env_extra["ESG_SEEDS"] = a.seeds
+        if a.commit:
+            env_extra["COMMIT"] = "1"
+        do_step("esg", env_extra, cfg, out_dir, a.module or a.target or "esg")
+    elif a.cmd == "eval":
+        bench_path = Path(a.benchmark) if a.benchmark else BENCHMARK_FILE_DEFAULT
+        try:
+            bench_raw = bench_path.read_text()
+        except Exception as e:  # noqa: BLE001
+            sys.exit(f"❌ eval: cannot read benchmark {bench_path}: {e}")
+        do_step("eval", {"BENCHMARK_FILE": str(bench_path)}, cfg, out_dir, "eval",
+                stdin_prefix=_inject_env_preamble({"BENCHMARK_JSON": bench_raw}))
     elif a.cmd == "brief":
         do_step("brief", {"MODEL": a.model, "METHODS": a.methods, "SOURCE": "1" if a.source else "",
                           "CODE_PREVIEW": "1" if a.code_preview else "", "CODE": "1" if a.code else ""}, cfg, out_dir, a.model)

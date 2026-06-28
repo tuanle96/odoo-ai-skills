@@ -72,6 +72,7 @@ claude plugin validate /path/to/odoo-ai-skills # check the manifest
 ## How to use
 
 - **New to a task?** Invoke the **`odoo`** skill — it routes you to the right sub-skill.
+- **New to the instance — don't know where to start?** `odoo-ai surface` ranks the live entrypoints (buttons, crons, automations, routes) so you don't guess the entry method; `odoo-ai esg` then samples the real cross-app flow.
 - **About to *add* a field/model/wizard/report/cron/automation (or override a core flow)?** Invoke **`odoo-capabilities`** first — `odoo-ai native-check "<requirement>"` (matches curated cards, existence-gated against the instance) or `odoo-ai capabilities <model>` for the full surface — to check what Odoo already ships before reinventing it. The best patch is sometimes no patch.
 - **About to write code?** Invoke **`odoo-introspect`** first to dump the model/flow as JSON (`odoo-ai all <model>`), then the relevant build skill, then **`odoo-testing`**, then **`odoo-review`** before you merge.
 - **Something "didn't apply"?** `odoo-ai preflight <module>` before assuming a code bug.
@@ -182,9 +183,33 @@ scripts/odoo-ai deploy-gate /tmp/odoo-ai/evidence_bundle/   # → approve | need
 
 These came out of the v0.7 codebase evaluation (under `plans/reports/`), which found the suite excellent at *grounding* but advisory-only at *enforcement*. Each gate's pure logic is unit-tested without Odoo.
 
+## Discovery, sampling, measurement & enforcement (Layer K)
+
+The layers above all assume you already know *what* to introspect. Layer K answers the cold-start problem — *where does reality start in this instance?* — and makes the tools impossible to skip:
+
+```bash
+# DISCOVER where to start — rank the live entrypoint surface (buttons, server
+# actions, crons, automations, reports, HTTP routes), instance-wide or scoped:
+scripts/odoo-ai --db <DB> surface                       # → ranked roots + top_trace_seeds
+scripts/odoo-ai --db <DB> surface sale.order            # ...around one model
+
+# UNDERSTAND the overall process — sample the top entrypoints' real traces and
+# merge them into a cross-model / cross-app flow skeleton (NOT a static map):
+scripts/odoo-ai --db <DB> esg sale.order                # → Execution Surface Graph
+
+# MEASURE that hallucinations actually drop — score the gate on a benchmark of the
+# classic LLM Odoo mistakes (account.invoice, customer_id, fields_view_get, …):
+scripts/odoo-ai --db <DB> eval                          # → detection_rate / truth_recall
+
+# ENFORCE no-introspect-no-edit (LOCAL) — block an edit until its model is read:
+scripts/odoo-ai gate-edit addons/my_module/models/sale_order.py
+```
+
+Wire `gate-edit` as a Claude Code **PreToolUse hook** (`skills/odoo-introspect/references/enforcement-hooks.md`) so the agent *cannot* edit an Odoo model before reading its ground truth — the Oracle's "even perfect tools ≠ used tools" failure mode, closed. `surface`/`esg` stay true to *runtime-grounded, never memorized*: process understanding **emerges from sampled traces**, never a stale stored atlas. (Design rationale: the codebase analysis under `plans/reports/`.)
+
 ## Tested against real Odoo
 
-Beyond the unit suite, the integration smoke runs **every layer + gate against live Odoo 17 / 18 / 19** in CI (`.github/workflows/integration.yml`). The suite has also been validated end-to-end against a real **390-module Enterprise** instance (Studio fields, custom addons, multi-company): all read-only layers (A–H), the enforcement gates, the BYO-index `verify-claims` (it correctly flagged an external claim about a module *absent* from that instance), and the write/execute layers — a runtime `trace` of `sale.order.action_confirm` captured the real cross-app cascade (`stock.picking` / `stock.move` / `quality.check`) and rolled back. The failures a static index can't catch are in `docs/high-risk-playbooks.md`.
+Beyond the unit suite, the integration smoke runs **every layer + gate against live Odoo 17 / 18 / 19** in CI (`.github/workflows/integration.yml`) — including Layer K (`surface`/`esg`/`eval`): **89/89 checks pass on each of 17, 18, and 19**, reproducible locally in one command via `docker-compose.e2e.yml` (Postgres + the three Odoo versions). The `eval` harness scores **detection_rate 1.0 / truth_recall 1.0** on all three (every classic hallucination caught, every real confirmed). The suite has also been validated end-to-end against a real **390-module Enterprise** instance (Studio fields, custom addons, multi-company): all read-only layers (A–H), the enforcement gates, the BYO-index `verify-claims` (it correctly flagged an external claim about a module *absent* from that instance), and the write/execute layers — a runtime `trace` of `sale.order.action_confirm` captured the real cross-app cascade (`stock.picking` / `stock.move` / `quality.check`) and rolled back. The failures a static index can't catch are in `docs/high-risk-playbooks.md`.
 
 ## Security — handling introspection output
 

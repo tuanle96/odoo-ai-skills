@@ -90,8 +90,12 @@ jobs:
             PATHS="${{ inputs.targets }}"
           else
             BASE="${{ github.base_ref }}"
+            # Exclude test files: their fixtures legitimately contain EXAMPLE
+            # secrets (AWS's AKIA…EXAMPLE key, sample PEM/JWT/base64) to test the
+            # scanner itself — gating those as "leaked secrets" is a false positive.
             PATHS=$(git diff --name-only "origin/${BASE:-main}...HEAD" \
                     | grep -E '\.(py|xml)$' \
+                    | grep -vE '(^|/)tests?/|(^|/)test_[^/]*\.(py|xml)$|_test\.(py|xml)$' \
                     | tr '\n' ' ')
           fi
           echo "paths=${PATHS}" >> "$GITHUB_OUTPUT"

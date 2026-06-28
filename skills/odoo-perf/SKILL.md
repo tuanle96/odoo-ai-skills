@@ -85,6 +85,7 @@ Raw SQL bypasses ACL, record rules, computes, and constraints — you now own al
 
 **This skill's reference**
 - `references/performance-patterns.md` — N+1 before/after, prefetch mechanics, `_read_group` v17 recipes, stored-compute write-amplification math, the index decision matrix, the raw-SQL checklist, and reading `trace_flow` SQL counts.
+- `references/n-plus-one-and-prefetch.md` — the recordset/prefetch model, N+1 patterns (per-record search in a loop, `.mapped()` vs python loop, `_read_group` aggregates), stored/index decisions, `flush` / `invalidate` pitfalls, and reading `trace`'s `top_self_sql` + `call_counts` to FIND the hotspot rather than guess.
 
 **Other skills in the loop**
 - `odoo-introspect` — Tier 0 engine; `trace_flow` for real `total_sql` / `sql_count`, `model_brief` for `depends` / `store` / index facts.
