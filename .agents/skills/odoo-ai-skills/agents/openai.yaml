@@ -1,0 +1,6 @@
+interface:
+  display_name: "Odoo Ai Skills"
+  short_description: "Repo-specific patterns and workflows for odoo-ai-skills"
+  default_prompt: "Use the odoo-ai-skills repo skill to follow existing architecture, testing, and workflow conventions."
+policy:
+  allow_implicit_invocation: true
