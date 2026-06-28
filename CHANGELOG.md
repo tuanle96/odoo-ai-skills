@@ -6,6 +6,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **`native-check` under Docker/remote `odoo-bin`** (#3) — the command passed the
+  capability-card corpus as a **host `CARDS_DIR` path**, which a container (or ssh
+  host) running `odoo-bin` in a different filesystem namespace couldn't read, so it
+  silently returned a confident **"0 matched"** false negative ("Odoo ships nothing
+  for this") for every query. The CLI now **injects the card corpus (and learned
+  mappings) as content on the script's own stdin** — the same channel the script
+  rides — so it works for any `ODOO_BIN` (local, Docker, ssh) without depending on
+  `-e` env forwarding. As defense in depth, `native_check.py` now **fails loudly**
+  on a zero-card load instead of producing an empty result. Added `REQUIREMENT` to
+  the documented Docker-wrapper env allowlist (native-check reads it from env).
+
 ## [0.9.1] - 2026-06-28
 
 **Hardening release — fixes from an independent oracle review of v0.9.0.** No new

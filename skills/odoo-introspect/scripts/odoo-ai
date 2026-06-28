@@ -64,6 +64,7 @@ Examples:
     odoo-ai --db dev state sale.order 42 action_confirm --break sale.order._action_confirm --fields state,amount_total
 """
 import argparse
+import base64
 import json
 import os
 import subprocess
@@ -113,7 +114,42 @@ CARDS_DIR = HERE.parent.parent / "odoo-capabilities" / "references" / "cards"
 _JSON_OUT = False
 
 
-def run_in_shell(script_path, env_extra, cfg):
+def read_cards_blob():
+    """Read every shipped capability card on the HOST into one compact JSON blob.
+
+    native-check is the only step that needs DATA FILES (the card corpus) inside
+    the shell, not just scalar args. odoo-bin may run in a different filesystem
+    namespace than this CLI (Docker/remote), where the host CARDS_DIR path is
+    unreadable — so we read the cards HERE and inject their content on stdin
+    (see _inject_env_preamble) rather than passing a path the container can't
+    resolve (issue #3). Returns a JSON string (a list of cards; "[]" if none).
+    """
+    cards = []
+    if CARDS_DIR.is_dir():
+        for path in sorted(CARDS_DIR.glob("*.json")):
+            try:
+                data = json.loads(path.read_text())
+            except Exception:  # noqa: BLE001 — a single bad file shouldn't sink the run
+                continue
+            cards += data if isinstance(data, list) else data.get("cards", [])
+    return json.dumps(cards, separators=(",", ":"), ensure_ascii=False)
+
+
+def _inject_env_preamble(values):
+    """Build Python that sets os.environ[name]=raw for each pair, to PREPEND to a
+    stdin-piped script. The payload is base64'd so the preamble is pure ASCII
+    (Vietnamese card intents survive any stdin encoding) and carries no quoting
+    hazards. This is how native-check ships its corpus into odoo-bin wherever it
+    runs — the same channel as the script, so no host-path / env-forwarding
+    assumptions (issue #3)."""
+    lines = ["import os as _os, base64 as _b64"]
+    for name, raw in values.items():
+        b64 = base64.b64encode(raw.encode("utf-8")).decode("ascii")
+        lines.append(f"_os.environ[{name!r}] = _b64.b64decode({b64!r}).decode('utf-8')")
+    return "\n".join(lines) + "\n"
+
+
+def run_in_shell(script_path, env_extra, cfg, stdin_prefix=""):
     cmd = [cfg["odoo_bin"], "shell", "-d", cfg["db"], "--no-http", "--log-level=warn"]
     if cfg.get("conf"):
         cmd += ["-c", cfg["conf"]]
@@ -121,10 +157,13 @@ def run_in_shell(script_path, env_extra, cfg):
     # claim_verify → native_check); piped scripts have no __file__ to derive it.
     env = {**os.environ, "SCRIPTS_DIR": str(HERE),
            **{k: str(v) for k, v in env_extra.items()}}
+    # `stdin_prefix` is Python prepended to the piped script — the channel used to
+    # SHIP DATA (e.g. native-check's card corpus) into the shell, so it crosses
+    # into a Docker/remote odoo-bin exactly where the script does (issue #3).
+    # Empty for every other step, so their stdin is the bare script as before.
     try:
-        with open(script_path) as fh:
-            proc = subprocess.run(cmd, stdin=fh, env=env,
-                                  capture_output=True, text=True, timeout=cfg["timeout"])
+        proc = subprocess.run(cmd, input=stdin_prefix + Path(script_path).read_text(),
+                              env=env, capture_output=True, text=True, timeout=cfg["timeout"])
     except FileNotFoundError:
         sys.exit(f"❌ '{cfg['odoo_bin']}' not found. Set --odoo-bin / ODOO_BIN.")
     except subprocess.TimeoutExpired:
@@ -141,9 +180,9 @@ def extract(stdout, start, end):
     return None
 
 
-def do_step(step, env_extra, cfg, out_dir, model):
+def do_step(step, env_extra, cfg, out_dir, model, stdin_prefix=""):
     script, start, end = SCRIPTS[step]
-    proc = run_in_shell(script, env_extra, cfg)
+    proc = run_in_shell(script, env_extra, cfg, stdin_prefix)
     body = extract(proc.stdout, start, end)
     if body is None:
         tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-8:]
@@ -438,13 +477,20 @@ def main():
     elif a.cmd == "feature-map":
         do_step("capabilities", {"MODEL": a.model}, cfg, out_dir, a.model)
     elif a.cmd == "native-check":
+        # Ship the card corpus (and any learned mappings) as content on the
+        # script's own stdin — not as host paths the shell may not be able to read
+        # (issue #3: odoo-bin in Docker/remote). CARDS_DIR / LEARN_FILE are still
+        # passed as a fallback for a local shell, but the injected blobs win.
         env_extra = {"REQUIREMENT": a.requirement, "CARDS_DIR": str(CARDS_DIR)}
         if a.model:
             env_extra["MODEL"] = a.model
+        inject = {"CARDS_JSON": read_cards_blob()}
         lf = resolve_learn_file(a.learn_file)
         if lf.is_file():
             env_extra["LEARN_FILE"] = str(lf)
-        do_step("native_check", env_extra, cfg, out_dir, a.model or "native-check")
+            inject["LEARNED_JSON"] = lf.read_text()
+        do_step("native_check", env_extra, cfg, out_dir, a.model or "native-check",
+                stdin_prefix=_inject_env_preamble(inject))
     elif a.cmd == "brief":
         do_step("brief", {"MODEL": a.model, "METHODS": a.methods, "SOURCE": "1" if a.source else "",
                           "CODE_PREVIEW": "1" if a.code_preview else "", "CODE": "1" if a.code else ""}, cfg, out_dir, a.model)

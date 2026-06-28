@@ -31,6 +31,7 @@ Config (env):
                              the DB when unset, so redaction is always exercised
 """
 import ast
+import base64
 import json
 import os
 import re
@@ -65,14 +66,34 @@ SENTINELS = {
 }
 
 
-def _shell(script_name, env_extra):
+def _cards_blob(cards_dir):
+    """Read every card on the HOST into one JSON blob. Injected on stdin (below)
+    so native-check works even when ODOO_BIN is a Docker/remote wrapper that can't
+    read the host cards path — the same transport the `odoo-ai` CLI uses (issue #3)."""
+    cards = []
+    for path in sorted(Path(cards_dir).glob("*.json")):
+        data = json.loads(path.read_text())
+        cards += data if isinstance(data, list) else data.get("cards", [])
+    return json.dumps(cards, separators=(",", ":"), ensure_ascii=False)
+
+
+def _inject(values):
+    """Python (base64, ASCII-safe) that sets os.environ[name]=raw, PREPENDED to the
+    piped script so data rides the same stdin channel into the shell."""
+    lines = ["import os as _o, base64 as _b"]
+    for name, raw in values.items():
+        b64 = base64.b64encode(raw.encode("utf-8")).decode("ascii")
+        lines.append(f"_o.environ[{name!r}] = _b.b64decode({b64!r}).decode('utf-8')")
+    return "\n".join(lines) + "\n"
+
+
+def _shell(script_name, env_extra, stdin_prefix=""):
     cmd = [ODOO_BIN, "shell", "-d", DB, "--no-http", "--log-level=error"]
     if CONF:
         cmd += ["-c", CONF]
     env = {**os.environ, **{k: str(v) for k, v in env_extra.items()}}
-    with open(SCRIPTS / script_name) as fh:
-        proc = subprocess.run(cmd, stdin=fh, env=env, capture_output=True,
-                              text=True, timeout=TIMEOUT)
+    proc = subprocess.run(cmd, input=stdin_prefix + (SCRIPTS / script_name).read_text(),
+                          env=env, capture_output=True, text=True, timeout=TIMEOUT)
     start, end = SENTINELS[script_name]
     out = proc.stdout
     if start not in out or end not in out:
@@ -367,9 +388,11 @@ def smoke_capabilities():
 
 def smoke_native_check():
     cards = SCRIPTS.parent.parent / "odoo-capabilities" / "references" / "cards"
-    print(f"Layer H — native-check (gate-then-rank; cards: {cards.name}/)")
-    d = _shell("native_check.py", {
-        "REQUIREMENT": "auto-number our delivery slips", "CARDS_DIR": str(cards)})
+    print(f"Layer H — native-check (gate-then-rank; corpus injected from {cards.name}/)")
+    # Inject the corpus on stdin (issue #3) — works whether ODOO_BIN is local or a
+    # Docker/remote wrapper; no host CARDS_DIR read inside the shell.
+    d = _shell("native_check.py", {"REQUIREMENT": "auto-number our delivery slips"},
+               stdin_prefix=_inject({"CARDS_JSON": _cards_blob(cards)}))
     check("native_check.cards_loaded > 0", d.get("cards_loaded", 0) > 0, str(d.get("cards_loaded")))
     check("native_check.confirmed is a list", isinstance(d.get("confirmed_candidates"), list))
     check("native_check.unconfirmed is a list", isinstance(d.get("unconfirmed_candidates"), list))
@@ -442,8 +465,9 @@ def smoke_native_check_probe_kinds():
     fixture corpus. (mixin_inherited + sequence_exists need mail/sale and are
     covered by the model_brief/native_check shipped-card paths.)"""
     cards = SCRIPTS / "tests" / "probe_cards"
-    print(f"Layer I — native-check extended probe kinds (fixture: {cards.name}/)")
-    d = _shell("native_check.py", {"REQUIREMENT": "zzprobe", "CARDS_DIR": str(cards)})
+    print(f"Layer I — native-check extended probe kinds (fixture injected: {cards.name}/)")
+    d = _shell("native_check.py", {"REQUIREMENT": "zzprobe"},
+               stdin_prefix=_inject({"CARDS_JSON": _cards_blob(cards)}))
     conf = {c.get("id") for c in d.get("confirmed_candidates", [])}
     unconf = {c.get("id") for c in d.get("unconfirmed_candidates", [])}
     # base-guaranteed truths (CE/EE-agnostic)
