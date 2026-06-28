@@ -1,0 +1,12 @@
+# GitGuardian config — ignore test fixtures.
+#
+# tests/ deliberately contains EXAMPLE secrets to exercise the suite's own secret
+# scanner / redactor: AWS's published non-functional AKIA…EXAMPLE key, sample PEM
+# headers, JWTs and base64 tokens. Those are test data, not leaked credentials, so
+# they must not be reported as findings.
+version: 2
+secret:
+  ignored-paths:
+    - "tests/**"
+    - "**/tests/**"
+    - "**/test_*.py"
