@@ -1,0 +1,59 @@
+# Real end-to-end test harness: a Postgres + three Odoo versions (17/18/19), each
+# initializing a clean base+sale DB and running the full introspection integration
+# smoke (every layer + enforcement gates + the new Layer K: surface / esg / eval)
+# against its own live registry.
+#
+#   docker compose -f docker-compose.e2e.yml run --rm odoo18   # one version
+#   docker compose -f docker-compose.e2e.yml up --abort-on-container-exit  # all 3
+#   docker compose -f docker-compose.e2e.yml down -v           # clean up
+#
+# The repo is mounted read-only at /repo; each Odoo talks to the `db` service via
+# tests/e2e/odoo-e2e.conf (db_host=db). PYTHONDONTWRITEBYTECODE keeps the ro mount
+# happy. No network pull needed if odoo:17.0/18.0/19.0 + postgres:15 are cached.
+
+x-odoo-common: &odoo-common
+  depends_on:
+    db:
+      condition: service_healthy
+  volumes:
+    - .:/repo:ro
+  working_dir: /repo
+  entrypoint: ["bash", "/repo/tests/e2e/run-smoke.sh"]
+  environment: &odoo-env
+    PYTHONDONTWRITEBYTECODE: "1"
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: postgres
+    tmpfs:
+      - /var/lib/postgresql/data   # ephemeral: fresh DB each run, fast, no leftover volume
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "odoo"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  odoo17:
+    <<: *odoo-common
+    image: odoo:17.0
+    environment:
+      <<: *odoo-env
+      ODOO_DB: e2e17
+
+  odoo18:
+    <<: *odoo-common
+    image: odoo:18.0
+    environment:
+      <<: *odoo-env
+      ODOO_DB: e2e18
+
+  odoo19:
+    <<: *odoo-common
+    image: odoo:19.0
+    environment:
+      <<: *odoo-env
+      ODOO_DB: e2e19

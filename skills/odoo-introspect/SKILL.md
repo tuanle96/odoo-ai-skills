@@ -50,7 +50,23 @@ And one runtime-**state** layer for when you need the values, not just the call 
 |-------|--------|---------|----------|
 | **F (state)** | `state_capture.py` | the **values** at runtime — args/locals/`self` at a breakpoint (`model.method` or source line), and the **full call stack with every frame's locals** when the method raises. The non-interactive, JSON analog of an IDE's "inspect variables" / post-mortem | Layer D shows *what* runs but you need *what the values were*, or a flow raises and the traceback alone doesn't explain why |
 
-Each script runs inside `odoo-bin shell` and prints pure JSON between sentinels (`===ODOO_BRIEF_START===` … etc.). Feed that JSON to the agent **before** any code.
+And one **discovery + measurement** layer for when you don't yet know *where to start* — the cold-start problem every other layer assumes away (they need you to already name the model/method/field):
+
+| Layer | Script | Answers | Run when |
+|-------|--------|---------|----------|
+| **K (surface)** | `entrypoint_surface.py` | **where does reality START here?** — ranks the live entrypoint surface (object buttons `action_*`/`button_*`, server actions, crons, automations, reports, HTTP routes) so you begin from the high-value roots instead of guessing `write`/`create`/a half-remembered button. Instance-wide, per-model, or per-module. Emits `top_trace_seeds` | you're new to a task/instance and don't know what to introspect first; you suspect a cron/automation/route entrypoint you can't name |
+| **K (esg)** | `esg_sample.py` | **what does the overall process look like?** — samples the top entrypoints (trace each on a real record, rolled back), then merges the skeletons into one cross-model/cross-app graph (models touched · model→model edges · app→app edges · write-map). Process understanding that **emerges from traces**, never a stored map that goes stale | you need orientation across a flow (sale→stock→account) before diving micro; onboarding to a customized instance |
+| **K (eval)** | `eval_harness.py` | **did hallucinations actually go down?** — runs a benchmark of the classic LLM Odoo mistakes (account.invoice, customer_id, fields_view_get, a 'customer' selection) + stable reals against the live registry and scores the gate's `detection_rate` / `truth_recall`. A regression signal, not a vibe | you changed the suite and want proof the gate still catches hallucinations; release gating |
+
+> **Layer K is discovery + measurement, NOT a static process atlas.** Odoo's real flow is a runtime-trace *distribution* (conditional on group/company/automations/Studio), so a stored map would make the agent confidently wrong. `surface` ranks the roots; `esg` samples the real edges from those roots; `eval` measures that the gate works. The honest macro layer: orient cheaply, then verify micro.
+
+And one **enforcement** gate — the Oracle's "even perfect tools ≠ used tools": make reading ground truth a precondition, not a prompt:
+
+| Gate | Script | Answers | Run when |
+|------|--------|---------|----------|
+| **K (gate-edit)** | `gate_edit.py` | **may I edit this yet?** — extracts the models a patch touches (`_name`/`_inherit`; view `model=`), checks the evidence dir for an introspection brief of each + runs the validator → `allow`/`block` with the exact `odoo-ai` commands to unblock. **LOCAL, no DB.** Wire as a Claude Code PreToolUse hook (`references/enforcement-hooks.md`) for *no-introspect-no-edit* | always, via the hook — so the agent can't skip introspection before an Odoo edit |
+
+Each script runs inside `odoo-bin shell` and prints pure JSON between sentinels (`===ODOO_BRIEF_START===` … etc.). Feed that JSON to the agent **before** any code. (`gate-edit` is LOCAL — plain `python3`, no shell.)
 
 ## One command: `odoo-ai all <model>`
 
@@ -133,6 +149,11 @@ See `references/sample-output.md` for the JSON shape each layer returns.
 - `scripts/evidence_bundle.py` — **Layer I** flagship: render a folder of gate outputs into a deploy verdict + a **PR-comment Markdown**. `odoo-ai evidence <bundle_dir>` — **local, no DB**.
 - `scripts/claim_verify.py` — **Layer I** BYO-index claim verifier: check external-source claims against the live instance (confirmed/contradicted/needs-shell/needs-human). `odoo-ai verify-claims <claims.json>`.
 - `scripts/doc_index.py` — **Layer J** local Odoo dev-docs index (TF-IDF, build-local, never vendored). `odoo-ai docs-build` / `odoo-ai docs` — **local, no DB**; driven by the **odoo-docs** skill.
+- `scripts/entrypoint_surface.py` — **Layer K** entrypoint discovery: rank the live entrypoint surface (buttons/server-actions/crons/automations/reports/routes) so the agent knows where to start. `odoo-ai surface [<model>|--module <addon>]`.
+- `scripts/esg_sample.py` — **Layer K** Execution Surface Graph: sample the top entrypoints' real traces → merged cross-model/cross-app flow skeleton (process understanding that emerges from traces). `odoo-ai esg [<model>]`.
+- `scripts/eval_harness.py` — **Layer K** hallucination eval: score the gate's `detection_rate`/`truth_recall` on the classic-LLM-mistake benchmark (`references/eval-benchmark.json`). `odoo-ai eval`.
+- `scripts/gate_edit.py` — **Layer K** enforcement: `no-introspect-no-edit` precondition gate (touched models → has-brief? + validator → allow/block). `odoo-ai gate-edit <files>` — **local, no DB**. Hook recipe in `references/enforcement-hooks.md`.
+- `scripts/hooks/pre_edit_gate.py` — the Claude Code PreToolUse hook that runs `gate-edit` before every Edit/Write on an Odoo file.
 - `scripts/odoo-ai` — CLI that runs every layer and writes a JSON folder.
 - `references/introspection.md` — RPC fallback for SaaS + mcp-odoo integration.
 - `references/sample-output.md` — abbreviated sample JSON for each of the four layers.

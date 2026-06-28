@@ -6,6 +6,64 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-28
+
+**Layer K — discovery, sampling, measurement & enforcement.** Closes the gap the
+suite's own deep analysis surfaced: it was best-in-class at *micro* ground-truth
+(a model/method/field you already named) but had no answer to "where do I even
+START?", no way for "understand the overall process" to be true without a
+stale-prone static map, no measurement of whether hallucinations actually drop,
+and — the Oracle's #1 point — no way to stop the agent skipping the tools. Layer
+K adds all four, staying true to *runtime-grounded, never memorized*. Real-tested
+live on Odoo 17 / 18 / 19 (89/89 integration checks each, via `docker-compose.e2e.yml`).
+
+### Added
+- **`odoo-ai surface`** (`entrypoint_surface.py`) — **entrypoint discovery**: ranks
+  the live entrypoint surface (object buttons `action_*`/`button_*`, server actions,
+  crons, automation rules, reports, and **HTTP routes** — a new `@http.route`
+  scanner) instance-wide / per-model / per-module, so the agent starts from the
+  high-value roots instead of guessing `write`/`create`. Emits `top_trace_seeds`.
+- **`odoo-ai esg`** (`esg_sample.py`) — **Execution Surface Graph**: samples the top
+  entrypoints (traces each on a real record, rolled back by default) and merges the
+  skeletons into one cross-model / cross-app flow graph (models touched · model→model
+  edges · app→app edges · write-map). Process understanding that **emerges from
+  traces**, never a static map that goes stale and makes the agent confidently wrong.
+- **`odoo-ai eval`** (`eval_harness.py` + `references/eval-benchmark.json`) — a
+  **hallucination benchmark**: runs the classic LLM Odoo mistakes (`account.invoice`,
+  `customer_id`, `fields_view_get`, a `'customer'` selection value) plus stable reals
+  against the live registry and scores the gate's `detection_rate` / `truth_recall`.
+  A regression signal, not a vibe. Reuses `native_check`'s existence probes so the
+  eval measures the *same* machinery the suite gates with. (1.0 / 1.0 on 17/18/19.)
+- **`odoo-ai gate-edit`** (`gate_edit.py`, LOCAL no-DB) + **PreToolUse hook**
+  (`scripts/hooks/pre_edit_gate.py`, `references/enforcement-hooks.md`) — **enforce
+  no-introspect-no-edit**: maps the files an agent is about to edit to the models they
+  touch (`_name`/`_inherit`; view `model=`), blocks the edit until each has an
+  introspection brief + passes the validator, and emits the exact `odoo-ai` command to
+  unblock. The Oracle's highest-ROI lever: makes the tools *inevitable*, fail-open so
+  it never bricks legitimate work.
+- **`docker-compose.e2e.yml`** + `tests/e2e/` — a one-command multi-version E2E
+  harness (Postgres + Odoo 17/18/19) running the full integration smoke against three
+  live registries.
+- Pure-function unit tests for every new layer (`tests/test_entrypoint_surface.py`,
+  `test_esg_sample.py`, `test_eval_harness.py`, `test_gate_edit.py`) and live
+  integration-smoke coverage (`smoke_surface` / `smoke_esg` / `smoke_eval`).
+
+### Hardened — pre-release adversarial audit
+An independent oracle audit of the diff drove these (the audit's own top "blocker"
+— a claim that `--json` doesn't exist — was a false positive, verified against the
+CLI + the passing hook E2E; these are the findings that held up in code):
+- **ESG never auto-fires an external-effect method.** `esg` executes the methods
+  it discovers (unlike `trace`, where you name one), so a name-based blocklist
+  (`send`/`mail`/`sms`/`payment`/`print`/`unlink`/… ) is skipped and reported under
+  `skipped_unsafe`; override with `ESG_ALLOW_UNSAFE=1` on a throwaway DB. `esg` also
+  fails loudly if its sibling helpers didn't import, instead of crashing mid-trace.
+- **`surface` caps every registry read** (`limit=2000`) so it's safe on an outsized DB.
+- **`gate-edit` never downgrades silently** — when the static validator can't run it
+  emits a `_validator_note` so a clean `allow` isn't mistaken for "validator passed".
+- **`pre_edit_gate.py` gains `ODOO_AI_GATE_STRICT=1`** (fail-closed): if the gate
+  itself can't run *or returns no valid decision*, block the edit instead of failing
+  open (the default stays fail-open so a misconfig never bricks editing).
+
 ### Fixed
 - **`native-check` under Docker/remote `odoo-bin`** (#3) — the command passed the
   capability-card corpus as a **host `CARDS_DIR` path**, which a container (or ssh

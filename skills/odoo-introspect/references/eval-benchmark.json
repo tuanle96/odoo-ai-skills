@@ -1,0 +1,45 @@
+{
+  "_about": "Hallucination benchmark for the odoo-ai eval harness (Layer K). Each case is a probe leaf + a curated, version-STABLE label (present/absent across Odoo 17/18/19). The harness runs every leaf against the LIVE registry and scores the gate's verdicts vs these labels: 'absent' cases are the classic LLM Odoo hallucinations the gate must CATCH; 'present' cases are stable reals it must CONFIRM. requires_module skips a case when that addon isn't installed (so the base benchmark never false-fails). Labels are curated independently of the checker, so agreement is a real signal, not circular.",
+  "version_note": "Stable on 17.0 / 18.0 / 19.0. Absent cases were chosen to have no deprecation alias (account.invoice→account.move, fields_view_get→get_view since v16). Avoid version-forked names here (e.g. check_access_rights exists in 17 but not 18+).",
+  "cases": [
+    {"id": "present.model.res_partner", "category": "model", "expected": "present",
+     "claim": "res.partner is a real model", "probe": {"kind": "model_exists", "model": "res.partner"}},
+    {"id": "present.field.partner_name", "category": "field", "expected": "present",
+     "claim": "res.partner has a name field", "probe": {"kind": "field_exists", "model": "res.partner", "field": "name"}},
+    {"id": "present.field.partner_email", "category": "field", "expected": "present",
+     "claim": "res.partner has an email field", "probe": {"kind": "field_exists", "model": "res.partner", "field": "email"}},
+    {"id": "present.method.compute_display_name", "category": "method", "expected": "present",
+     "claim": "res.partner._compute_display_name exists (v17+ replacement for name_get)", "probe": {"kind": "method_exists", "model": "res.partner", "method": "_compute_display_name"}},
+    {"id": "present.selection.partner_type_contact", "category": "selection", "expected": "present",
+     "claim": "res.partner.type selection includes 'contact'", "probe": {"kind": "selection_has_value", "model": "res.partner", "field": "type", "value": "contact"}},
+    {"id": "present.model.res_users", "category": "model", "expected": "present",
+     "claim": "res.users is a real model", "probe": {"kind": "model_exists", "model": "res.users"}},
+
+    {"id": "present.model.sale_order", "category": "model", "expected": "present", "requires_module": "sale",
+     "claim": "sale.order is a real model", "probe": {"kind": "model_exists", "model": "sale.order"}},
+    {"id": "present.field.sale_partner_id", "category": "field", "expected": "present", "requires_module": "sale",
+     "claim": "sale.order.partner_id is the customer link (NOT customer_id)", "probe": {"kind": "field_exists", "model": "sale.order", "field": "partner_id"}},
+    {"id": "present.method.sale_action_confirm", "category": "method", "expected": "present", "requires_module": "sale",
+     "claim": "sale.order.action_confirm exists", "probe": {"kind": "method_exists", "model": "sale.order", "method": "action_confirm"}},
+    {"id": "present.selection.sale_state_sale", "category": "selection", "expected": "present", "requires_module": "sale",
+     "claim": "sale.order.state selection includes 'sale'", "probe": {"kind": "selection_has_value", "model": "sale.order", "field": "state", "value": "sale"}},
+
+    {"id": "absent.model.account_invoice", "category": "model", "expected": "absent",
+     "claim": "account.invoice is the invoice model (WRONG — it's account.move since v13)", "probe": {"kind": "model_exists", "model": "account.invoice"}},
+    {"id": "absent.model.account_voucher", "category": "model", "expected": "absent",
+     "claim": "account.voucher exists (WRONG — removed)", "probe": {"kind": "model_exists", "model": "account.voucher"}},
+    {"id": "absent.field.partner_customer_id", "category": "field", "expected": "absent",
+     "claim": "res.partner.customer_id exists (WRONG — there is no such field)", "probe": {"kind": "field_exists", "model": "res.partner", "field": "customer_id"}},
+    {"id": "absent.field.partner_hallucinated", "category": "field", "expected": "absent",
+     "claim": "res.partner.x_zzz_hallucinated_field exists (WRONG — invented)", "probe": {"kind": "field_exists", "model": "res.partner", "field": "x_zzz_hallucinated_field"}},
+    {"id": "absent.method.fields_view_get", "category": "method", "expected": "absent",
+     "claim": "res.partner.fields_view_get exists (WRONG — replaced by get_view in v16)", "probe": {"kind": "method_exists", "model": "res.partner", "method": "fields_view_get"}},
+    {"id": "absent.selection.partner_type_customer", "category": "selection", "expected": "absent",
+     "claim": "res.partner.type includes 'customer' (WRONG — values are contact/invoice/delivery/other/private)", "probe": {"kind": "selection_has_value", "model": "res.partner", "field": "type", "value": "customer"}},
+
+    {"id": "absent.field.sale_customer_id", "category": "field", "expected": "absent",
+     "claim": "sale.order.customer_id is the customer field (WRONG — it's partner_id)", "probe": {"kind": "field_exists", "model": "sale.order", "field": "customer_id"}},
+    {"id": "absent.method.sale_fake_action", "category": "method", "expected": "absent",
+     "claim": "sale.order.action_zzz_make_believe exists (WRONG — invented)", "probe": {"kind": "method_exists", "model": "sale.order", "method": "action_zzz_make_believe"}}
+  ]
+}

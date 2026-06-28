@@ -24,13 +24,17 @@ Odoo builds every model, view, security rule, and automation **at runtime** from
 
 0. **`odoo-capabilities`** — Step 0, *only* when the task would **add** a field/model/wizard/report/cron/automation or **override a core flow**: check what Odoo already ships before reinventing it — `odoo-ai native-check "<requirement>"` (matches curated cards, existence-gated against the instance), or `odoo-ai capabilities <model>` / `--module <addon>` for the full surface. Skip for bug-fixes, view tweaks, or work inside your own module.
 1. **`odoo-introspect`** — Tier 0 ground-truth engine. Dump the model/flow as JSON (Layer A fields+MRO+super+security, B view/buttons, C menu/data/reports, D real runtime trace) with `odoo-ai all <model>`. Do this **before** writing code.
+   - **Don't know *where* to start?** `odoo-ai surface` (Layer K) ranks the live entrypoints — buttons, crons, automations, routes — so you don't guess the entry method; `odoo-ai esg` samples the real cross-app flow from the top roots. New to a customized instance → start here.
 2. Pick the build skill from the table below.
 3. **`odoo-testing`** — prove it (test fails before, passes after; non-admin / multi-company / batch; `-i` + `-u`).
+
+> **Enforcement (recommended): no-introspect-no-edit.** Wire `odoo-ai gate-edit` as a Claude Code PreToolUse hook (see `odoo-introspect/references/enforcement-hooks.md`) so an edit to an Odoo model is *blocked* until that model has an introspection brief — the tools become inevitable, not optional. Verify the gate still catches hallucinations with `odoo-ai eval`.
 
 ## Task → skill
 
 | If the task is… | Use |
 |---|---|
+| **New to the instance / don't know where to start** — what entrypoints & flows even exist here? | **odoo-introspect** `surface` / `esg` (Layer K discovery) |
 | About to **add** a field/model/wizard/report/cron/automation, or **override a core flow** — does Odoo already ship this? | **odoo-capabilities** (Step 0, before introspect) |
 | Find out what a model/flow really is (fields, MRO, `super()`, security, views, runtime order) | **odoo-introspect** (always first) |
 | Add/modify fields; override `create`/`write`/compute/onchange/constrains; pick inheritance mode & MRO layer | **odoo-dev** |
