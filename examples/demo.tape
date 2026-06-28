@@ -83,15 +83,15 @@ Enter
 Type "}"
 Enter
 
-Set TypingSpeed 28ms
+Set TypingSpeed 20ms
 Type "clear"
 Enter
 Show
-Sleep 700ms
+Sleep 250ms
 
 # ── 1 · INTROSPECT — read ground truth from the running instance ─────────────
 Type "odoo-ai --db dev all sale.order --methods action_confirm"
-Sleep 400ms
+Sleep 250ms
 Enter
 Sleep 2600ms
 

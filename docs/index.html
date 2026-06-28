@@ -313,8 +313,9 @@ claude plugin install odoo-ai-skills@odoo-ai
 <span class="c"># gather ground truth before writing code</span>
 odoo-ai --db &lt;DB&gt; all sale.order --methods action_confirm</pre>
     <p class="lead" style="margin-top:18px"><b style="color:var(--text)">Requirements:</b>
-      Odoo 17/18 (floor) through 19 (LTS); shell access to <code>odoo-bin shell</code> on a dev/staging
-      DB, or the RPC fallback for SaaS.</p>
+      Odoo 17 / 18 / 19; shell access to <code>odoo-bin shell</code> on a dev/staging DB. On
+      SaaS / Odoo Online (no shell), field metadata still comes back over RPC — the deeper
+      layers (MRO, runtime trace) need a dev copy you can shell into.</p>
   </div>
 </section>
 
