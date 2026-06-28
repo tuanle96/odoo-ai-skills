@@ -88,7 +88,8 @@
   .g3{grid-template-columns:repeat(3,1fr)}
   .card{background:linear-gradient(180deg,var(--panel),var(--bg-2)); border:1px solid var(--border);
     border-radius:var(--radius); padding:22px; transition:.18s}
-  .card:hover{border-color:var(--odoo); transform:translateY(-3px)}
+  .card:hover{border-color:var(--odoo); transform:translateY(-7px);
+    box-shadow:0 26px 60px -26px rgba(143,106,166,.6), 0 0 0 1px rgba(143,106,166,.4)}
   .card h3{margin:0 0 6px; font-size:1.06rem; display:flex; align-items:center; gap:9px}
   .card p{margin:0; color:var(--muted); font-size:.93rem}
   .badge{font-family:"JetBrains Mono",monospace; font-size:.72rem; font-weight:600; color:var(--bg);
@@ -144,19 +145,22 @@
   /* ── ambient parallax glows + scroll-reveal (gated by .anim, off for reduced-motion) ── */
   .bg-deco{position:fixed; inset:0; z-index:-1; overflow:hidden; pointer-events:none}
   .bg-deco .blob{position:absolute; border-radius:50%; filter:blur(95px); will-change:transform}
-  .bg-deco .b1{width:600px; height:600px; top:-200px; right:-120px;
-    background:radial-gradient(circle, rgba(143,106,166,.34), transparent 68%)}
-  .bg-deco .b2{width:540px; height:540px; top:42%; left:-200px;
-    background:radial-gradient(circle, rgba(57,212,180,.22), transparent 70%)}
-  .bg-deco .b3{width:520px; height:520px; bottom:-200px; right:3%;
-    background:radial-gradient(circle, rgba(91,140,255,.18), transparent 70%)}
+  .bg-deco .b1{width:640px; height:640px; top:-220px; right:-130px;
+    background:radial-gradient(circle, rgba(143,106,166,.44), transparent 68%)}
+  .bg-deco .b2{width:580px; height:580px; top:42%; left:-210px;
+    background:radial-gradient(circle, rgba(57,212,180,.30), transparent 70%)}
+  .bg-deco .b3{width:560px; height:560px; bottom:-210px; right:3%;
+    background:radial-gradient(circle, rgba(91,140,255,.26), transparent 70%)}
 
   .anim :where(.hero .tag, .hero h1, .hero .sub, .hero .cmd, .hero .cta,
     section > .wrap > .eyebrow, section > .wrap > h2, section > .wrap > .lead, section > .wrap > p,
     .grid > .card, .loop > .step, .stats > .stat, .fail > li, .skilltiers > .tier, section pre){
-    opacity:0; transform:translateY(18px);
-    transition:opacity .6s ease, transform .7s cubic-bezier(.2,.7,.2,1)}
+    opacity:0; transform:translateY(28px);
+    transition:opacity .55s ease, transform .6s cubic-bezier(.2,.7,.2,1), box-shadow .3s ease, border-color .25s ease}
   .anim .in{opacity:1; transform:none}
+  /* hover lift — transform is freed for hover once JS clears the reveal stagger-delay */
+  .step:hover{border-color:var(--odoo); transform:translateY(-6px); box-shadow:0 22px 50px -24px rgba(0,0,0,.6)}
+  .stat:hover{border-color:var(--odoo); transform:translateY(-6px); box-shadow:0 22px 50px -24px rgba(57,212,180,.35)}
 
   h1 .grad{background-size:200% 100%; animation:gradShimmer 10s ease-in-out infinite}
   @keyframes gradShimmer{0%,100%{background-position:0 50%} 50%{background-position:100% 50%}}
@@ -372,13 +376,35 @@ odoo-ai --db &lt;DB&gt; all sale.order --methods action_confirm</pre>
     var pending = Array.prototype.slice.call(document.querySelectorAll(SEL));
     pending.forEach(function(el){   // stagger within each element's own group
       var i = Array.prototype.indexOf.call(el.parentNode.children, el);
-      el.style.transitionDelay = Math.min(i * 60, 360) + 'ms';
+      el.style.transitionDelay = Math.min(i * 80, 460) + 'ms';
     });
+    function countUp(node){        // animate a stat number 0→target on reveal (keeps any suffix)
+      if(!node) return;
+      var m = node.textContent.match(/^(\D*)(\d+)(.*)$/);
+      if(!m) return;               // no integer (e.g. "CE + EE") → leave static
+      var pre = m[1], target = +m[2], suf = m[3], full = node.textContent, t0 = null, done = false;
+      function finish(){ if(!done){ done = true; node.textContent = full; } }
+      function step(ts){
+        if(done) return;
+        if(t0 === null) t0 = ts;
+        var p = Math.min((ts - t0) / 900, 1), e = 1 - Math.pow(1 - p, 3);
+        node.textContent = pre + Math.round(e * target) + suf;
+        if(p < 1) requestAnimationFrame(step); else finish();
+      }
+      requestAnimationFrame(step);
+      setTimeout(finish, 1500);    // guarantee the final value even if rAF is throttled (bg tab) mid-count
+    }
     function reveal(){              // reveal elements now in view; keep the rest pending for later
       var vh = window.innerHeight || 0;
       pending = pending.filter(function(el){
         var r = el.getBoundingClientRect();
-        if(r.top < vh * 0.92 && r.bottom > 0){ el.classList.add('in'); return false; }
+        if(r.top < vh * 0.92 && r.bottom > 0){
+          el.classList.add('in');
+          var d = parseFloat(el.style.transitionDelay) || 0;   // free transform for hover once revealed
+          setTimeout(function(){ el.style.transitionDelay = '0s'; }, d + 700);
+          if(el.matches && el.matches('.stat')) countUp(el.querySelector('.n'));
+          return false;
+        }
         return true;
       });
     }
@@ -386,7 +412,7 @@ odoo-ai --db &lt;DB&gt; all sale.order --methods action_confirm</pre>
     reveal();                        // snappy: show the hero immediately, synchronously
 
     var blobs = Array.prototype.slice.call(document.querySelectorAll('.bg-deco .blob'));
-    var f = [0.12, -0.08, 0.05], ticking = false;
+    var f = [0.22, -0.15, 0.10], ticking = false;
     function parallax(){
       var y = window.pageYOffset || 0;
       for(var i=0;i<blobs.length;i++){ blobs[i].style.transform = 'translate3d(0,' + (y*f[i%f.length]).toFixed(1) + 'px,0)'; }
