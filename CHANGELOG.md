@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-29
+
 ### Added
 - **`html-report` skill** — render any audit / review / analysis / RCA / summary
   as one consistent, self-contained HTML page instead of a new ad-hoc design each
