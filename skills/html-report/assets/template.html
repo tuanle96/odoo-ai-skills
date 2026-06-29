@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{TITLE}}</title>
+    <!-- Compose from report.css blocks; build_report.py inlines the CSS here so the report is self-contained. -->
+    <link rel="stylesheet" href="report.css"><!-- @odoo-ai-html-report:css -->
+</head>
+
+<body>
+    <!-- ===== HEADER ============================================== -->
+    <header>
+        <div class="head-inner">
+            <span class="eyebrow">{{EYEBROW}}</span>
+            <h1>{{HEADING}} <em>{{HEADING_HL}}</em></h1>
+            <p class="subtitle">{{SUBTITLE}}</p>
+            <div class="meta">
+                <span>📅 {{TIMESTAMP}}</span>
+                <span>📁 <code>{{REPO}}</code></span>
+                <span>🎯 {{SCOPE}}</span>
+                <span><span class="badge ok">{{STATUS}}</span></span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- ===== TL;DR / EXECUTIVE SUMMARY ========================= -->
+        <section class="panel">
+            <h2>Tóm tắt</h2>
+            <p class="lead">{{SUMMARY}}</p>
+
+            <!-- Stat cards: 2-4 numbers that matter. Drop this block if not useful. -->
+            <div class="cards">
+                <div class="card danger"><span class="num">{{N1}}</span><span class="label">{{LABEL1}}</span></div>
+                <div class="card warn"><span class="num">{{N2}}</span><span class="label">{{LABEL2}}</span></div>
+                <div class="card info"><span class="num">{{N3}}</span><span class="label">{{LABEL3}}</span></div>
+                <div class="card ok"><span class="num">{{N4}}</span><span class="label">{{LABEL4}}</span></div>
+            </div>
+
+            <div class="callout warn">
+                <span><strong>Giới hạn xác minh:</strong> {{VERIFICATION_LIMITS}}</span>
+            </div>
+        </section>
+
+        <!-- ===== TABLE OF CONTENTS (chỉ dùng khi report dài) ======= -->
+        <section class="panel">
+            <h2>Mục lục</h2>
+            <div class="toc">
+                <a href="#sec-1">1 — {{TOC_1}}</a>
+                <a href="#sec-2">2 — {{TOC_2}}</a>
+            </div>
+        </section>
+
+        <!-- ===== CONTENT SECTIONS ==================================
+         Một <section class="panel"> cho mỗi phần. Thêm .danger/.warn/.ok/.info
+         vào panel để có viền trái + marker theo mức độ. Compose từ các block
+         dưới đây, KHÔNG tự chế layout mới.
+    -->
+        <section id="sec-1" class="panel info">
+            <h2><span class="num">1</span>{{SECTION_HEADING}}</h2>
+            <p>
+                <span class="badge info">P1</span>
+                <span class="tag">{{OWNER}}</span>
+                {{SECTION_INTRO}}
+            </p>
+
+            <!-- Key/value attribute table (đánh giá, root cause, evidence...) -->
+            <table class="kv">
+                <tr>
+                    <th>Đánh giá</th>
+                    <td>{{ASSESSMENT}}</td>
+                </tr>
+                <tr>
+                    <th>Root cause</th>
+                    <td>{{ROOT_CAUSE}}</td>
+                </tr>
+                <tr>
+                    <th>Bằng chứng</th>
+                    <td><code>{{EVIDENCE}}</code></td>
+                </tr>
+                <tr>
+                    <th>Hướng xử lý</th>
+                    <td>{{FIX}}</td>
+                </tr>
+            </table>
+        </section>
+
+        <section id="sec-2" class="panel">
+            <h2><span class="num">2</span>Dữ liệu</h2>
+
+            <!-- Data table: thêm .zebra cho sọc, td.num cho cột số canh phải -->
+            <table class="zebra">
+                <thead>
+                    <tr>
+                        <th>Hạng mục</th>
+                        <th class="num">Giá trị</th>
+                        <th>Ghi chú</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>{{ROW_LABEL}}</td>
+                        <td class="num">{{ROW_VALUE}}</td>
+                        <td>{{ROW_NOTE}}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <pre><code>{{CODE_SNIPPET}}</code></pre>
+        </section>
+
+        <!-- ===== KẾT LUẬN / NEXT STEPS ============================= -->
+        <section class="panel ok">
+            <h2>Thứ tự xử lý đề xuất</h2>
+            <ol class="steps">
+                <li>{{STEP_1}}</li>
+                <li>{{STEP_2}}</li>
+                <li>{{STEP_3}}</li>
+            </ol>
+        </section>
+    </main>
+
+    <!-- ===== FOOTER ============================================== -->
+    <footer>
+        <div class="foot-inner">
+            <span class="foot-brand"><span class="dot"></span>Odoo-AI</span>
+            <span>Generated {{TIMESTAMP}}</span>
+            <span>·</span>
+            <span><code>{{REPO}}</code></span>
+            <span>·</span>
+            <span>Nguồn: {{SOURCES}}</span>
+        </div>
+    </footer>
+</body>
+
+</html>

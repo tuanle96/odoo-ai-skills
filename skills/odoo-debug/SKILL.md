@@ -136,3 +136,4 @@ python -m debugpy --listen 0.0.0.0:5678 odoo-bin -c odoo.conf -d <DB> --workers=
 - `odoo-introspect` — Tier 0 engine; `odoo-ai all <model>`, `trace_flow` (Layer D) for real call order + SQL, and `state_capture` (Layer F) for runtime values + exception post-mortem.
 - `odoo-security` — `AccessError` / record-rule decoding. `odoo-perf` — SQL-count / cache / N+1.
 - `odoo-dev` — once the cause is known, the smallest safe patch.
+- `html-report` — present a debug write-up / RCA as a shareable, self-contained HTML page.
