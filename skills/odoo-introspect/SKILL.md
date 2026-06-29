@@ -154,6 +154,7 @@ See `references/sample-output.md` for the JSON shape each layer returns.
 - `scripts/eval_harness.py` — **Layer K** hallucination eval: score the gate's `detection_rate`/`truth_recall` on the classic-LLM-mistake benchmark (`references/eval-benchmark.json`). `odoo-ai eval`.
 - `scripts/gate_edit.py` — **Layer K** enforcement: `no-introspect-no-edit` precondition gate (touched models → has-brief? + validator → allow/block). `odoo-ai gate-edit <files>` — **local, no DB**. Hook recipe in `references/enforcement-hooks.md`.
 - `scripts/hooks/pre_edit_gate.py` — the Claude Code PreToolUse hook that runs `gate-edit` before every Edit/Write on an Odoo file.
+- `scripts/viz.py` — render introspection JSON into a **self-contained HTML report with charts**: Layer A → MRO/`super()` ladder, C → menu tree, D → SQL-hotspot bars + call order, G → effective-security matrix, K (ESG) → model→model bars + Mermaid. `odoo-ai viz <bundle_dir | *.json>` — **local, no DB**; reuses the **html-report** skill's stylesheet.
 - `scripts/odoo-ai` — CLI that runs every layer and writes a JSON folder.
 - `references/introspection.md` — RPC fallback for SaaS + mcp-odoo integration.
 - `references/sample-output.md` — abbreviated sample JSON for each of the four layers.

@@ -6,6 +6,25 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`html-report` skill** — render any audit / review / analysis / RCA / summary
+  as one consistent, self-contained HTML page instead of a new ad-hoc design each
+  time. Ships the canonical bold "Magazine" stylesheet (`assets/report.css` —
+  light + dark + print), a `template.html` / `example.html` to compose from, and
+  `scripts/build_report.py`, which inlines the CSS into a report (making it fully
+  self-contained — no CDN, no server) and opens it in the browser. Includes
+  **dependency-free chart blocks** — an MRO/`super()` ladder, a parent/child
+  tree, a bar chart, and a security matrix (pure CSS, no JS/CDN) — so analyses
+  are visual and easy to read. Presentation only, and distinct from
+  `odoo-reports` (Odoo QWeb business documents). Wired into the `odoo` router and
+  cross-referenced from `odoo-review` / `odoo-debug`.
+- **`odoo-ai viz`** (`skills/odoo-introspect/scripts/viz.py`) — turn introspection
+  JSON into a self-contained HTML report with charts: Layer A → MRO/`super()` ladder,
+  Layer C → menu tree, Layer D → SQL-hotspot bars + call order, Layer G → effective-
+  security matrix, Layer K (ESG) → model→model bars + a Mermaid graph. Pure stdlib,
+  no DB; reuses the `html-report` stylesheet; wired as a LOCAL `odoo-ai` command and
+  covered by `tests/test_viz.py` (14 tests; 445 in the suite stay green).
+
 ## [0.10.0] - 2026-06-28
 
 **Layer K — discovery, sampling, measurement & enforcement.** Closes the gap the

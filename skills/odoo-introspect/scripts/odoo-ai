@@ -106,6 +106,7 @@ LOCAL_SCRIPTS = {
     "evidence": "evidence_bundle.py",
     "docs-build": "doc_index.py",
     "docs": "doc_index.py",
+    "viz": "viz.py",
 }
 
 # Curated capability cards (consumed by native_check) live in the sibling
@@ -438,6 +439,7 @@ def main():
     sev = sub.add_parser("evidence", help="render a folder of gate outputs into a deploy verdict + a PR-comment Markdown — LOCAL, no DB"); sev.add_argument("bundle_dir"); sev.add_argument("--md-out", dest="md_out", default="")
     sdb = sub.add_parser("docs-build", help="build a LOCAL TF-IDF index of Odoo developer docs for a version (Layer J; the index stays OUTSIDE the repo)"); sdb.add_argument("--version", required=True); sdb.add_argument("--src", default=""); sdb.add_argument("--out", default="")
     sdq = sub.add_parser("docs", help="query the local Odoo-docs index (Layer J) — subordinate to introspect; results carry canonical URLs"); sdq.add_argument("query"); sdq.add_argument("--version", required=True); sdq.add_argument("--top", default=""); sdq.add_argument("--index-dir", dest="index_dir", default="")
+    sviz = sub.add_parser("viz", help="render introspection JSON (brief/metadata/trace/security/esg) into a self-contained HTML report with charts — LOCAL, no DB"); sviz.add_argument("inputs", nargs="+", help="a bundle dir and/or layer JSON files"); sviz.add_argument("--out", default=""); sviz.add_argument("--title", default=""); sviz.add_argument("--no-open", dest="no_open", action="store_true")
 
     a = p.parse_args()
     global _JSON_OUT
@@ -492,6 +494,18 @@ def main():
                 argv += ["--src", a.src]
             if a.out:
                 argv += ["--out", a.out]
+            subprocess.run([sys.executable, str(script), *argv])
+        elif a.cmd == "viz":
+            # Produces an HTML file + opens a browser (not a single JSON blob) —
+            # run it directly, like docs-build, not through do_local's JSON capture.
+            script = HERE / LOCAL_SCRIPTS["viz"]
+            argv = list(a.inputs)
+            if a.out:
+                argv += ["--out", a.out]
+            if a.title:
+                argv += ["--title", a.title]
+            if a.no_open:
+                argv.append("--no-open")
             subprocess.run([sys.executable, str(script), *argv])
         return
     if not a.db:

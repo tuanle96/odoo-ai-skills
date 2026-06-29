@@ -124,6 +124,11 @@ claude plugin validate /path/to/odoo-ai-skills # check the manifest
 |-------|--------------|
 | **odoo-domain-playbooks** | Per-app maps (sale/stock/account/mrp/purchase/hr): key models, methods to introspect, right hooks, gotchas. |
 
+### Report output
+| Skill | What it does |
+|-------|--------------|
+| **html-report** | Render any audit / review / analysis / RCA / summary as **one consistent, self-contained HTML page** — shared bold "Magazine" theme, CSS inlined (no CDN, no server), auto-opens. Presentation only; *not* Odoo QWeb business documents (that's `odoo-reports`). |
+
 ### Router
 | Skill | What it does |
 |-------|--------------|

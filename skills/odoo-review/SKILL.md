@@ -179,3 +179,5 @@ rule. Before sharing any introspection JSON with an external LLM, run
   against the running instance instead of asserting.
 - `odoo-security` · `odoo-perf` · `odoo-migration` · `odoo-dev` · `odoo-views` ·
   `odoo-owl` · `odoo-web` — the per-domain detail behind each checklist line.
+- `html-report` — when the review is for a human to read (not just a PR comment),
+  render the findings as one consistent, self-contained HTML page.

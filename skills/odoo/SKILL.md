@@ -51,6 +51,7 @@ Odoo builds every model, view, security rule, and automation **at runtime** from
 | Prove a change with tests (`at_install` vs `post_install`, etc.) | **odoo-testing** |
 | Review / audit a patch or PR before merge (AI-generated code especially) | **odoo-review** |
 | Customize a standard app (sale/stock/account/mrp/purchase/hr) | **odoo-domain-playbooks** (+ introspect) |
+| Present an audit / review / analysis / findings as a shareable **HTML report** | **html-report** |
 
 ## The tiers
 

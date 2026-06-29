@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Magazine — theme chuẩn Odoo-AI Report</title>
+    <link rel="stylesheet" href="report.css"><!-- @odoo-ai-html-report:css -->
+</head>
+
+<body>
+    <header>
+        <div class="head-inner">
+            <span class="eyebrow">✨ Design system</span>
+            <h1>Magazine layout <em>chính thức</em></h1>
+            <p class="subtitle">Header/footer khối đen, tiêu đề đậm 900, highlight vàng, accent hồng. Bộ component chuẩn
+                dùng lại cho mọi report.</p>
+            <div class="meta">
+                <span>📅 2026-06-25</span>
+                <span>📁 <code>odoo-ai-skills</code></span>
+                <span>🎯 demo skill html-report</span>
+                <span><span class="badge ok">Canonical</span></span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section class="panel">
+            <h2>Tóm tắt</h2>
+            <p class="lead">Khi viết report mới, chỉ ghép các khối có sẵn thay vì thiết kế lại — nhờ vậy mọi report
+                <b>nhất quán</b> và mở đẹp trên mobile.</p>
+            <div class="cards">
+                <div class="card danger"><span class="num">3</span><span class="label">P0 trước</span></div>
+                <div class="card warn"><span class="num">4</span><span class="label">P1 bug thật</span></div>
+                <div class="card info"><span class="num">6</span><span class="label">P2 hardening</span></div>
+                <div class="card ok"><span class="num">13</span><span class="label">Tổng review</span></div>
+            </div>
+            <div class="callout warn"><span><strong>Giới hạn xác minh:</strong> đây là demo trình bày, không phải dữ
+                    liệu thật.</span></div>
+        </section>
+
+        <section class="panel">
+            <h2>Mục lục</h2>
+            <div class="toc">
+                <a href="#sec-1">1 — Panel nhấn mạnh + key/value</a>
+                <a href="#sec-2">2 — Bảng dữ liệu, code, callout</a>
+                <a href="#sec-3">3 — Quy trình các bước</a>
+                <a href="#sec-4">4 — Charts (ladder / tree / bar / matrix)</a>
+            </div>
+        </section>
+
+        <section id="sec-1" class="panel danger">
+            <h2><span class="num">1</span>Panel nhấn mạnh + bảng key/value</h2>
+            <p>
+                <span class="badge">P0</span>
+                <span class="badge gray">Security</span>
+                <span class="tag">owner: backend</span>
+                Panel có thể thêm <code>.danger/.warn/.ok/.info</code> để có viền trái dày theo mức độ.
+            </p>
+            <table class="kv">
+                <tr>
+                    <th>Đánh giá</th>
+                    <td>Mô tả ngắn về vấn đề và mức độ đúng/sai.</td>
+                </tr>
+                <tr>
+                    <th>Root cause</th>
+                    <td>Nguyên nhân gốc, đối chiếu native vs custom.</td>
+                </tr>
+                <tr>
+                    <th>Bằng chứng</th>
+                    <td><code>path/to/file.py:18-23</code></td>
+                </tr>
+                <tr>
+                    <th>Hướng xử lý</th>
+                    <td>Fix nhỏ nhất, tận gốc, giữ hành vi native.</td>
+                </tr>
+            </table>
+        </section>
+
+        <section id="sec-2" class="panel info">
+            <h2><span class="num">2</span>Bảng dữ liệu, code, callout</h2>
+            <table class="zebra">
+                <thead>
+                    <tr>
+                        <th>Hạng mục</th>
+                        <th class="num">Giá trị</th>
+                        <th>Ghi chú</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Số issue mở</td>
+                        <td class="num">13</td>
+                        <td>#57 → #69</td>
+                    </tr>
+                    <tr>
+                        <td>Đã có comment</td>
+                        <td class="num">0</td>
+                        <td>tại thời điểm đọc</td>
+                    </tr>
+                    <tr>
+                        <td>Ước tính giờ fix đợt 1</td>
+                        <td class="num">12.5</td>
+                        <td>3 issue P0</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="callout ok"><span><strong>Mẹo:</strong> dùng <code>td.num</code> để canh phải cột số,
+                    <code>.zebra</code> để có sọc.</span></div>
+            <pre><code>def _get_name(self):
+    self.ensure_one()
+    return f"[{self.product_id.default_code}] {self.name}"</code></pre>
+        </section>
+
+        <section id="sec-3" class="panel ok">
+            <h2><span class="num">3</span>Quy trình các bước</h2>
+            <ol class="steps">
+                <li>Đọc native addon tương ứng trước (srcwalk).</li>
+                <li>Đối chiếu override custom với native model/wizard/view.</li>
+                <li>Fix hook chung nhỏ nhất, giữ behavior native.</li>
+                <li>Viết test và verify build trước khi kết luận.</li>
+            </ol>
+        </section>
+
+        <section id="sec-4" class="panel info">
+            <h2><span class="num">4</span>Charts (dependency-free)</h2>
+            <p>Bốn block thuần CSS, không JS/CDN — đọc quan hệ &amp; số lượng nhanh hơn bảng, report vẫn self-contained.</p>
+
+            <h3>Ladder — chuỗi MRO / super()</h3>
+            <div class="ladder">
+                <div class="rung stop"><span class="who">bm_mrp_product_label</span><span class="note">⛔ returns before super()</span></div>
+                <div class="rung"><span class="who">bm_mrp</span></div>
+                <div class="rung native"><span class="who">mrp</span><span class="note">native</span></div>
+            </div>
+
+            <h3>Tree — quan hệ cha/con</h3>
+            <ul class="tree">
+                <li><span class="node root">MO/0001 — Bánh mix</span>
+                    <ul>
+                        <li><span class="node">MO/0002 — Bột nền</span></li>
+                        <li><span class="node cur">MO/0003 — Kem</span>
+                            <ul>
+                                <li><span class="node">MO/0004 — Đường lỏng</span></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+            </ul>
+
+            <h3>Bar chart — SQL hotspots</h3>
+            <div class="barchart">
+                <div class="bar danger"><span class="bl">write</span><span class="bt"><i style="width:100%"></i></span><span class="bv">42</span></div>
+                <div class="bar warn"><span class="bl">read</span><span class="bt"><i style="width:50%"></i></span><span class="bv">21</span></div>
+                <div class="bar"><span class="bl">search</span><span class="bt"><i style="width:21%"></i></span><span class="bv">9</span></div>
+            </div>
+
+            <h3>Matrix — effective security theo group</h3>
+            <table class="matrix">
+                <thead><tr><th></th><th>read</th><th>write</th><th>create</th><th>unlink</th></tr></thead>
+                <tbody>
+                    <tr><th>Sales / User</th><td class="y">✓</td><td class="y">✓</td><td class="n">✗</td><td class="n">✗</td></tr>
+                    <tr><th>Sales / Manager</th><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="p">rule</td></tr>
+                </tbody>
+            </table>
+
+            <div class="callout info"><span><strong>Graph tuỳ ý (ESG model→model):</strong> không nhúng JS — xuất Mermaid/DOT dạng text trong <code>&lt;pre&gt;&lt;code&gt;</code> để copy đi render (hoặc <code>/preview --diagram</code>).</span></div>
+            <pre><code>flowchart TD
+  sale_order --&gt; stock_picking --&gt; stock_move
+  sale_order --&gt; account_move</code></pre>
+        </section>
+    </main>
+
+    <footer>
+        <div class="foot-inner">
+            <span class="foot-brand"><span class="dot"></span>Odoo-AI</span>
+            <span>Generated 2026-06-25</span>
+            <span>·</span>
+            <span><code>odoo-ai-skills</code></span>
+            <span>·</span>
+            <span>Theme: Magazine</span>
+        </div>
+    </footer>
+</body>
+
+</html>
