@@ -6,6 +6,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-06-29
+
+### Changed
+- **`html-report` hero restyle** — the report header is no longer a flat black
+  slab. `assets/report.css` now renders a "tech" hero: a deep warm-black gradient,
+  two brand-tinted corner glows (pink + yellow), a faint blueprint grid that fades
+  toward the bottom, and an accent hairline along the bottom edge. Pure CSS, still
+  fully self-contained (no images/CDN), and unchanged in light/dark/print. New
+  reports pick this up automatically; previously inlined reports need a re-inline.
+
 ## [0.12.0] - 2026-06-29
 
 ### Added

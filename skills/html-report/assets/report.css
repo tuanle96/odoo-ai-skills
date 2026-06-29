@@ -145,14 +145,48 @@ code {
   font-weight: 600;
 }
 
-/* ===== HEADER (bold black slab) ========================================== */
+/* ===== HEADER (tech slab: gradient + glow + grid) ======================== */
 header {
-  background: var(--ink-2);
+  position: relative;
+  overflow: hidden;
   color: #fff;
   padding: 60px 24px 50px;
+  /* deep base + two accent glows (pink top-left, yellow top-right) */
+  background:
+    radial-gradient(115% 145% at 10% -15%, rgba(255, 46, 99, .22), transparent 55%),
+    radial-gradient(95% 130% at 95% -5%, rgba(255, 210, 63, .12), transparent 52%),
+    linear-gradient(160deg, #16161f 0%, #100f15 55%, #0a0a0d 100%);
+}
+
+/* faint tech grid, faded out toward the bottom */
+header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, .045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, .045) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(125% 105% at 50% 0%, #000 32%, transparent 80%);
+  mask-image: radial-gradient(125% 105% at 50% 0%, #000 32%, transparent 80%);
+  pointer-events: none;
+}
+
+/* accent hairline along the bottom edge */
+header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent) 28%, var(--hl) 72%, transparent);
+  opacity: .6;
 }
 
 header .head-inner {
+  position: relative;
+  z-index: 1;
   max-width: var(--maxw);
   margin: 0 auto;
 }
