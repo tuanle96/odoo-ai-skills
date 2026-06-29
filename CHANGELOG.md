@@ -6,6 +6,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-29
+
+### Added
+- **Native Codex adapter** — the suite now ships `.codex-plugin/plugin.json`,
+  `.agents/plugins/marketplace.json`, root `AGENTS.md`, and Codex command prompts
+  (`/odoo`, `/odoo-ai`, `/odoo-review`, `/odoo-gate`). Codex reuses the same
+  `skills/` directory and bundled `odoo-ai` CLI; no MCP wrapper is required for
+  the current shell-first workflow.
+- README install instructions for local Codex marketplace installs:
+  `codex plugin marketplace add /path/to/odoo-ai-skills` then
+  `codex plugin add odoo-ai-skills@odoo-ai`.
+
 ## [0.11.0] - 2026-06-29
 
 ### Added
@@ -683,7 +695,10 @@ against a live Odoo 18 instance.
 - Pure-function unit tests and a compile/test CI workflow.
 - Odoo version coverage extended to 19 (current LTS).
 
-[Unreleased]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.10.0...v0.11.0
+[0.10.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.9.1...v0.10.0
 [0.4.2]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.3.2...v0.4.0

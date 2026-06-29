@@ -1,0 +1,2 @@
+description = "Run the odoo-ai runtime truth workflow"
+prompt = "Use odoo-ai-skills for this task. Prefer the bundled CLI at skills/odoo-introspect/scripts/odoo-ai. Gather the smallest needed runtime evidence first: brief/entrypoints/metadata for structure, trace/state for runtime behavior, security for user/company access, refs before field changes, preflight when changes do not load. Keep sensitive output local or redact it."

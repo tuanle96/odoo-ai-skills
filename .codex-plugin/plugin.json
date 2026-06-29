@@ -1,0 +1,43 @@
+{
+  "name": "odoo-ai-skills",
+  "version": "0.12.0",
+  "description": "Local-first Odoo 17/18/19 runtime verification and deploy gate for AI-written Odoo changes.",
+  "author": {
+    "name": "Le Anh Tuan",
+    "email": "tuanle.works@gmail.com"
+  },
+  "homepage": "https://tuanle96.github.io/odoo-ai-skills/",
+  "repository": "https://github.com/tuanle96/odoo-ai-skills",
+  "license": "LGPL-3.0-or-later",
+  "keywords": [
+    "odoo",
+    "erp",
+    "introspection",
+    "ai-agent",
+    "codex",
+    "python",
+    "owl",
+    "qweb",
+    "code-review"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Odoo AI Skills",
+    "shortDescription": "Read Odoo runtime truth before coding",
+    "longDescription": "Odoo development skills for Codex. Read fields, MRO, views, security, runtime traces, state, reverse field impact, load state, and deploy evidence from the running instance before writing or reviewing Odoo code.",
+    "developerName": "Le Anh Tuan",
+    "category": "Development",
+    "capabilities": [
+      "Instructions",
+      "Skills"
+    ],
+    "websiteURL": "https://tuanle96.github.io/odoo-ai-skills/",
+    "defaultPrompt": [
+      "Use odoo-ai-skills for this Odoo task.",
+      "Inspect runtime truth before changing Odoo code.",
+      "Review this Odoo patch for security, MRO, migration, and runtime risks."
+    ],
+    "brandColor": "#714B67",
+    "screenshots": []
+  }
+}

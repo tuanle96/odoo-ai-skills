@@ -1,0 +1,2 @@
+description = "Gate an Odoo change before merge or deploy"
+prompt = "Gate this Odoo change with odoo-ai-skills. Use the local gates where possible: validate, scan-secrets, env-diff, upgrade-diff, deploy-gate, and evidence. For live instance proof, gather the required odoo-ai runtime artifacts on a dev or staging DB. Do not present source review as runtime proof."

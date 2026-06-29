@@ -1,0 +1,20 @@
+{
+  "name": "odoo-ai",
+  "interface": {
+    "displayName": "Odoo AI"
+  },
+  "plugins": [
+    {
+      "name": "odoo-ai-skills",
+      "source": {
+        "source": "local",
+        "path": "."
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Development"
+    }
+  ]
+}

@@ -69,6 +69,23 @@ claude plugin validate /path/to/odoo-ai-skills # check the manifest
 
 (When working in a clone, `scripts/odoo-ai` as shown elsewhere is fine.)
 
+## Install as a Codex plugin
+
+This repo also ships a native Codex adapter (`.codex-plugin/plugin.json`) and a
+Codex marketplace (`.agents/plugins/marketplace.json`). Install from a local
+clone:
+
+```bash
+codex plugin marketplace add /path/to/odoo-ai-skills
+codex plugin add odoo-ai-skills@odoo-ai
+```
+
+The same `skills/` directory is reused by Codex, and the bundled CLI remains at:
+
+```bash
+skills/odoo-introspect/scripts/odoo-ai --db <DB> all sale.order
+```
+
 ## How to use
 
 - **New to a task?** Invoke the **`odoo`** skill — it routes you to the right sub-skill.

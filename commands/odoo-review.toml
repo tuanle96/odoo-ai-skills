@@ -1,0 +1,2 @@
+description = "Review an Odoo change with odoo-ai gates"
+prompt = "Review this Odoo change with odoo-ai-skills. Start with findings, not summary. Use srcwalk to inspect the changed surface and callers. Check Odoo-specific risks: wrong MRO/depends, missing super, security/record rules/sudo, migration/data loss, batch safety, view syntax, controller exposure, performance, and missing tests. Use odoo-ai validate for local static checks when applicable."

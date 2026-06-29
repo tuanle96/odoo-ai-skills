@@ -1,0 +1,2 @@
+description = "Route an Odoo task through the odoo-ai-skills workflow"
+prompt = "Use the odoo-ai-skills router for this Odoo task. First use srcwalk for local code exploration. If the task touches Odoo models, views, security, reports, data, migration, deploy, or business flows, read runtime ground truth with odoo-introspect before editing. For additive features, check odoo-capabilities first. Then make the smallest correct change and verify it."
