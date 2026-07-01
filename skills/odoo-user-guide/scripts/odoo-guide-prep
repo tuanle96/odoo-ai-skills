@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""odoo-guide-prep — ground the flow + create an owned test record, then hand the
+AGENT a flow contract to drive live (via an MCP browser tool).
+
+This replaces the old blind Python driver. The deterministic parts that a script
+does well stay here (grounding over RPC, safety gate, owned test data); the
+browser DRIVING moves to the agent, which observes the live page semantically
+(accessibility tree) and adapts to wizards/locks/banners — no selector script to
+debug. See SKILL.md for the full playbook.
+
+Emits `flow.json` (what to drive) + a screenshots/ dir + an `evidence.json`
+skeleton the agent fills as it drives, then `odoo-guide-verify` proves + cleans up.
+
+Usage:
+  ODOO_GUIDE_PASSWORD=*** odoo-guide-prep "xác nhận đơn bán hàng" \
+      --url https://odoo1.x.dev --db DEMO --login tuan.le --sandbox
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import odoo_guide_lib as lib  # noqa: E402
+from odoo_rpc import OdooRPC  # noqa: E402
+
+
+def _create_test_record(rpc: OdooRPC, model: str) -> int:
+    if model != "sale.order":
+        sys.exit(f"❌ v1 only ships a test-record recipe for sale.order (got {model})")
+    partner = rpc.execute("res.partner", "search", [["customer_rank", ">", 0]], limit=1) \
+        or rpc.execute("res.partner", "search", [], limit=1)
+    product = rpc.execute("product.product", "search", [["sale_ok", "=", True], ["type", "=", "service"]], limit=1) \
+        or rpc.execute("product.product", "search", [["sale_ok", "=", True]], limit=1)
+    if not partner or not product:
+        sys.exit("❌ no partner/service product available to build a test sale.order")
+    return rpc.create("sale.order", {"partner_id": partner[0],
+                                     "order_line": [(0, 0, {"product_id": product[0], "product_uom_qty": 1})]})
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Ground a flow + create a test record for agent-driven capture.")
+    ap.add_argument("intent")
+    ap.add_argument("--url", required=True)
+    ap.add_argument("--db", required=True)
+    ap.add_argument("--login", required=True)
+    ap.add_argument("--password", default=os.environ.get("ODOO_GUIDE_PASSWORD"))
+    ap.add_argument("--model", default="sale.order")
+    ap.add_argument("--method", default=lib.DEFAULT_METHOD)
+    ap.add_argument("--expected-field", default="state")
+    ap.add_argument("--expected-value", default="sale")
+    ap.add_argument("--sandbox", action="store_true")
+    ap.add_argument("--out-dir", default="guides")
+    args = ap.parse_args()
+    if not args.password:
+        sys.exit("❌ set --password or ODOO_GUIDE_PASSWORD")
+    if not (args.sandbox or os.environ.get("ODOO_GUIDE_SANDBOX") == "1"):
+        sys.exit("❌ mutating capture needs --sandbox (or ODOO_GUIDE_SANDBOX=1) — use a dev/UAT db")
+
+    rpc = OdooRPC(args.url, args.db, args.login, args.password)
+    buttons = lib.buttons_from_arch(rpc.get_view_arch(args.model, "form"))
+    surface = lib.surface_from_buttons(args.model, buttons)
+    ep = lib.pick_entrypoint(surface, method=args.method)
+    if ep is None:
+        sys.exit(f"❌ no object-button entrypoint on {args.model}")
+    method = ep["method"]
+    label = lib.button_label_from_views({"views": {"form": {"buttons": buttons}}}, method) or ep.get("label")
+    rights = rpc.access_rights(args.model)
+    if not rights.get("write"):
+        sys.exit(f"❌ {args.login} lacks write access on {args.model} — cannot document this flow as this role")
+
+    rec_id = _create_test_record(rpc, args.model)
+    gid = lib.slugify(args.intent)
+    gdir = Path(args.out_dir) / gid
+    (gdir / "screenshots").mkdir(parents=True, exist_ok=True)
+
+    flow = {
+        "guide": {"id": gid, "title": args.intent, "model": args.model, "role": args.login},
+        "record_id": rec_id,
+        "form_url": f"{args.url}/odoo/action-base.action_open_record/{rec_id}",  # fallback below
+        "form_url_legacy": f"{args.url}/web#id={rec_id}&model={args.model}&view_type=form",
+        "expected": {"field": args.expected_field, "equals": args.expected_value},
+        "drive_steps": [
+            {"n": 1, "do": "Open the record form", "screenshot": "screenshots/01_before.png"},
+            {"n": 2, "do": f'Find the "{label}" button (find query: "{label} button") and click it',
+             "find": f"{label} button", "screenshot_before": "screenshots/02_action.png",
+             "screenshot_after": "screenshots/03_after.png", "expect_state": args.expected_value},
+        ],
+    }
+    (gdir / "flow.json").write_text(json.dumps(flow, ensure_ascii=False, indent=2))
+    # evidence skeleton the agent fills with what it observes
+    evidence = {"guide": flow["guide"], "record_id": rec_id, "steps": [], "proof": None}
+    (gdir / "evidence.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2))
+
+    print(f"==> created owned test {args.model} id={rec_id}; wrote {gdir}/flow.json")
+    print(f"==> button to click: {label} ({method}); expect {args.expected_field}={args.expected_value}")
+    print("==> NEXT (agent, via MCP browser): open the form, screenshot, find+click the button, "
+          "screenshot the result, and fill evidence.json. Then run odoo-guide-verify, write copy.json, render.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+"""odoo-guide-run — replay a guide manifest in a real browser and capture EVIDENCE.
+
+Pipeline: safety-gate -> create an owned test record -> drive Odoo with Playwright
+-> for each step capture a crisp (retina) full screenshot, a zoomed close-up of the
+action target, and (for clicks) an after-shot + before/after backend state -> assert
+the expected state over XML-RPC -> tear the record down. Output is an `evidence.json`
+pack plus a `copy.template.json` for the agent to fill with plain-language prose.
+
+The script captures FACTS; the agent writes the WORDS (see SKILL.md). That split is
+what makes the guide both accurate and easy to read.
+
+Requires (this skill only):  pip install -r requirements.txt  &&  playwright install chromium
+Sandbox is mandatory for mutating guides (env ODOO_GUIDE_SANDBOX=1 or --sandbox).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import odoo_guide_lib as lib  # noqa: E402
+from odoo_rpc import OdooRPC  # noqa: E402
+
+SCALE = 2  # device pixel ratio -> retina-crisp screenshots
+PAD = 24   # CSS px of breathing room around the zoomed action target
+
+# Outline the action target + drop a numbered badge, via JS so the full shot is
+# self-explanatory even before the zoom crop.
+_ANNOTATE_JS = """([sel, n]) => {
+  const el = document.querySelector(sel); if (!el) return false;
+  el.style.outline = '3px solid #ff2e63'; el.style.outlineOffset = '2px';
+  const b = document.createElement('div');
+  b.textContent = n; b.style.cssText =
+    'position:absolute;z-index:99999;background:#ff2e63;color:#fff;font:700 14px sans-serif;'+
+    'width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;'+
+    'box-shadow:0 1px 4px rgba(0,0,0,.4)';
+  const r = el.getBoundingClientRect();
+  b.style.left = (window.scrollX + r.left - 12) + 'px';
+  b.style.top = (window.scrollY + r.top - 12) + 'px';
+  b.setAttribute('data-guide-badge', '1'); document.body.appendChild(b); return true;
+}"""
+_CLEAR_JS = "() => document.querySelectorAll('[data-guide-badge]').forEach(e=>e.remove())"
+# Hide chrome that clutters an end-user guide (developer/debug banners).
+_DECLUTTER_JS = "() => document.querySelectorAll('.o_debug_manager, .o_navbar_apps_menu .o_debug').forEach(e=>e.remove())"
+
+
+def _create_test_record(rpc: OdooRPC, model: str) -> int:
+    """v1 recipe for the sale.order slice: pick a partner + service product, draft."""
+    if model != "sale.order":
+        sys.exit(f"❌ v1 only ships a test-record recipe for sale.order (got {model})")
+    partners = rpc.execute("res.partner", "search", [["customer_rank", ">", 0]], limit=1) \
+        or rpc.execute("res.partner", "search", [], limit=1)
+    products = rpc.execute("product.product", "search", [["sale_ok", "=", True], ["type", "=", "service"]], limit=1) \
+        or rpc.execute("product.product", "search", [["sale_ok", "=", True]], limit=1) \
+        or rpc.execute("product.product", "search", [], limit=1)
+    if not partners or not products:
+        sys.exit("❌ no partner/product available to build a test sale.order")
+    return rpc.create("sale.order", {"partner_id": partners[0],
+                                     "order_line": [(0, 0, {"product_id": products[0], "product_uom_qty": 1})]})
+
+
+def _resolve(page, step):
+    for sel in lib.resolve_selectors(step):
+        try:
+            if page.locator(sel).count() > 0:
+                return sel
+        except Exception:
+            continue
+    return None
+
+
+def _open_record(page, url, model, rec_id):
+    # Odoo holds a long-poll (bus) open, so "networkidle" never fires.
+    page.goto(f"{url}/web#id={rec_id}&model={model}&view_type=form", wait_until="domcontentloaded")
+    page.wait_for_selector(".o_form_view", timeout=30000)
+    page.evaluate(_DECLUTTER_JS)
+    page.wait_for_timeout(800)
+
+
+def _shot(page, path, sel=None, n=None):
+    if sel:
+        page.evaluate(_ANNOTATE_JS, [sel, n])
+    page.screenshot(path=str(path))
+    if sel:
+        page.evaluate(_CLEAR_JS)
+
+
+def _crop(full_path, bbox, out_path):
+    from PIL import Image
+    img = Image.open(full_path)
+    img.crop(lib.inset_box(bbox, SCALE, PAD, img.width, img.height)).save(out_path)
+
+
+def _drive(page, manifest, model, rec_id, url, shots, rpc, field):
+    ev = []
+    for i, step in enumerate(manifest["guide"]["steps"], 1):
+        action = step["action"]
+        if action in ("open_record", "click_button"):
+            _open_record(page, url, model, rec_id)
+        sel = _resolve(page, step)
+        rec = {"n": i, "action": action, "selector": sel, "full": f"screenshots/{i:02d}_full.png"}
+        if sel:
+            try:
+                rec["label"] = (page.locator(sel).first.inner_text() or "").strip()[:80]
+            except Exception:
+                rec["label"] = step.get("visible_text")
+        full = shots / f"{i:02d}_full.png"
+        bbox = None
+        if sel:
+            try:
+                bbox = page.locator(sel).first.bounding_box()
+            except Exception:
+                bbox = None
+        if action == "click_button":
+            if not sel:
+                raise RuntimeError(f"step {i}: button '{step.get('button_name')}' not found in UI")
+            rec["state_before"] = rpc.read_field(model, rec_id, field) if field else None
+            _shot(page, full, sel, i)
+            if bbox:
+                _crop(full, bbox, shots / f"{i:02d}_zoom.png"); rec["zoom"] = f"screenshots/{i:02d}_zoom.png"
+            page.locator(sel).first.click()
+            page.wait_for_timeout(2500)
+            _shot(page, shots / f"{i:02d}_after.png")
+            rec["after"] = f"screenshots/{i:02d}_after.png"
+            rec["state_after"] = rpc.read_field(model, rec_id, field) if field else None
+        else:
+            _shot(page, full, sel, i)
+            if bbox:
+                _crop(full, bbox, shots / f"{i:02d}_zoom.png"); rec["zoom"] = f"screenshots/{i:02d}_zoom.png"
+        ev.append(rec)
+    return ev
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Replay an Odoo guide manifest, capture evidence.")
+    ap.add_argument("manifest")
+    ap.add_argument("--db", required=True)
+    ap.add_argument("--url", default=os.environ.get("ODOO_URL", "http://localhost:8069"))
+    ap.add_argument("--login", required=True)
+    ap.add_argument("--password", default=os.environ.get("ODOO_GUIDE_PASSWORD"))
+    ap.add_argument("--sandbox", action="store_true")
+    ap.add_argument("--out-dir", help="default: alongside the manifest")
+    ap.add_argument("--headed", action="store_true")
+    args = ap.parse_args()
+
+    if not args.password:
+        sys.exit("❌ set --password or ODOO_GUIDE_PASSWORD")
+    sandbox = args.sandbox or os.environ.get("ODOO_GUIDE_SANDBOX") == "1"
+
+    mpath = Path(args.manifest)
+    manifest = lib.load_manifest_yaml(mpath.read_text())
+    g = manifest["guide"]
+    model = g["model"]
+
+    gate = lib.doctor_verdict(manifest, None, sandbox)
+    if gate["verdict"] == "block":
+        sys.exit("❌ BLOCK: " + " ".join(gate["reasons"]))
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        sys.exit("❌ Playwright missing. Run: pip install -r requirements.txt && playwright install chromium")
+
+    gdir = Path(args.out_dir) if args.out_dir else mpath.parent
+    shots = gdir / "screenshots"; shots.mkdir(parents=True, exist_ok=True)
+    field = next((s["expected"]["field"] for s in g["steps"] if s.get("expected")), None)
+    expected = next((s["expected"] for s in g["steps"] if s.get("expected")), None)
+
+    rpc = OdooRPC(args.url, args.db, args.login, args.password)
+    rec_id = _create_test_record(rpc, model)
+    print(f"==> created owned test {model} id={rec_id}")
+
+    evidence = {"guide": {"id": g["id"], "title": g["title"], "model": model,
+                          "role": g.get("role"), "url": args.url}}
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=not args.headed)
+            ctx = browser.new_context(viewport={"width": 1440, "height": 900},
+                                      device_scale_factor=SCALE, record_video_dir=str(gdir / "video"))
+            ctx.tracing.start(screenshots=True, snapshots=True)
+            page = ctx.new_page()
+            page.goto(f"{args.url}/web/login", wait_until="domcontentloaded")
+            page.fill('input[name="login"]', args.login)
+            page.fill('input[name="password"]', args.password)
+            page.press('input[name="password"]', "Enter")  # submit the login form, not the nav search
+            page.wait_for_selector(".o_main_navbar, .o_web_client", timeout=30000)
+            evidence["steps"] = _drive(page, manifest, model, rec_id, args.url, shots, rpc, field)
+            ctx.tracing.stop(path=str(gdir / "trace.zip"))
+            ctx.close(); browser.close()
+
+        if expected:
+            actual = rpc.read_field(model, rec_id, expected["field"])
+            evidence["proof"] = {"field": expected["field"], "expected": expected["equals"],
+                                 "actual": actual, "pass": actual == expected["equals"]}
+            print(f"==> backend proof: {expected['field']}={actual} (expected {expected['equals']}) "
+                  f"-> {'PASS' if evidence['proof']['pass'] else 'FAIL'}")
+    finally:
+        rpc.cleanup_record(model, rec_id)
+        (gdir / "evidence.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2))
+        _write_copy_template(gdir, evidence)
+
+    print(f"==> wrote {gdir / 'evidence.json'} + screenshots/ (full+zoom+after) + copy.template.json")
+    print("==> NEXT: the agent fills copy.json (plain-language prose), then run odoo-guide-render")
+    return 0 if evidence.get("proof", {}).get("pass", True) else 1
+
+
+def _write_copy_template(gdir: Path, evidence: dict) -> None:
+    """Scaffold the prose file for the agent: step numbers + captured labels as hints."""
+    tmpl = {"title": "", "intro": "",
+            "steps": [{"n": s["n"], "heading": s.get("label") or s["action"], "body": ""}
+                      for s in evidence.get("steps", [])]}
+    (gdir / "copy.template.json").write_text(json.dumps(tmpl, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

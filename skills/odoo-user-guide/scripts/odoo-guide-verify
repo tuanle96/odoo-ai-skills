@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""odoo-guide-verify — prove the flow at the backend and tear down the test record.
+
+Run after the agent has driven the flow live (via an MCP browser) and saved its
+screenshots. Reads the expected state over XML-RPC (the proof that the UI action
+really did what the guide claims), stamps it into evidence.json, then cancels /
+archives the owned test record so nothing lingers — even on a dev/UAT db.
+
+Usage:
+  ODOO_GUIDE_PASSWORD=*** odoo-guide-verify guides/<id>/ --url ... --db ... --login ...
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from odoo_rpc import OdooRPC  # noqa: E402
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Prove a guide flow at the backend and clean up.")
+    ap.add_argument("guide_dir")
+    ap.add_argument("--url", required=True)
+    ap.add_argument("--db", required=True)
+    ap.add_argument("--login", required=True)
+    ap.add_argument("--password", default=os.environ.get("ODOO_GUIDE_PASSWORD"))
+    ap.add_argument("--keep", action="store_true", help="do not clean up the test record")
+    args = ap.parse_args()
+    if not args.password:
+        sys.exit("❌ set --password or ODOO_GUIDE_PASSWORD")
+
+    gdir = Path(args.guide_dir)
+    evidence = json.loads((gdir / "evidence.json").read_text())
+    flow = json.loads((gdir / "flow.json").read_text())
+    model = flow["guide"]["model"]
+    rec_id = flow["record_id"]
+    exp = flow["expected"]
+
+    rpc = OdooRPC(args.url, args.db, args.login, args.password)
+    actual = rpc.read_field(model, rec_id, exp["field"])
+    proof = {"field": exp["field"], "expected": exp["equals"], "actual": actual,
+             "pass": actual == exp["equals"]}
+    evidence["proof"] = proof
+    (gdir / "evidence.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2))
+    print(f"==> backend proof: {exp['field']}={actual} (expected {exp['equals']}) "
+          f"-> {'PASS' if proof['pass'] else 'FAIL'}")
+
+    if not args.keep:
+        rpc.cleanup_record(model, rec_id)
+        print(f"==> cleaned up test {model} id={rec_id}")
+    return 0 if proof["pass"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

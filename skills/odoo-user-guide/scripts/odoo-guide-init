@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""odoo-guide-init — turn an intent into a grounded guide manifest.
+
+Reads GROUND TRUTH from the running instance via the existing `odoo-ai` CLI
+(Layer K `surface` + `all` + effective `security`), then writes
+`guides/<id>/guide.yaml`. The manifest — not a recording — is the durable
+artifact: `odoo-guide-run` replays it and `odoo-guide-render` renders it.
+
+Usage:
+  odoo-guide-init "confirm a sale order" --db DEMO --user salesperson@x.com
+  odoo-guide-init "..." --ground-dir /tmp/odoo-ai/guide   # reuse saved JSON (offline)
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ODOO_AI = HERE.parent.parent / "odoo-introspect" / "scripts" / "odoo-ai"
+sys.path.insert(0, str(HERE))
+import odoo_guide_lib as lib  # noqa: E402
+
+
+def _odoo_ai(args: list[str], db: str) -> dict:
+    """Run an `odoo-ai ... --json` subcommand and return the parsed payload."""
+    cmd = [sys.executable, str(ODOO_AI), "--db", db, "--json", *args]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        sys.exit(f"❌ odoo-ai {' '.join(args)} failed:\n{proc.stderr.strip()}")
+    return json.loads(proc.stdout)
+
+
+def _ground_rpc(ns) -> tuple[dict, dict, dict | None]:
+    """Portable grounding over Odoo's external API (XML-RPC) — works on ANY
+    deployment (local, Docker, remote, Odoo.sh/Online), no shell needed. This is
+    the same connection `odoo-guide-run` uses, so one set of creds covers both."""
+    from odoo_rpc import OdooRPC
+    rpc = OdooRPC(ns.url, ns.db, ns.login, ns.password)
+    buttons = lib.buttons_from_arch(rpc.get_view_arch(ns.model, "form"))
+    surface = lib.surface_from_buttons(ns.model, buttons)
+    entry = {"views": {"form": {"buttons": buttons}}}
+    security = {"model": ns.model, "access_rights": rpc.access_rights(ns.model)}
+    return surface, entry, security
+
+
+def _ground(ns) -> tuple[dict, dict, dict | None]:
+    """Gather (surface, view-buttons, security) — RPC (portable) / odoo-bin / saved."""
+    if ns.url:
+        return _ground_rpc(ns)
+    if ns.ground_dir:
+        d = Path(ns.ground_dir)
+        surface = json.loads((d / "surface.json").read_text())
+        entry = json.loads((d / f"{ns.model}.entrypoints.json").read_text())
+        sec_path = d / f"{ns.model}.security.json"
+        security = json.loads(sec_path.read_text()) if sec_path.exists() else None
+        return surface, entry, security
+    surface = _odoo_ai(["surface", ns.model], ns.db)
+    _odoo_ai(["all", ns.model], ns.db)  # writes <model>.entrypoints.json into out-dir
+    out = Path(f"/tmp/odoo-ai/{ns.model}")
+    entry_files = list(out.glob(f"{ns.model}.entrypoints.json"))
+    entry = json.loads(entry_files[0].read_text()) if entry_files else {"views": {}}
+    security = None
+    if ns.login:
+        sec_args = ["security", ns.model, "--user", ns.login]
+        if ns.company:
+            sec_args += ["--company", ns.company]
+        security = _odoo_ai(sec_args, ns.db)
+    return surface, entry, security
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Generate a grounded Odoo user-guide manifest.")
+    ap.add_argument("intent", help='e.g. "confirm a sale order"')
+    ap.add_argument("--db", help="Odoo database")
+    ap.add_argument("--model", default="sale.order")
+    ap.add_argument("--method", default=lib.DEFAULT_METHOD, help="statusbar button method")
+    ap.add_argument("--company", help="acting company id/name")
+    ap.add_argument("--menu", help="menu path shown to the user, e.g. 'Sales > Orders'")
+    ap.add_argument("--expected-field", default="state")
+    ap.add_argument("--expected-value", default="sale")
+    # Portable grounding over the external API (works on any deployment):
+    ap.add_argument("--url", help="Odoo base URL, e.g. http://localhost:8069 (RPC grounding)")
+    ap.add_argument("--login", help="user login for RPC grounding (also the guide's role)")
+    ap.add_argument("--password", default=os.environ.get("ODOO_GUIDE_PASSWORD"),
+                    help="password (or env ODOO_GUIDE_PASSWORD)")
+    # Alternatives: odoo-bin shell (needs local source) or pre-saved JSON:
+    ap.add_argument("--ground-dir", help="read saved odoo-ai JSON instead of a live call")
+    ap.add_argument("--out-dir", default="guides")
+    args = ap.parse_args()
+
+    if args.url:
+        if not (args.db and args.login and args.password):
+            sys.exit("❌ RPC grounding needs --url --db --login and --password/ODOO_GUIDE_PASSWORD")
+    elif not (args.db or args.ground_dir):
+        sys.exit("❌ grounding needs --url (RPC) | --db (odoo-bin) | --ground-dir (saved JSON)")
+    role = args.login
+
+    surface, entry, security = _ground(args)
+
+    ep = lib.pick_entrypoint(surface, method=args.method)
+    if ep is None:
+        sys.exit(f"❌ no object-button entrypoint found on {args.model} via odoo-ai surface")
+    method = ep.get("method", args.method)
+    if method != args.method:
+        print(f"⚠️  '{args.method}' not in surface; using top button '{method}'", file=sys.stderr)
+    label = lib.button_label_from_views(entry, method) or ep.get("label")
+
+    manifest = lib.build_manifest(
+        intent=args.intent, model=args.model, method=method, button_label=label,
+        expected_field=args.expected_field, expected_value=args.expected_value,
+        menu_path=args.menu, role=role, company=args.company,
+    )
+
+    gid = manifest["guide"]["id"]
+    gdir = Path(args.out_dir) / gid
+    gdir.mkdir(parents=True, exist_ok=True)
+    (gdir / "guide.yaml").write_text(lib.dump_manifest_yaml(manifest))
+    print(f"==> wrote {gdir / 'guide.yaml'}  (button: {method}, expected {args.expected_field}={args.expected_value})")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

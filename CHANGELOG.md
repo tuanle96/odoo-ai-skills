@@ -6,6 +6,51 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`odoo-user-guide` skill (v1)** — generate end-user how-to guides for an Odoo
+  flow from the running instance. `odoo-guide-init` grounds the steps with the
+  `odoo-ai` CLI (Layer K `surface` + view buttons + effective per-role
+  `security`) into a durable `guide.yaml` manifest; `odoo-guide-doctor` is a
+  safety gate that hard-fails on production mutation or missing access;
+  `odoo-guide-run` drives the real UI with Playwright on a **sandbox** DB,
+  screenshots each step (metadata-bound selectors, JS-injected numbered
+  callouts), creates/archives its own owned test record, and **asserts the
+  resulting state at the backend over XML-RPC** (the proof); `odoo-guide-render`
+  emits a self-contained annotated HTML guide reusing the `html-report` layout.
+  Grounding is **portable**: it runs over Odoo's standard external API (XML-RPC
+  `get_view` + `check_access_rights`) so it works on any deployment (local,
+  Docker, remote, Odoo.sh/Online) with no shell access — one `--url/--db/--login`
+  drives init, doctor, and run; `odoo-bin shell` (`odoo-ai`) and pre-saved JSON
+  remain as alternative grounding paths. The `sale.order` teardown unlocks a
+  locked order and drives the `sale.order.cancel` wizard so no confirmed test
+  order lingers. Pure-function core (`odoo_guide_lib`) is unit-tested with the
+  stdlib; Playwright is the only new dependency and is isolated to this skill.
+  End-to-end verified against a live Odoo 18 instance. Voice/TTS and MP4 video
+  are roadmap (v2/v3). Skill count 19 → 20.
+
+  **Architecture pivot (agent-driven capture).** After research (the bottleneck
+  in doc generation is guessing the click-path in code before seeing the UI), the
+  primary authoring path is now the AGENT driving the live Odoo UI through an MCP
+  browser tool (claude-in-chrome / Playwright MCP): it locates elements by visible
+  label / accessibility role (no hand-written CSS selectors), adapts to
+  wizards/locked records/banners, and screenshots as it goes — eliminating the
+  brittle-selector debug loop. New helpers `odoo-guide-prep` (ground over RPC +
+  create the owned test record + emit a `flow.json` contract) and
+  `odoo-guide-verify` (read the expected state over RPC as proof, then cancel /
+  archive the record) bracket the agent's live run; `odoo-guide-render` then joins
+  the captured evidence with the agent-authored `copy.json` prose. The headless
+  Playwright driver (`odoo-guide-run`) is demoted to an optional deterministic
+  replay path for CI / known flows. Demonstrated live against Odoo 18: a one-call
+  semantic `find("Xác nhận button")` located and clicked the confirm button with
+  zero selector debugging, proven `state=sale`, record auto-cleaned. The
+  `odoo-guide-shot` helper closes the agent path to the renderer: the agent passes
+  the file path returned by each MCP screenshot, and the helper copies it into the
+  guide's `screenshots/` and records the step (ordered) in `evidence.json` — so the
+  agent-driven capture reaches `odoo-guide-render` with no dependency on the
+  deterministic driver. `odoo-guide-render` defaults to **Markdown** output
+  (`guide.md` + `screenshots/`, GitHub/KB-friendly) with `--format html` for a
+  self-contained page.
+
 ## [0.12.1] - 2026-06-29
 
 ### Changed

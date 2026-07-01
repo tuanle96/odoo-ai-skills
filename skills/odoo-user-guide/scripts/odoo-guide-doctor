@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""odoo-guide-doctor — the safety gate, run before any browser touches Odoo.
+
+HARD-FAILS (exit 2) when a guide would change instance state outside a sandbox,
+or when the effective role lacks the access the flow needs. Fits the suite's
+"enforcement gate" philosophy: prove it's safe first.
+
+Sandbox is opt-in and explicit: env ODOO_GUIDE_SANDBOX=1 or --sandbox. There is
+no auto-detection — a DB is treated as production until you say otherwise.
+
+Usage:
+  odoo-guide-doctor guides/<id>/guide.yaml --db DEMO --user salesperson@x.com --sandbox
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ODOO_AI = HERE.parent.parent / "odoo-introspect" / "scripts" / "odoo-ai"
+sys.path.insert(0, str(HERE))
+import odoo_guide_lib as lib  # noqa: E402
+
+
+def _security_rpc(ns) -> dict:
+    """Effective access over the external API — portable to any deployment."""
+    from odoo_rpc import OdooRPC
+    rpc = OdooRPC(ns.url, ns.db, ns.login, ns.password)
+    return {"model": ns.manifest_model, "access_rights": rpc.access_rights(ns.manifest_model)}
+
+
+def _security(model: str, db: str, user: str, company: str | None) -> dict | None:
+    if not (db and user):
+        return None
+    cmd = [sys.executable, str(ODOO_AI), "--db", db, "--json", "security", model, "--user", user]
+    if company:
+        cmd += ["--company", company]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        print(f"⚠️  security check unavailable: {proc.stderr.strip()}", file=sys.stderr)
+        return None
+    return json.loads(proc.stdout)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Safety-gate an Odoo user-guide manifest.")
+    ap.add_argument("manifest", help="path to guide.yaml")
+    ap.add_argument("--db")
+    ap.add_argument("--user", help="effective login/id (odoo-bin security path)")
+    ap.add_argument("--company")
+    ap.add_argument("--sandbox", action="store_true",
+                    help="assert this DB is a throwaway sandbox (also via ODOO_GUIDE_SANDBOX=1)")
+    # Portable access check over the external API (any deployment):
+    ap.add_argument("--url", help="Odoo base URL — check access via RPC")
+    ap.add_argument("--login")
+    ap.add_argument("--password", default=os.environ.get("ODOO_GUIDE_PASSWORD"))
+    ap.add_argument("--security-json", help="read a saved security payload instead of a live call")
+    args = ap.parse_args()
+
+    manifest = lib.load_manifest_yaml(Path(args.manifest).read_text())
+    model = manifest.get("guide", {}).get("model", "")
+    sandbox = args.sandbox or os.environ.get("ODOO_GUIDE_SANDBOX") == "1"
+
+    if args.security_json:
+        security = json.loads(Path(args.security_json).read_text())
+    elif args.url and args.db and args.login and args.password:
+        args.manifest_model = model
+        security = _security_rpc(args)
+    else:
+        security = _security(model, args.db, args.user, args.company)
+
+    verdict = lib.doctor_verdict(manifest, security, sandbox)
+    print(json.dumps(verdict, ensure_ascii=False, indent=2))
+    if verdict["verdict"] == "block":
+        print("\n❌ BLOCK — không chạy guide. Lý do ở trên.", file=sys.stderr)
+        return 2
+    print("\n✅ APPROVE — an toàn để chạy.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

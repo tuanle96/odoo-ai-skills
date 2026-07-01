@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""odoo-guide-render — evidence + agent-authored prose -> a self-contained guide.
+
+Joins `evidence.json` (facts the run captured: full + zoom + after screenshots,
+before/after state) with `copy.json` (plain-language title/heading/body the AGENT
+wrote after looking at the screenshots) and renders one self-contained HTML page
+in the shared html-report layout. Screenshots are embedded as base64 data URIs.
+
+If `copy.json` is absent it falls back to `copy.template.json` (captured labels),
+so the page always renders — but the readable prose is the agent's job.
+
+Usage:  odoo-guide-render guides/<id>/
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+import html
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+BUILD_REPORT = HERE.parent.parent / "html-report" / "scripts" / "build_report.py"
+sys.path.insert(0, str(HERE))
+import odoo_guide_lib as lib  # noqa: E402
+
+FIGURE_CSS = """
+<style>
+  .gstep{margin:18px 0 26px}
+  .gshots{display:grid;grid-template-columns:1fr;gap:10px;margin:10px 0}
+  .gfig{border:1px solid var(--line,#e6e2da);border-radius:12px;overflow:hidden;background:#fff}
+  .gfig img{display:block;width:100%;height:auto}
+  .gfig .gcap{font-size:12.5px;color:#6b6675;padding:6px 10px;border-top:1px solid var(--line,#eee)}
+  .gzoom{max-width:520px}
+  .gbody{font-size:16px;line-height:1.6;margin:6px 0}
+  .gstate{font-size:13px;margin:8px 0}
+  .gstate code{background:#eef;border-radius:4px;padding:1px 6px}
+  .garrow{color:#1f9d6b;font-weight:800;margin:0 6px}
+</style>"""
+
+
+def _img(gdir: Path, rel: str | None) -> str | None:
+    if not rel:
+        return None
+    p = gdir / rel
+    if not p.exists():
+        return None
+    return "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode()
+
+
+def _figure(uri: str | None, cap: str, cls: str = "") -> str:
+    if not uri:
+        return ""
+    c = f'<div class="gcap">{html.escape(cap)}</div>' if cap else ""
+    return f'<figure class="gfig {cls}"><img src="{uri}">{c}</figure>'
+
+
+def _step_html(gdir: Path, s: dict) -> str:
+    n = s.get("n")
+    head = html.escape(s.get("heading") or "")
+    body = html.escape(s.get("body") or "")
+    parts = [f"<h3><span class='num'>{n}</span>{head}</h3>"]
+    if body:
+        parts.append(f'<p class="gbody">{body}</p>')
+    shots = []
+    shots.append(_figure(_img(gdir, s.get("full")), "Toàn màn hình"))
+    shots.append(_figure(_img(gdir, s.get("zoom")), "Cận cảnh vị trí thao tác", "gzoom"))
+    if s.get("after"):
+        shots.append(_figure(_img(gdir, s.get("after")), "Kết quả sau khi thao tác"))
+    parts.append('<div class="gshots">' + "".join(f for f in shots if f) + "</div>")
+    if s.get("state_before") is not None and s.get("state_after") is not None \
+            and s["state_before"] != s["state_after"]:
+        parts.append(f'<div class="gstate">Trạng thái: <code>{html.escape(str(s["state_before"]))}</code>'
+                     f'<span class="garrow">→</span><code>{html.escape(str(s["state_after"]))}</code></div>')
+    return f'<li class="gstep">' + "".join(parts) + "</li>"
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Render an Odoo user guide (Markdown by default).")
+    ap.add_argument("guide_dir")
+    ap.add_argument("--format", choices=("md", "html"), default="md",
+                    help="md = guide.md + screenshots/ (default); html = self-contained guide.html")
+    ap.add_argument("--no-open", action="store_true")
+    args = ap.parse_args()
+
+    gdir = Path(args.guide_dir)
+    evidence = json.loads((gdir / "evidence.json").read_text())
+    copy_path = gdir / "copy.json"
+    if not copy_path.exists():
+        copy_path = gdir / "copy.template.json"
+        print("⚠️  no copy.json — using captured labels. Have the agent write copy.json for readable prose.",
+              file=sys.stderr)
+    copy = json.loads(copy_path.read_text()) if copy_path.exists() else {"steps": []}
+    merged = lib.merge_copy(evidence, copy)
+
+    if args.format == "md":
+        out = gdir / "guide.md"
+        out.write_text(lib.guide_to_markdown(merged))
+        print(f"==> wrote {out}  (Markdown + screenshots/)")
+        return 0
+
+    proof = merged.get("proof")
+    proof_badge = ""
+    if proof:
+        cls = "ok" if proof.get("pass") else "danger"
+        proof_badge = (f'<span class="badge {cls}">đã kiểm chứng: {html.escape(str(proof["field"]))}'
+                       f'={html.escape(str(proof["actual"]))}</span>')
+
+    title = html.escape(merged["title"])
+    intro = html.escape(merged.get("intro") or "")
+    model = html.escape(merged["guide"].get("model", ""))
+    role = html.escape(str(merged["guide"].get("role") or "—"))
+    steps_html = "\n".join(_step_html(gdir, s) for s in merged["steps"])
+
+    doc = f"""<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<link rel="stylesheet" href="report.css"><!-- @odoo-ai-html-report:css -->
+{FIGURE_CSS}
+</head>
+<body>
+<header><div class="head-inner">
+  <span class="eyebrow">Hướng dẫn sử dụng</span>
+  <h1>{title}</h1>
+  <p class="subtitle">{intro or 'Hướng dẫn từng bước, kèm hình minh hoạ.'}</p>
+  <div class="meta"><span>🧩 <code>{model}</code></span><span>👤 {role}</span><span>{proof_badge}</span></div>
+</div></header>
+<main>
+  <section class="panel">
+    <ol class="steps">
+{steps_html}
+    </ol>
+  </section>
+</main>
+<footer><div class="foot-inner">
+  <span class="foot-brand"><span class="dot"></span>Odoo-AI</span><span>·</span><span>odoo-user-guide</span>
+</div></footer>
+</body>
+</html>"""
+
+    out = gdir / "guide.html"
+    out.write_text(doc)
+    cmd = [sys.executable, str(BUILD_REPORT), str(out)] + (["--no-open"] if args.no_open else [])
+    subprocess.run(cmd, check=True)
+    print(f"==> wrote {out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

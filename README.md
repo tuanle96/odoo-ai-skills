@@ -52,7 +52,7 @@ claude plugin marketplace add tuanle96/odoo-ai-skills   # register the marketpla
 claude plugin install odoo-ai-skills@odoo-ai            # install the plugin
 ```
 
-The 19 skills then load namespaced — `/odoo-ai-skills:odoo` (router), `/odoo-ai-skills:odoo-introspect`, etc. Update later with `claude plugin update odoo-ai-skills@odoo-ai`.
+The 20 skills then load namespaced — `/odoo-ai-skills:odoo` (router), `/odoo-ai-skills:odoo-introspect`, etc. Update later with `claude plugin update odoo-ai-skills@odoo-ai`.
 
 To try it before installing, load it straight from a local clone:
 
@@ -145,6 +145,7 @@ skills/odoo-introspect/scripts/odoo-ai --db <DB> all sale.order
 | Skill | What it does |
 |-------|--------------|
 | **html-report** | Render any audit / review / analysis / RCA / summary as **one consistent, self-contained HTML page** — shared bold "Magazine" theme, CSS inlined (no CDN, no server), auto-opens. Presentation only; *not* Odoo QWeb business documents (that's `odoo-reports`). |
+| **odoo-user-guide** | Generate an **end-user how-to guide** for a flow from the running instance: ground the steps with `odoo-ai` (Layer K entrypoints + effective per-role security), drive the real UI with Playwright on a **sandbox** DB, screenshot each step, **assert the resulting state at the backend** (the proof), then render a self-contained annotated HTML guide. Manifest-first &amp; re-runnable; demo-DB-only, hard-fails on production mutation. Voice/MP4 are roadmap. |
 
 ### Router
 | Skill | What it does |

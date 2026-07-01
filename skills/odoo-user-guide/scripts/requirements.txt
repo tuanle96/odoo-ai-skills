@@ -1,0 +1,10 @@
+# Dependencies for the odoo-user-guide skill ONLY (the rest of this repo is
+# pure stdlib). Install just for this skill:
+#   pip install -r skills/odoo-user-guide/scripts/requirements.txt
+#   playwright install chromium
+#
+# Odoo-side calls (create test record, assert state) use stdlib xmlrpc.client —
+# no extra dependency. Grounding uses the existing `odoo-ai` CLI.
+playwright>=1.40
+PyYAML>=6.0
+Pillow>=10.0   # crop a zoomed close-up of each action target

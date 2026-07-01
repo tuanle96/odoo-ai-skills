@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""odoo-guide-shot — ingest one screenshot (from an MCP browser tool) into the guide.
+
+Closes the agent-driven loop without a deterministic driver: while the agent
+drives the live UI, each time it captures a screenshot (e.g. claude-in-chrome
+`computer screenshot save_to_disk:true`, or Playwright MCP `browser_take_screenshot`)
+it gets back a file PATH — pass that path here. The helper copies the image into
+`<guide>/screenshots/NN_kind.png` and records the step in `evidence.json`, so
+`odoo-guide-render` can consume it. No hand-editing of JSON, no replay driver.
+
+Usage (per screenshot, as the agent drives):
+  odoo-guide-shot guides/<id>/ --n 1 --kind full  --src /path/from/mcp.png --action open_record
+  odoo-guide-shot guides/<id>/ --n 2 --kind zoom  --src /path/from/mcp.png --label "Xác nhận"
+  odoo-guide-shot guides/<id>/ --n 2 --kind after --src /path/from/mcp.png \
+      --state-before draft --state-after sale
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import odoo_guide_lib as lib  # noqa: E402
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Ingest an MCP screenshot into a guide's evidence.")
+    ap.add_argument("guide_dir")
+    ap.add_argument("--n", type=int, required=True, help="step number")
+    ap.add_argument("--kind", required=True, choices=lib.SHOT_KINDS)
+    ap.add_argument("--src", required=True, help="path to the screenshot the MCP tool saved")
+    ap.add_argument("--action")
+    ap.add_argument("--label", help="on-screen label of the target, in the user's language")
+    ap.add_argument("--state-before")
+    ap.add_argument("--state-after")
+    args = ap.parse_args()
+
+    src = Path(args.src)
+    if not src.exists():
+        sys.exit(f"❌ screenshot not found: {src}")
+    gdir = Path(args.guide_dir)
+    shots = gdir / "screenshots"
+    shots.mkdir(parents=True, exist_ok=True)
+    rel = f"screenshots/{args.n:02d}_{args.kind}.png"
+    shutil.copyfile(src, gdir / rel)
+
+    ev_path = gdir / "evidence.json"
+    evidence = json.loads(ev_path.read_text()) if ev_path.exists() else {"steps": []}
+    lib.register_shot(evidence, args.n, args.kind, rel, action=args.action, label=args.label,
+                      state_before=args.state_before, state_after=args.state_after)
+    ev_path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2))
+    print(f"==> step {args.n} [{args.kind}] -> {rel}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
