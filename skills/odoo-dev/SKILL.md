@@ -48,7 +48,7 @@ From the briefs, state: model + **inheritance mode**; which fields to **reuse** 
 
 ### 3. Code — then prove it
 
-Write the smallest patch extending the real `super()` from step 1. Then satisfy the **test gate** — invoke the **`odoo-testing`** skill (test-first; non-admin / multi-company / batch where relevant; `-i` clean DB + `-u` data DB). A patch without that is vibe coding with extra steps.
+Write the smallest patch extending the real `super()` from step 1. Then satisfy the **test gate** — invoke the **`odoo-testing`** skill (test-first; non-admin / multi-company / batch where relevant; `-i` clean DB + `-u` data DB). A patch without that is vibe coding with extra steps. High coverage is **not** proof: CI enforces the un-fakeable gate (`odoo-ai deploy-gate --strict` — runtime-path binding, changed-line coverage, scenario satisfaction, test-quality lint, signed provenance) so a mock-heavy or vacuous-assert test can't turn the gate green.
 
 ## Pick the built-in, don't hand-roll it
 

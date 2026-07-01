@@ -104,6 +104,17 @@ LOCAL_SCRIPTS = {
     "env-diff": "env_diff.py",
     "upgrade-diff": "upgrade_check.py",
     "evidence": "evidence_bundle.py",
+    # --- Layer L: un-fakeable proof gates (all LOCAL / CI-side, no DB) --------
+    "diff-targets": "diff_targets.py",
+    "test-quality": "test_quality_gate.py",
+    "scenario-satisfaction": "scenario_satisfaction.py",
+    "changed-coverage": "changed_coverage_gate.py",
+    "runtime-path": "runtime_path_probe.py",
+    "attest": "provenance.py",
+    "verify-attestation": "provenance.py",
+    "mutation-smoke": "mutation_smoke.py",
+    "red-green-replay": "red_green_replay.py",
+    "runtime-observer": "runtime_observer.py",
     "docs-build": "doc_index.py",
     "docs": "doc_index.py",
     "viz": "viz.py",
@@ -318,7 +329,32 @@ def _summ_local(cmd, d):
             return f"({len(d.get('renames', []))} renames, {s.get('blocking', 0)} blocking)"
         if cmd == "deploy-gate":
             dec = d.get("decision", {})
-            return f"(decision={dec.get('decision', '?')}, risk={d.get('risk', {}).get('tier', '?')})"
+            return f"(decision={dec.get('decision', '?')}, risk={d.get('risk', {}).get('tier', '?')}, policy={d.get('policy', '?')})"
+        if cmd == "diff-targets":
+            return f"({len(d.get('targets', []))} targets, {d.get('summary', {}).get('files', 0)} files)"
+        if cmd == "test-quality":
+            s = d.get("summary", {})
+            return f"({s.get('files', 0)} files: {s.get('blocking', 0)} fake-test blocking / {s.get('warning', 0)} warning)"
+        if cmd == "scenario-satisfaction":
+            return f"(ok={d.get('ok')}, {len(d.get('unsatisfied', []))} unsatisfied)"
+        if cmd == "changed-coverage":
+            return f"(gate={d.get('summary', {}).get('gate', '?')}, ok={d.get('ok')})"
+        if cmd == "runtime-path":
+            s = d.get("summary", {})
+            return f"({s.get('bound', 0)}/{s.get('targets', 0)} bound, {s.get('unbound', 0)} unbound)"
+        if cmd == "attest":
+            return f"(signed {d.get('artifact_name', '?')})" if d.get("signature") else f"({d.get('error', 'unsigned')})"
+        if cmd == "verify-attestation":
+            return f"(ok={d.get('ok')})"
+        if cmd == "mutation-smoke":
+            s = d.get("summary", {})
+            return f"(decision={d.get('decision', '?')}, {s.get('survived', 0)} survived / {s.get('mutants', 0)} mutants)"
+        if cmd == "red-green-replay":
+            return f"(ok={d.get('ok')}, base_failed={d.get('base_failed')}, head_passed={d.get('head_passed')})"
+        if cmd == "runtime-observer":
+            if "tool_digest" in d and "trace_integrity" not in d:
+                return f"(tool_digest={d.get('tool_digest', '?')[:20]}…)"
+            return f"(trace_integrity={d.get('trace_integrity', '?')}, sealed={d.get('sealed')})"
         if cmd == "redact":
             return "(redacted for external use)"
         if cmd == "scan-secrets":
@@ -434,7 +470,18 @@ def main():
     sss = sub.add_parser("scan-secrets", help="scan a file for secrets/keys before it leaves the environment — LOCAL, no DB"); sss.add_argument("file")
     suc = sub.add_parser("upgrade-check", help="upgrade/migration risks vs an OLD brief + a pre-migrate scaffold (needs DB)"); suc.add_argument("model"); suc.add_argument("--against", required=True, help="path to an OLD brief JSON from a prior `odoo-ai brief`"); suc.add_argument("--module", default=""); suc.add_argument("--version", default="")
     sud = sub.add_parser("upgrade-diff", help="diff two brief JSONs for upgrade risks — LOCAL, no DB"); sud.add_argument("old"); sud.add_argument("new"); sud.add_argument("--module", default=""); sud.add_argument("--version", default="")
-    sdg = sub.add_parser("deploy-gate", help="aggregate evidence (native-check/env-diff/scenarios/validate/security/trace/upgrade) into a go/no-go — LOCAL, no DB"); sdg.add_argument("bundle_dir")
+    sdg = sub.add_parser("deploy-gate", help="aggregate evidence (native-check/env-diff/scenarios/validate/security/trace/upgrade) into a go/no-go — LOCAL, no DB"); sdg.add_argument("bundle_dir"); sdg.add_argument("--strict", action="store_true", help="Layer L policy v2: enforce CI-signed provenance + runtime-path/changed-coverage/scenario-satisfaction/test-quality proof (the hostile-agent-resistant gate; run this in CI)")
+    # --- Layer L: un-fakeable proof gates (turn 'high coverage' into 'proven') --
+    sdt = sub.add_parser("diff-targets", help="Layer L: extract changed {model,method,changed_lines} targets from a git diff (produced BY CI, not the agent) — LOCAL, no DB"); sdt.add_argument("--base", default="HEAD~1"); sdt.add_argument("--head", default="HEAD"); sdt.add_argument("--diff-file", dest="diff_file", default=""); sdt.add_argument("--repo", default=".")
+    stq = sub.add_parser("test-quality", help="Layer L: AST-lint test files for FAKE patterns (vacuous asserts / mocked model / swallowed exceptions / un-imported tests) — LOCAL, no DB"); stq.add_argument("paths", nargs="+")
+    sscs = sub.add_parser("scenario-satisfaction", help="Layer L: check the required risk scenarios were ACTUALLY exercised at runtime (required − satisfied == ∅) — LOCAL, no DB"); sscs.add_argument("--scenarios", required=True, help="scenarios.json from `odoo-ai scenarios`"); sscs.add_argument("--observations", required=True, help="runtime observations JSON (from runtime-path)")
+    scc = sub.add_parser("changed-coverage", help="Layer L: prove the CHANGED lines of each target were covered by a real test (coverage.py --show-contexts ∩ diff targets) — LOCAL, no DB"); scc.add_argument("--targets", required=True, help="diff_targets.json"); scc.add_argument("--coverage", required=True, help="coverage.json (coverage json --show-contexts)")
+    srp = sub.add_parser("runtime-path", help="Layer L: assemble the runtime-path binding artifact from targets + recorded call events + live-registry facts (CI, after the odoo-bin test run) — LOCAL, no DB"); srp.add_argument("--targets", required=True); srp.add_argument("--events", required=True); srp.add_argument("--registry", required=True)
+    sat = sub.add_parser("attest", help="Layer L: HMAC-sign an evidence artifact into a provenance envelope (CI host only; needs ODOO_AI_ATTEST_KEY) — LOCAL, no DB"); sat.add_argument("artifact"); sat.add_argument("--name", required=True); sat.add_argument("--base-sha", dest="base_sha", default=""); sat.add_argument("--head-sha", dest="head_sha", default=""); sat.add_argument("--tree-sha", dest="tree_sha", default=""); sat.add_argument("--runner", default=""); sat.add_argument("--odoo-version", dest="odoo_version", default="")
+    sva = sub.add_parser("verify-attestation", help="Layer L: verify a provenance envelope's HMAC signature (detects forged/hand-authored evidence JSON) — LOCAL, no DB"); sva.add_argument("envelope"); sva.add_argument("--artifact", default="")
+    smu = sub.add_parser("mutation-smoke", help="Layer L: mutate the changed lines of each target + re-run covering tests; a SURVIVING mutant = the test asserts nothing that breaks — LOCAL assembly / DB run"); smu.add_argument("--targets", required=True, help="diff_targets.json"); smu.add_argument("--results", default="", help="precomputed {target_id:{mutant_id:{status,killed_by}}} to assemble"); smu.add_argument("--generate", action="store_true", help="just emit the mutation plan (no execution)")
+    srg = sub.add_parser("red-green-replay", help="Layer L: prove the test FAILS on base and PASSES on head (CI-run test-first, not trusted from the agent) — LOCAL assembly / git run"); srg.add_argument("--base-output", dest="base_output", default=""); srg.add_argument("--head-output", dest="head_output", default=""); srg.add_argument("--additive", action="store_true", help="feature (not bugfix): accept a missing-symbol red"); srg.add_argument("--run", dest="rg_run", action="store_true"); srg.add_argument("--base", default=""); srg.add_argument("--head", default=""); srg.add_argument("--tests", nargs="*", default=[]); srg.add_argument("--module", default=""); srg.add_argument("--repo", default=".")
+    sob = sub.add_parser("runtime-observer", help="Layer L: CI-owned trace-integrity observer — pin its digest + check its fail-closed seal (trusted-observation boundary) — LOCAL, no DB"); sob.add_argument("--digest", default="", help="print sha256 of a file"); sob.add_argument("--self-digest", dest="self_digest", action="store_true", help="print this observer's own tool_digest (pin it in CI)"); sob.add_argument("--evaluate", default="", help="evaluate an observer state JSON → sealed/tampered/incomplete")
     svc = sub.add_parser("verify-claims", help="verify external-index/agent CLAIMS against THIS instance (BYO-index: confirmed/contradicted/needs-shell)"); svc.add_argument("claims", help="path to a claims JSON file: list of {source, model, field?, method?, xmlid?, claim?, probe?}")
     sev = sub.add_parser("evidence", help="render a folder of gate outputs into a deploy verdict + a PR-comment Markdown — LOCAL, no DB"); sev.add_argument("bundle_dir"); sev.add_argument("--md-out", dest="md_out", default="")
     sdb = sub.add_parser("docs-build", help="build a LOCAL TF-IDF index of Odoo developer docs for a version (Layer J; the index stays OUTSIDE the repo)"); sdb.add_argument("--version", required=True); sdb.add_argument("--src", default=""); sdb.add_argument("--out", default="")
@@ -465,7 +512,67 @@ def main():
         elif a.cmd == "scan-secrets":
             do_local("scan-secrets", ["scan-secrets", a.file], out_dir, Path(a.file).stem)
         elif a.cmd == "deploy-gate":
-            do_local("deploy-gate", [a.bundle_dir], out_dir, "deploy")
+            argv = [a.bundle_dir] + (["--strict"] if a.strict else [])
+            do_local("deploy-gate", argv, out_dir, "deploy")
+        elif a.cmd == "diff-targets":
+            argv = ["--base", a.base, "--head", a.head, "--repo", a.repo]
+            if a.diff_file:
+                argv += ["--diff-file", a.diff_file]
+            do_local("diff-targets", argv, out_dir, "diff")
+        elif a.cmd == "test-quality":
+            do_local("test-quality", list(a.paths), out_dir, "tests")
+        elif a.cmd == "scenario-satisfaction":
+            do_local("scenario-satisfaction",
+                     ["--scenarios", a.scenarios, "--observations", a.observations],
+                     out_dir, "scenario")
+        elif a.cmd == "changed-coverage":
+            do_local("changed-coverage",
+                     ["--targets", a.targets, "--coverage", a.coverage], out_dir, "coverage")
+        elif a.cmd == "runtime-path":
+            do_local("runtime-path",
+                     ["--targets", a.targets, "--events", a.events, "--registry", a.registry],
+                     out_dir, "runtime")
+        elif a.cmd == "attest":
+            argv = ["attest", a.artifact, "--name", a.name]
+            for flag, val in (("--base-sha", a.base_sha), ("--head-sha", a.head_sha),
+                              ("--tree-sha", a.tree_sha), ("--runner", a.runner),
+                              ("--odoo-version", a.odoo_version)):
+                if val:
+                    argv += [flag, val]
+            do_local("attest", argv, out_dir, f"{a.name}.provenance")
+        elif a.cmd == "verify-attestation":
+            argv = ["verify", a.envelope] + (["--artifact", a.artifact] if a.artifact else [])
+            do_local("verify-attestation", argv, out_dir, "attestation")
+        elif a.cmd == "mutation-smoke":
+            argv = ["--targets", a.targets]
+            if a.generate:
+                argv.append("--generate")
+            elif a.results:
+                argv += ["--results", a.results]
+            do_local("mutation-smoke", argv, out_dir, "mutation")
+        elif a.cmd == "red-green-replay":
+            if a.rg_run:
+                argv = ["--run", "--base", a.base, "--head", a.head]
+                if a.tests:
+                    argv += ["--tests", *a.tests]
+                if a.module:
+                    argv += ["--module", a.module]
+                argv += ["--repo", a.repo]
+            else:
+                argv = ["--base-output", a.base_output, "--head-output", a.head_output]
+            if a.additive:
+                argv.append("--additive")
+            do_local("red-green-replay", argv, out_dir, "replay")
+        elif a.cmd == "runtime-observer":
+            if a.self_digest:
+                argv = ["--self-digest"]
+            elif a.digest:
+                argv = ["--digest", a.digest]
+            elif a.evaluate:
+                argv = ["--evaluate", a.evaluate]
+            else:
+                argv = ["--self-digest"]
+            do_local("runtime-observer", argv, out_dir, "observer")
         elif a.cmd == "env-diff":
             do_local("env-diff", ["diff", a.base, a.target], out_dir, "env")
         elif a.cmd == "upgrade-diff":

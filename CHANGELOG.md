@@ -6,7 +6,86 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-01
+
 ### Added
+- **Layer L — the hardened evidence gate** (raise the bar against "coverage theater": an agent
+  writing mock-heavy / vacuous-assert / happy-path tests, or hand-authored evidence
+  JSON, to turn the gate green while the real method still throws at runtime). The
+  fix is architectural: the agent writes code + tests, but **CI produces and signs
+  the evidence** and binds it to the git diff. Six new stdlib gate scripts (all
+  unit-tested, most need no DB):
+  `diff_targets.py` (git+AST → changed `{model,method,changed_exec_lines}` targets,
+  the anchor everything binds to), `test_quality_gate.py` (AST-lint that BLOCKS
+  vacuous asserts, `assertRaises(Exception)`, mocked model-methods-under-test,
+  swallowed exceptions, and tests not imported from `tests/__init__.py`),
+  `changed_coverage_gate.py` (proves the *changed* lines ran under a real test
+  context via `coverage --show-contexts`, per-risk threshold), `runtime_path_probe.py`
+  (proves the changed method executed through the live registry MRO on a recordset
+  of its own model — kills mocks/stubs/wrong-layer tests), `scenario_satisfaction.py`
+  (turns the Layer I risk scenarios from advisory into enforced: `required −
+  satisfied == ∅`), and `provenance.py` (HMAC attestation: sign each evidence file
+  on the CI host with `ODOO_AI_ATTEST_KEY`, which must never exist inside the test
+  container). Provenance is **content-bound and commit-bound**: `--strict` requires
+  every *consumed* required artifact's actual file bytes to hash to something CI
+  signed (a forged/hand-authored/tampered file is rejected even if an unrelated
+  valid envelope is present), rejects a bundle whose envelope `head_sha` doesn't
+  match the change under gate (replay), and requires the coverage/runtime proofs
+  to reference the same targets `diff_targets` found (no vacuous empty-target
+  proofs). Hardened after an adversarial code review found and reproduced those
+  exact bypasses — each is now a regression test.
+  `deploy_gate.py` gains an opt-in **policy v2 (`--strict`)** that enforces the
+  expanded core (`_CORE_REQUIRED_V2`), the runtime-path/changed-coverage/
+  scenario-satisfaction/test-quality/mutation blocking checks, and provenance
+  verification; the legacy default path is unchanged (all existing tests green).
+  Two more CI-side runners complete the set: `mutation_smoke.py` (mutates the changed
+  lines of each target — flip a comparison / remove a `raise` guard / swap a boolean op
+  — and re-runs the covering tests; a *surviving* mutant means the test asserts nothing
+  the mutation breaks; required for high/critical/sensitive changes) and
+  `red_green_replay.py` (CI re-runs the test-first ritual: base+PR-tests must FAIL with a
+  legitimate red — not a `self.fail("TODO")`/import/syntax error — and head must PASS with
+  the same identities; required for bug fixes). Both keep a pure, unit-tested core and a
+  documented DB/git orchestration runner. New CLI verbs: `diff-targets`, `test-quality`,
+  `changed-coverage`, `runtime-path`, `scenario-satisfaction`, `mutation-smoke`,
+  `red-green-replay`, `attest`, `verify-attestation`, and `deploy-gate --strict`.
+  `odoo-testing`/`odoo-dev` SKILLs document the gate + an extended PR checklist.
+  Design grounded in three Oracle (GPT-5.5 Pro) adversarial reviews
+  (`plans/reports/analysis-260701-1055-eradicate-fake-tests.html`). The final review
+  found and we fixed: a critical freshness bypass (envelopes with an empty
+  `subject.head_sha` slipped the replay check — provenance is now bound **per
+  artifact**: hash + canonical name + a non-empty head equal to the CI-set
+  `ODOO_AI_EXPECTED_HEAD_SHA`), and a policy gap where normal-risk weak-assert tests
+  could approve (`mutation_smoke` is now core-required for every strict approval and
+  a surviving mutant blocks regardless of risk; `test_quality` now blocks swallowed
+  Odoo business exceptions like `except UserError: pass`; `locked_period` no longer
+  accepts a generic `UserError`). **Honest posture:** this is a strong hardening gate,
+  NOT eradication. The decisive runtime facts are still measured inside the untrusted
+  test process and signed after the fact, so `--strict = approve` holds only when CI
+  runs the observers as pinned, isolated, fail-closed tooling (see the SKILL "Trust
+  boundary" note). Human review stays mandatory for accounting/stock/payment/hr,
+  security, and controllers even when the gate is green.
+- **Layer L — trusted-observation boundary** (the final review's deepest gap: runtime
+  facts are measured inside the untrusted test process, so a hostile test could
+  disable the recorder and emit green). `runtime_observer.py` is a CI-owned tracer
+  that **fails closed**: it heartbeats to detect a `sys.settrace(None)`/replacement
+  mid-run and self-reports `trace_integrity` (`sealed`/`tampered`/`incomplete`/
+  `absent`) plus its own `tool_digest`. `deploy_gate.py --strict` now blocks any
+  `runtime_path` whose `producer.trace_integrity != "sealed"`, and — when
+  `ODOO_AI_EXPECTED_PROBE_DIGEST` is set — whose observer digest doesn't match the
+  CI-pinned one (a swapped observer). The seal is only trustworthy with the OS/CI
+  isolation documented in `references/ci-trusted-observer.md` (inject the observer
+  from a CI-owned path, evidence dir not writable by the test process, sign after
+  the process exits). End-to-end verified: a fully-signed bundle whose observer
+  reports `tampered` → `block`. A fourth Oracle review of this boundary found and we
+  fixed: the disable/**restore** attack (tracer disabled briefly then restored still
+  sealed) — now caught by a permanent `sys.addaudithook` settrace counter that
+  survives the restore; unknown output ownership now fails closed (`incomplete`, not
+  sealed); and the CI-pinned observer digest (`ODOO_AI_EXPECTED_PROBE_DIGEST`) is now
+  **mandatory** for strict auto-approve (absent → `needs_human`, mismatch → `block`).
+  Honest residual remains and is documented: an in-process attacker that mutates the
+  observer's own state before it seals — only true process/container isolation closes
+  that, which is CI's responsibility, not the gate's. Final suite: 758 passed.
+
 - **`odoo-user-guide` skill (v1)** — generate end-user how-to guides for an Odoo
   flow from the running instance. `odoo-guide-init` grounds the steps with the
   `odoo-ai` CLI (Layer K `surface` + view buttons + effective per-role

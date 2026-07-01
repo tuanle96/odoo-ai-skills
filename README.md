@@ -117,7 +117,7 @@ skills/odoo-introspect/scripts/odoo-ai --db <DB> all sale.order
 | **odoo-module-scaffold** | New module skeleton + correct `__manifest__.py` (incl. `external_dependencies` hygiene). |
 | **odoo-views** | View XML (form/list/kanban/search) + inheritance/xpath; the v17/18 `attrs`-removal & `<list>`/`<chatter/>` changes. |
 | **odoo-security** | ACL, record rules, groups, multi-company — authoring + the real eval order. |
-| **odoo-testing** | The test gate: `at_install`/`post_install`, non-admin, multi-company, batch, `-i`/`-u`. |
+| **odoo-testing** | The test gate: `at_install`/`post_install`, non-admin, multi-company, batch, `-i`/`-u`. Hosts the **Layer L** hardened evidence gate — CI-produced, HMAC-signed proof (diff-targets, changed-line coverage, runtime-path binding, scenario satisfaction, test-quality lint, mutation smoke, red/green replay) that makes "high coverage but runtime breaks" a **block**, not a green tick. |
 | **odoo-review** | The review gate: catch the security / data-loss / silent-correctness / perf defects AI ships before merge. |
 | **odoo-debug** | Symptom→tool table, traceback decoder, `--dev`, runtime tracing + **runtime state capture / exception post-mortem** (Layer F) and **debugpy/DAP** step-through, "my change didn't apply" preflight. |
 
