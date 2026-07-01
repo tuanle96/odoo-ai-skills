@@ -49,7 +49,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   agent-driven capture reaches `odoo-guide-render` with no dependency on the
   deterministic driver. `odoo-guide-render` defaults to **Markdown** output
   (`guide.md` + `screenshots/`, GitHub/KB-friendly) with `--format html` for a
-  self-contained page.
+  self-contained page. Screenshots are **annotated with a spotlight** (dim the
+  page, red box + numbered badge on the action target) so readers see exactly
+  where to act. **Model-agnostic:** `odoo-guide-prep` / `odoo-guide-run` take
+  `--record-id` to document an existing record of ANY model (nothing created or
+  torn down); auto-create is an optional recipe registry (`odoo_rpc.RECIPES`,
+  ships `sale.order`); and teardown (`cleanup_record`) is a best-effort,
+  model-agnostic chain (unlock → cancel/`*.cancel` wizard → `button_cancel` →
+  delete → archive) that runs only on records the skill created. Verified live on
+  Odoo 18 for both `sale.order` (confirm) and `purchase.order` (create) flows.
 
 ## [0.12.1] - 2026-06-29
 

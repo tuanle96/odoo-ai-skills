@@ -26,20 +26,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import odoo_guide_lib as lib  # noqa: E402
-from odoo_rpc import OdooRPC  # noqa: E402
-
-
-def _create_test_record(rpc: OdooRPC, model: str) -> int:
-    if model != "sale.order":
-        sys.exit(f"❌ v1 only ships a test-record recipe for sale.order (got {model})")
-    partner = rpc.execute("res.partner", "search", [["customer_rank", ">", 0]], limit=1) \
-        or rpc.execute("res.partner", "search", [], limit=1)
-    product = rpc.execute("product.product", "search", [["sale_ok", "=", True], ["type", "=", "service"]], limit=1) \
-        or rpc.execute("product.product", "search", [["sale_ok", "=", True]], limit=1)
-    if not partner or not product:
-        sys.exit("❌ no partner/service product available to build a test sale.order")
-    return rpc.create("sale.order", {"partner_id": partner[0],
-                                     "order_line": [(0, 0, {"product_id": product[0], "product_uom_qty": 1})]})
+from odoo_rpc import OdooRPC, obtain_record  # noqa: E402
 
 
 def main() -> int:
@@ -51,6 +38,8 @@ def main() -> int:
     ap.add_argument("--password", default=os.environ.get("ODOO_GUIDE_PASSWORD"))
     ap.add_argument("--model", default="sale.order")
     ap.add_argument("--method", default=lib.DEFAULT_METHOD)
+    ap.add_argument("--record-id", type=int,
+                    help="document an EXISTING record (any model) — nothing is created or torn down")
     ap.add_argument("--expected-field", default="state")
     ap.add_argument("--expected-value", default="sale")
     ap.add_argument("--sandbox", action="store_true")
@@ -73,7 +62,10 @@ def main() -> int:
     if not rights.get("write"):
         sys.exit(f"❌ {args.login} lacks write access on {args.model} — cannot document this flow as this role")
 
-    rec_id = _create_test_record(rpc, args.model)
+    try:
+        rec_id, created = obtain_record(rpc, args.model, args.record_id)
+    except RuntimeError as e:
+        sys.exit(f"❌ {e}")
     gid = lib.slugify(args.intent)
     gdir = Path(args.out_dir) / gid
     (gdir / "screenshots").mkdir(parents=True, exist_ok=True)
@@ -81,8 +73,8 @@ def main() -> int:
     flow = {
         "guide": {"id": gid, "title": args.intent, "model": args.model, "role": args.login},
         "record_id": rec_id,
-        "form_url": f"{args.url}/odoo/action-base.action_open_record/{rec_id}",  # fallback below
-        "form_url_legacy": f"{args.url}/web#id={rec_id}&model={args.model}&view_type=form",
+        "created": created,  # only skill-created records are torn down by odoo-guide-verify
+        "form_url": f"{args.url}/web#id={rec_id}&model={args.model}&view_type=form",  # generic backend record URL
         "expected": {"field": args.expected_field, "equals": args.expected_value},
         "drive_steps": [
             {"n": 1, "do": "Open the record form", "screenshot": "screenshots/01_before.png"},
@@ -96,7 +88,7 @@ def main() -> int:
     evidence = {"guide": flow["guide"], "record_id": rec_id, "steps": [], "proof": None}
     (gdir / "evidence.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2))
 
-    print(f"==> created owned test {args.model} id={rec_id}; wrote {gdir}/flow.json")
+    print(f"==> {'created owned test' if created else 'using existing'} {args.model} id={rec_id}; wrote {gdir}/flow.json")
     print(f"==> button to click: {label} ({method}); expect {args.expected_field}={args.expected_value}")
     print("==> NEXT (agent, via MCP browser): open the form, screenshot, find+click the button, "
           "screenshot the result, and fill evidence.json. Then run odoo-guide-verify, write copy.json, render.")

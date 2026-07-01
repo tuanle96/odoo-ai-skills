@@ -12,6 +12,27 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "skills" / "odoo-user-gui
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import odoo_guide_lib as lib  # noqa: E402
+import odoo_rpc  # noqa: E402  (stdlib-only at import; no server needed for obtain_record)
+
+
+class _FakeRPC:
+    """Minimal stand-in so obtain_record's recipe path is unit-testable offline."""
+    def execute(self, model, method, *a, **k):
+        return [7] if method == "search" else None
+    def create(self, model, vals, context=None):
+        return 99
+
+
+class TestObtainRecord(unittest.TestCase):
+    def test_existing_record_id_is_not_created(self):
+        self.assertEqual(odoo_rpc.obtain_record(None, "any.model", record_id=42), (42, False))
+
+    def test_recipe_creates_for_known_model(self):
+        self.assertEqual(odoo_rpc.obtain_record(_FakeRPC(), "sale.order"), (99, True))
+
+    def test_unknown_model_without_record_id_raises(self):
+        with self.assertRaises(RuntimeError):
+            odoo_rpc.obtain_record(_FakeRPC(), "purchase.order")
 
 
 SURFACE = {

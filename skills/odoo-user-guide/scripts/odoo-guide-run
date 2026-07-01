@@ -24,44 +24,30 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import odoo_guide_lib as lib  # noqa: E402
-from odoo_rpc import OdooRPC  # noqa: E402
+from odoo_rpc import OdooRPC, obtain_record  # noqa: E402
 
 SCALE = 2  # device pixel ratio -> retina-crisp screenshots
 PAD = 24   # CSS px of breathing room around the zoomed action target
 
-# Outline the action target + drop a numbered badge, via JS so the full shot is
-# self-explanatory even before the zoom crop.
+# Spotlight the action target: dim the rest of the page, draw a red rounded box +
+# a numbered badge around the element — so the reader sees exactly where to act.
 _ANNOTATE_JS = """([sel, n]) => {
   const el = document.querySelector(sel); if (!el) return false;
-  el.style.outline = '3px solid #ff2e63'; el.style.outlineOffset = '2px';
-  const b = document.createElement('div');
-  b.textContent = n; b.style.cssText =
-    'position:absolute;z-index:99999;background:#ff2e63;color:#fff;font:700 14px sans-serif;'+
-    'width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;'+
-    'box-shadow:0 1px 4px rgba(0,0,0,.4)';
   const r = el.getBoundingClientRect();
-  b.style.left = (window.scrollX + r.left - 12) + 'px';
-  b.style.top = (window.scrollY + r.top - 12) + 'px';
-  b.setAttribute('data-guide-badge', '1'); document.body.appendChild(b); return true;
+  const box = document.createElement('div'); box.setAttribute('data-guide-badge','1');
+  box.style.cssText = `position:fixed;left:${r.left-8}px;top:${r.top-8}px;width:${r.width+16}px;`+
+    `height:${r.height+16}px;border:3px solid #ff2e63;border-radius:10px;z-index:2147483000;`+
+    `pointer-events:none;box-shadow:0 0 0 100000px rgba(12,10,20,.55),0 0 22px 6px rgba(255,46,99,.75);`;
+  document.body.appendChild(box);
+  const b = document.createElement('div'); b.setAttribute('data-guide-badge','1'); b.textContent = n;
+  b.style.cssText = `position:fixed;left:${r.left-20}px;top:${r.top-20}px;width:34px;height:34px;`+
+    `background:#ff2e63;color:#fff;font:800 17px sans-serif;border-radius:50%;display:flex;`+
+    `align-items:center;justify-content:center;z-index:2147483002;box-shadow:0 2px 8px rgba(0,0,0,.5);pointer-events:none;`;
+  document.body.appendChild(b); return true;
 }"""
 _CLEAR_JS = "() => document.querySelectorAll('[data-guide-badge]').forEach(e=>e.remove())"
 # Hide chrome that clutters an end-user guide (developer/debug banners).
 _DECLUTTER_JS = "() => document.querySelectorAll('.o_debug_manager, .o_navbar_apps_menu .o_debug').forEach(e=>e.remove())"
-
-
-def _create_test_record(rpc: OdooRPC, model: str) -> int:
-    """v1 recipe for the sale.order slice: pick a partner + service product, draft."""
-    if model != "sale.order":
-        sys.exit(f"❌ v1 only ships a test-record recipe for sale.order (got {model})")
-    partners = rpc.execute("res.partner", "search", [["customer_rank", ">", 0]], limit=1) \
-        or rpc.execute("res.partner", "search", [], limit=1)
-    products = rpc.execute("product.product", "search", [["sale_ok", "=", True], ["type", "=", "service"]], limit=1) \
-        or rpc.execute("product.product", "search", [["sale_ok", "=", True]], limit=1) \
-        or rpc.execute("product.product", "search", [], limit=1)
-    if not partners or not products:
-        sys.exit("❌ no partner/product available to build a test sale.order")
-    return rpc.create("sale.order", {"partner_id": partners[0],
-                                     "order_line": [(0, 0, {"product_id": products[0], "product_uom_qty": 1})]})
 
 
 def _resolve(page, step):
@@ -144,6 +130,8 @@ def main() -> int:
     ap.add_argument("--login", required=True)
     ap.add_argument("--password", default=os.environ.get("ODOO_GUIDE_PASSWORD"))
     ap.add_argument("--sandbox", action="store_true")
+    ap.add_argument("--record-id", type=int,
+                    help="replay against an EXISTING record (any model) — not created or torn down")
     ap.add_argument("--out-dir", help="default: alongside the manifest")
     ap.add_argument("--headed", action="store_true")
     args = ap.parse_args()
@@ -171,8 +159,11 @@ def main() -> int:
     expected = next((s["expected"] for s in g["steps"] if s.get("expected")), None)
 
     rpc = OdooRPC(args.url, args.db, args.login, args.password)
-    rec_id = _create_test_record(rpc, model)
-    print(f"==> created owned test {model} id={rec_id}")
+    try:
+        rec_id, created = obtain_record(rpc, model, args.record_id)
+    except RuntimeError as e:
+        sys.exit(f"❌ {e}")
+    print(f"==> {'created owned test' if created else 'using existing'} {model} id={rec_id}")
 
     evidence = {"guide": {"id": g["id"], "title": g["title"], "model": model,
                           "role": g.get("role"), "url": args.url}}
@@ -199,7 +190,8 @@ def main() -> int:
             print(f"==> backend proof: {expected['field']}={actual} (expected {expected['equals']}) "
                   f"-> {'PASS' if evidence['proof']['pass'] else 'FAIL'}")
     finally:
-        rpc.cleanup_record(model, rec_id)
+        if created:  # only tear down a record THIS run created; never an existing one
+            rpc.cleanup_record(model, rec_id)
         (gdir / "evidence.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2))
         _write_copy_template(gdir, evidence)
 

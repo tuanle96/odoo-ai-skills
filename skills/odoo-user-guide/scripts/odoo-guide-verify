@@ -50,9 +50,13 @@ def main() -> int:
     print(f"==> backend proof: {exp['field']}={actual} (expected {exp['equals']}) "
           f"-> {'PASS' if proof['pass'] else 'FAIL'}")
 
-    if not args.keep:
+    if args.keep:
+        pass
+    elif flow.get("created", True):  # only tear down records THIS skill created
         rpc.cleanup_record(model, rec_id)
         print(f"==> cleaned up test {model} id={rec_id}")
+    else:
+        print(f"==> kept existing {model} id={rec_id} (not created by the guide — never deleted)")
     return 0 if proof["pass"] else 1
 
 

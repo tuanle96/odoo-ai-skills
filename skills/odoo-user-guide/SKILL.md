@@ -38,12 +38,18 @@ export ODOO_GUIDE_PASSWORD='***'
 U="--url https://odoo1.example.dev --db DEMO --login tuan.le"
 ```
 
-1. **PREP — ground + create an owned test record** (deterministic):
+1. **PREP — ground + obtain a record to document** (deterministic):
    `$SK/odoo-guide-prep "xác nhận đơn bán hàng" $U --sandbox`
-   Reads the real form-view buttons + effective access over RPC, creates an owned
-   test record (mail off), and writes `guides/<id>/flow.json` (the form URL, the
-   button to click + its label, the expected end state) + an `evidence.json`
-   skeleton + a `screenshots/` dir.
+   Reads the real form-view buttons + effective access over RPC and writes
+   `guides/<id>/flow.json` (form URL, the button + its label, expected end state) +
+   an `evidence.json` skeleton + a `screenshots/` dir. **Generic across models:**
+   - `--model <model> --record-id <id>` → document an **existing** record of **any**
+     model (nothing is created or torn down — the safe default for real data).
+   - no `--record-id` → auto-creates a throwaway record **only** for models with a
+     built-in recipe (currently `sale.order`); other models tell you to pass
+     `--record-id`, or you drive a **CREATE** flow with the agent (New → fill → save),
+     which needs no pre-made record at all.
+   Only records the skill created are cleaned up by `odoo-guide-verify`.
 
 2. **DRIVE — the agent, live, via the MCP browser tool** (claude-in-chrome /
    Playwright MCP). For each step in `flow.json`:
@@ -59,6 +65,10 @@ U="--url https://odoo1.example.dev --db DEMO --login tuan.le"
      in the user's language** (`--label`) and the visible state change
      (`--state-before` / `--state-after`). `odoo-guide-shot` copies each image into
      `screenshots/NN_kind.png` and records the step in `evidence.json` (ordered).
+   - **Annotate the target** so the reader sees where to act: before the screenshot,
+     inject a spotlight (dim the page, draw a red box + numbered badge on the target
+     element) — via the MCP `javascript_tool`. The deterministic `odoo-guide-run`
+     path does this automatically (`_ANNOTATE_JS`); the agent path should match it.
    - If a wizard/dialog appears (e.g. a cancel confirmation), handle it as a human
      would — it's visible in the page; adapt instead of failing.
 
@@ -98,10 +108,17 @@ refuses if the role lacks write access. The test record is created by the run,
 mail-disabled, and cleaned up by `odoo-guide-verify` (sale.order: unlock → cancel
 wizard). The agent must never drive existing business records.
 
-## Scope (v1)
+## Scope
 
-- Ships the `sale.order` "confirm" recipe (statusbar-button state transition).
-- Not yet: a generic test-data recipe for other models, multi-step wizards/forms,
+- **Model-agnostic** — grounding, driving, annotation, proof, teardown and render
+  work for any model. Point at an existing record with `--record-id`, or drive a
+  CREATE flow with the agent. The only model-specific piece is the optional
+  auto-create recipe registry in `odoo_rpc.RECIPES` (ships `sale.order`; add more,
+  or just use `--record-id`).
+- Teardown (`odoo_rpc.cleanup_record`) is best-effort and model-agnostic
+  (unlock → cancel/`*.cancel` wizard → `button_cancel` → delete → archive) and runs
+  **only** on records the skill created.
+- Not yet: auto-create recipes for more models, richer multi-step wizard capture,
   voice/TTS, MP4. Those are the v2/v3 roadmap.
 
 ## Install (this skill only)

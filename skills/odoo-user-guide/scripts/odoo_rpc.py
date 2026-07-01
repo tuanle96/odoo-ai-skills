@@ -10,6 +10,37 @@ from __future__ import annotations
 import xmlrpc.client
 
 
+def _recipe_sale_order(rpc) -> int:
+    """Convenience recipe: a throwaway draft sale.order (partner + service line)."""
+    partner = rpc.execute("res.partner", "search", [["customer_rank", ">", 0]], limit=1) \
+        or rpc.execute("res.partner", "search", [], limit=1)
+    product = rpc.execute("product.product", "search", [["sale_ok", "=", True], ["type", "=", "service"]], limit=1) \
+        or rpc.execute("product.product", "search", [["sale_ok", "=", True]], limit=1)
+    if not partner or not product:
+        raise RuntimeError("no partner/service product available to build a test sale.order")
+    return rpc.create("sale.order", {"partner_id": partner[0],
+                                     "order_line": [(0, 0, {"product_id": product[0], "product_uom_qty": 1})]})
+
+
+# Optional auto-create recipes. Model-agnostic guides use --record-id instead; add a
+# builder here only for common demo flows. Keeping this the ONE place tied to a model.
+RECIPES = {"sale.order": _recipe_sale_order}
+
+
+def obtain_record(rpc, model: str, record_id: int | None = None) -> tuple[int, bool]:
+    """Return (record_id, created_by_us). Generic across models: pass an existing
+    record_id (nothing created or torn down), or auto-create via a known recipe.
+    Raises RuntimeError (with guidance) when neither applies — callers turn that into
+    a clean exit."""
+    if record_id:
+        return record_id, False
+    recipe = RECIPES.get(model)
+    if recipe:
+        return recipe(rpc), True
+    raise RuntimeError(f"no built-in test-record recipe for {model}. Pass --record-id <id> to document "
+                       f"an existing record, or drive a CREATE flow with the agent (New → fill → save).")
+
+
 class OdooRPC:
     def __init__(self, url: str, db: str, login: str, password: str):
         self.url, self.db, self.password = url.rstrip("/"), db, password
@@ -42,27 +73,38 @@ class OdooRPC:
         return rows[0][field] if rows else None
 
     def cleanup_record(self, model: str, rec_id: int) -> None:
-        """Undo a guide run's owned test record so nothing lingers live.
-
-        sale.order needs its own teardown: a confirmed order may be LOCKED and
-        cancelling pops the `sale.order.cancel` confirmation wizard — a plain
-        `action_cancel` over RPC silently no-ops. Other models fall back to
-        archiving.
+        """Best-effort, MODEL-AGNOSTIC teardown of a record the guide run created,
+        so nothing lingers live. Tries, in order and each guarded: unlock (locked
+        orders), cancel (incl. the `*.cancel` confirmation wizard some models pop),
+        `button_cancel` (purchase-style), then delete; archive only as a last
+        resort. Works for sale.order, purchase.order, and others without any
+        per-model special-casing.
         """
-        if model == "sale.order":
+        for method in ("action_unlock", "action_draft"):
             try:
-                self.execute(model, "action_unlock", [rec_id])
+                self.execute(model, method, [rec_id])
             except Exception:
                 pass
+        for cancel in ("action_cancel", "button_cancel"):
             try:
-                res = self.execute(model, "action_cancel", [rec_id])
-                if isinstance(res, dict) and res.get("res_model") == "sale.order.cancel":
-                    wiz = self.execute("sale.order.cancel", "create", {"order_id": rec_id})
-                    self.execute("sale.order.cancel", "action_cancel", [wiz])
+                res = self.execute(model, cancel, [rec_id])
+                if isinstance(res, dict) and str(res.get("res_model", "")).endswith(".cancel"):
+                    wiz_model = res["res_model"]
+                    wiz = self.execute(wiz_model, "create", {"order_id": rec_id})
+                    for act in ("action_cancel", "cancel"):
+                        try:
+                            self.execute(wiz_model, act, [wiz]); break
+                        except Exception:
+                            continue
+                break
             except Exception:
-                pass
-        else:
-            self.archive(model, rec_id)
+                continue
+        try:
+            self.execute(model, "unlink", [rec_id])  # prefer deleting the throwaway record
+            return
+        except Exception:
+            pass
+        self.archive(model, rec_id)
 
     def archive(self, model: str, rec_id: int) -> None:
         try:
