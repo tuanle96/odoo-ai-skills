@@ -190,7 +190,7 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches){document.documentEle
 <a id="top"></a>
 <section class="hero" style="border-top:none">
   <div class="wrap">
-    <span class="tag"><b>Claude Code plugin</b> · Odoo 17 / 18 / 19</span>
+    <span class="tag"><b>Claude Code &amp; Codex plugin</b> · Odoo 17 / 18 / 19</span>
     <h1>Stop letting AI <span class="grad">guess</span> how Odoo works.</h1>
     <p class="sub"><b>Static indexes suggest; this verifies — against your running instance.</b>
       The local-first verification &amp; deploy gate for AI-written Odoo changes: it reads ground truth
@@ -260,7 +260,8 @@ if(!matchMedia('(prefers-reduced-motion: reduce)').matches){document.documentEle
       <div class="card"><h3><span class="badge">G</span> security_sim</h3><p>Effective per-user/company access — combined ACL + record-rule domain via Odoo's own combiner; the <code>sudo()</code> blind spots.</p></div>
       <div class="card"><h3><span class="badge">H</span> capabilities</h3><p>Does Odoo already ship this? Native surface + <code>native-check</code> gate-then-rank over curated cards, existence-gated against the instance.</p></div>
     </div>
-    <p class="lead" style="margin-top:30px"><b>Layer&nbsp;I — enforcement gates</b> (local, no DB): scenario-test generator · env parity/drift · static anti-pattern validator · enforced privacy redaction · upgrade/migration harness · <b>deploy-gate</b> (approve / needs-human / block) + a PR-comment <b>evidence bundle</b> · a <b>bring-your-own-index</b> claim verifier. <b>Layer&nbsp;J</b> — a local Odoo developer-docs index. Bring any static index or agent; this verifies it against <i>your</i> running instance.</p>
+    <p class="lead" style="margin-top:30px"><b>Layer&nbsp;I — enforcement gates</b> (local, no DB): scenario-test generator · env parity/drift · static anti-pattern validator · enforced privacy redaction · upgrade/migration harness · <b>deploy-gate</b> (approve / needs-human / block) + a PR-comment <b>evidence bundle</b> · a <b>bring-your-own-index</b> claim verifier. <b>Layer&nbsp;J</b> — a local Odoo developer-docs index. <b>Layer&nbsp;K</b> — discovery &amp; measurement: rank the live entrypoint surface (buttons/crons/automations/routes), sample the real cross-app flow as an Execution Surface Graph, score hallucination reduction against a benchmark, and enforce no-introspect-no-edit via a PreToolUse hook. Bring any static index or agent; this verifies it against <i>your</i> running instance.</p>
+    <p class="lead" style="margin-top:18px"><b>Layer&nbsp;L — the hardened evidence gate.</b> Kills <i>"coverage theater"</i> — an AI agent writing mocked / vacuous-assert tests, or hand-authoring the evidence JSON, to turn the gate green while the real method still throws at runtime. CI (not the agent) produces and HMAC-signs the proof and binds it to the git diff: <b>diff-targets</b> · <b>changed-line coverage</b> · <b>runtime-path binding</b> (the changed method ran through the live registry MRO) · <b>scenario satisfaction</b> · <b>test-quality lint</b> · <b>mutation smoke</b> · <b>red/green replay</b> · a fail-closed <b>trusted-observation</b> seal. <code>deploy-gate --strict</code> makes "high coverage but runtime breaks" a <b>block</b>, not a green tick.</p>
   </div>
 </section>
 
@@ -335,13 +336,18 @@ self.assertEqual(order.state, <span class="s">"sale"</span>)   <span class="c">#
   <div class="wrap">
     <span class="eyebrow">Install</span>
     <h2>Two commands</h2>
-    <p class="lead">It's a Claude Code plugin and its own marketplace. Skills load namespaced
+    <p class="lead">Ships as both a <b>Claude Code</b> and a <b>Codex</b> plugin from the same repo/marketplace. Skills load namespaced
       (<code>/odoo-ai-skills:odoo</code>, …).</p>
-<pre><span class="c"># register the marketplace, then install</span>
+<pre><span class="c"># Claude Code — register the marketplace, then install</span>
 claude plugin marketplace add tuanle96/odoo-ai-skills
 claude plugin install odoo-ai-skills@odoo-ai
 
-<span class="c"># gather ground truth before writing code</span>
+<span class="c"># Codex — same skills, native adapter (clone, then add)</span>
+git clone https://github.com/tuanle96/odoo-ai-skills
+codex plugin marketplace add ./odoo-ai-skills
+codex plugin add odoo-ai-skills@odoo-ai
+
+<span class="c"># gather ground truth before writing code (either agent)</span>
 odoo-ai --db &lt;DB&gt; all sale.order --methods action_confirm</pre>
     <p class="lead" style="margin-top:18px"><b style="color:var(--text)">Requirements:</b>
       Odoo 17 / 18 / 19; shell access to <code>odoo-bin shell</code> on a dev/staging DB. On
@@ -352,7 +358,7 @@ odoo-ai --db &lt;DB&gt; all sale.order --methods action_confirm</pre>
 
 <footer>
   <div class="wrap row">
-    <div><span class="brand"><span class="dot"></span> odoo-ai-skills</span> · LGPL-3.0 · v0.9.1</div>
+    <div><span class="brand"><span class="dot"></span> odoo-ai-skills</span> · LGPL-3.0 · v0.13.0</div>
     <div style="display:flex; gap:22px">
       <a href="https://github.com/tuanle96/odoo-ai-skills">GitHub</a>
       <a href="https://github.com/tuanle96/odoo-ai-skills/blob/main/CHANGELOG.md">Changelog</a>
