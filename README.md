@@ -5,6 +5,7 @@
 [![integration](https://github.com/tuanle96/odoo-ai-skills/actions/workflows/integration.yml/badge.svg)](https://github.com/tuanle96/odoo-ai-skills/actions/workflows/integration.yml)
 [![Odoo 17/18/19](https://img.shields.io/badge/Odoo-17%20%7C%2018%20%7C%2019-714B67)](https://www.odoo.com)
 [![license: LGPL-3](https://img.shields.io/badge/license-LGPL--3-blue)](#license)
+[![skills.sh](https://skills.sh/b/tuanle96/odoo-ai-skills)](https://skills.sh/tuanle96/odoo-ai-skills)
 
 A [Claude Code](https://docs.claude.com/en/docs/claude-code) **skills suite for doing Odoo development with an AI agent — correctly.**
 
@@ -42,6 +43,18 @@ But a static index, by construction, **cannot know what is true in _your_ instan
 - **Verification & enforcement, not just lookup.** [Layer I](#the-enforcement-gates-layer-i) gates the deploy: scenario tests, env drift, validation, redaction, migration risk, and an `approve / needs-human / block` verdict.
 
 Want ecosystem breadth too? Feed an external index's suggestions in as *claims* — `odoo-ai-skills` verifies each against the live instance rather than trusting it (see `verify-claims`). The suite's own `docs` lookup (Layer J) is just one such upstream source, built locally and existence-gated.
+
+## Quick install (any skills-compatible agent)
+
+```bash
+npx skills add tuanle96/odoo-ai-skills
+```
+
+One command installs the suite for Claude Code, Codex, Gemini CLI, GitHub
+Copilot, and other [Agent Skills](https://skills.sh)-compatible agents
+(bundled `scripts/` ship with each skill). For the full Claude Code
+experience — namespaced router, marketplace updates — use the plugin
+install below.
 
 ## Install as a Claude Code plugin
 
@@ -99,7 +112,7 @@ skills/odoo-introspect/scripts/odoo-ai --db <DB> all sale.order
 
 - **Odoo 17 / 18** (version floor), through **Odoo 19** (current LTS, released Sept 2025). v16 deltas and the v18.1 → 19 API changes (`check_access`/`has_access`, `@api.private`, `type='jsonrpc'`, `_read_group`/`formatted_read_group`, `aggregator`, `record.env.*`, `odoo.Domain`) are noted per-skill and in `skills/odoo-introspect/references/version-matrix.md`.
 - For introspection: shell access to run `odoo-bin shell` against a dev/staging DB (self-hosted or an odoo.sh branch), or the RPC fallback for Odoo Online/SaaS — see `skills/odoo-introspect/references/introspection.md`.
-- Optional: the [`tuanle96/mcp-odoo`](https://github.com/tuanle96/mcp-odoo) MCP server to expose introspection as agent tools.
+- Optional: the [`tuanle96/mcp-odoo`](https://github.com/tuanle96/mcp-odoo) MCP server to expose introspection as agent tools — it also ships a companion pack of 4 credentials-only **business-workflow skills** (data-quality gate, migration copilot, month-end close, agency fleet review): `npx skills add tuanle96/mcp-odoo`.
 
 ## The skills
 
