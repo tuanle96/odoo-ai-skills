@@ -1,0 +1,25 @@
+# {{module}}/migrations/{{target_series}}.1.0.0/pre-migrate.py
+# Phase: PRE — runs BEFORE the ORM loads the new module version.
+# Use for: renaming tables/columns/models/fields so the ORM doesn't drop data.
+# Helpers: odoo/upgrade-util (LGPL) — signatures verified against source:
+#   util.rename_field(cr, model, old, new, update_references=True)
+#   util.rename_model(cr, old, new, rename_table=True)
+#   util.rename_xmlid(cr, "old.xid", "new.xid")
+# NEVER hardcode integer record ids — resolve via ir_model_data (ids differ per DB).
+import logging
+from odoo.upgrade import util  # pip install git+https://github.com/odoo/upgrade-util@master
+
+_logger = logging.getLogger(__name__)
+
+
+def migrate(cr, version):
+    if not version:  # fresh install, nothing to migrate
+        return
+    # --- field renamed, same type ------------------------------------------
+    # util.rename_field(cr, "{{model}}", "old_field", "new_field")
+
+    # --- field type CHANGED: backup old column, repopulate in post ----------
+    # util.create_column(cr, "{{table}}", "old_field_bak", "varchar")
+    # cr.execute('UPDATE "{{table}}" SET old_field_bak = old_field')
+
+    _logger.info("pre-migrate {{module}} -> %s done", version)

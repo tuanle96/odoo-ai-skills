@@ -6,6 +6,69 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`odoo-upgrade`: battle-tested fleet workflow + two new assets from a real
+  89-module production migration** (45/45 portable modules verified green on
+  Odoo 19 in 17 iterations + 3 parallel domain agents).
+  (1) `scripts/anchor_check.py` — offline view-anchor validator: composes every
+  core parent view through its full target-version inheritance chain (Odoo
+  locate semantics, `hasclass()`) and reports ALL broken xpath anchors at once,
+  instead of one per crashed install; needs `lxml`.
+  (2) `references/field-notes-18-19.md` — 27 verified breakage→fix entries the
+  generated manifest cannot express (res.groups→privilege restructure,
+  `group_ids` vs `all_group_ids` semantics, SVL removal, uom tree,
+  mobile→phone, search-view RNG rules, prod-export data patterns) plus fleet
+  process lessons. (3) `migrate_all.py` gains production-scoping:
+  `--installed-file` (only port what the prod db actually has installed —
+  18/89 modules on the real fleet were dead) and `--exclude` with transitive
+  dependent closure, emitting the ready-to-install `install_set.txt`.
+  SKILL.md's "Migrating EVERYTHING" rewritten as the proven 8-step outer loop
+  (scope by prod db → fleet brief → pre-flight known transforms → rewriters +
+  anchor_check → batch verify loop with positive per-module load proof →
+  db rehearsal → done-means).
+- **`odoo-upgrade`: `scripts/preflight.py`** — applies the 10 deterministic
+  field-notes transforms in one pass before any container run
+  (`_sql_constraints`→Constraint incl. rewriter-crashing dead comment blocks,
+  version bump, description xml-decl strip, target=inline, search-view group
+  string/expand, module categories, tree leftovers, odoo.fields stdlib import)
+  and emits `pydeps.txt`. Idempotent, unit-tested. Distilled after the same
+  transform pass was hand-written across two fleet migrations — the skill's own
+  "codify experience into artifacts" lesson applied to itself.
+- **`upgrade_verify.py` now brings the db up (`compose up -d --wait db`) before
+  the compose run** — a cold `compose run` raced postgres startup and died on
+  connect (observed twice), which would otherwise burn a verify iteration on a
+  non-failure.
+- **`odoo-upgrade` skill — cross-version module porting (18→19), 21st skill.**
+  Four pieces no existing rewriter/pattern-library has: (1) `gen_manifest.py`
+  *generates* the breaking-change manifest from real source-tree diffs (hand-curated
+  lists go stale — OCA's renamed-model data stops at 16→17); ships
+  `references/manifest_18_19.json` generated from full community trees (610 vs 680
+  addons) with confirmed ground truth (`hr.contract`→`hr.version`,
+  `hr.candidate`→`hr.applicant`, `hr.expense.sheet`→`hr.expense`). (2)
+  `upgrade_brief.py` cross-references a custom module against the manifest —
+  severity-ranked findings with file:line, heuristic candidates always labeled
+  with similarity scores. (3) `upgrade_verify.py` installs the module on a live
+  target container and returns structured tracebacks with custom-frame attribution;
+  integration-tested on Odoo 19 — the first real run exposed a **false pass**
+  (Odoo exits 0 while silently skipping an `installable=False`/unmet-deps module),
+  now guarded by the `module_not_loaded` verdict requiring positive proof of load.
+  (4) Data-migration hand-off to the existing `odoo-migration` skill +
+  `upgrade_check.py` harness. Vendored MIT references (letzdoo, TAQAT) with
+  licenses per the skill's `NOTICE.md`; AGPL tools only ever invoked as external
+  CLIs. Regression fixture with 9 planted breakages wired into the test suite
+  (`tests/test_upgrade_skill.py`).
+- **Whole-project migration mechanism in `odoo-upgrade`** — migrate *everything*,
+  not one module at a time. `migrate_all.py` briefs an entire custom-addons tree,
+  topo-sorts the port order by `depends`, grades effort S/M/L per module and can
+  batch-verify the fleet on the target runtime (dogfooded on a real 64-module
+  production tree: 9 errors / 198 warnings, S=57 M=3 L=4 in one command).
+  `db_upgrade.py` + `docker-compose.upgrade.yml` is the whole-DATABASE rehearsal
+  harness (Community path): seed-or-restore → OpenUpgrade `-u all` with
+  `--upgrade-path` → post-upgrade check of the ported customs, each step emitting
+  a structured verdict via the shared traceback parser. OpenUpgrade stays an
+  external AGPL checkout mounted read-only — never vendored. Enterprise databases
+  keep the upgrade.odoo.com path (guidance in SKILL.md "Migrating EVERYTHING").
+
 ## [0.14.0] - 2026-07-03
 
 The strategy pivot from *"a suite of Odoo skills"* to **the local-first evidence

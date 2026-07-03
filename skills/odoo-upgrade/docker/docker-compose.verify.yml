@@ -1,0 +1,24 @@
+# Verification harness for upgrade_verify.py (target: Odoo 19).
+# STATUS: not yet integration-tested — first real run may need volume tweaks.
+#
+#   CUSTOM_ADDONS=/path/to/your/addons docker compose -f docker/docker-compose.verify.yml pull
+#   python3 scripts/upgrade_verify.py --module my_module --db verify19 \
+#       --docker-compose docker/docker-compose.verify.yml
+#
+# upgrade_verify.py invokes: docker compose ... run --rm odoo odoo -d <db> -i <module> ...
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: postgres
+    volumes: [verify-db:/var/lib/postgresql/data]
+  odoo:
+    image: odoo:19
+    depends_on: [db]
+    environment: {HOST: db, USER: odoo, PASSWORD: odoo}
+    volumes:
+      - ${CUSTOM_ADDONS:-./addons}:/mnt/extra-addons:ro
+      - verify-filestore:/var/lib/odoo
+volumes: {verify-db: {}, verify-filestore: {}}

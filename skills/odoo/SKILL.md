@@ -45,7 +45,8 @@ Odoo builds every model, view, security rule, and automation **at runtime** from
 | ACL, record rules, groups, multi-company access | **odoo-security** |
 | QWeb PDF / HTML reports | **odoo-reports** |
 | Seed data, demo, `noupdate`, sequences, config parameters | **odoo-data** |
-| Version upgrade / migration scripts | **odoo-migration** |
+| Version upgrade / migration scripts (own-module data) | **odoo-migration** |
+| Port a module to a new Odoo major version (18→19: breaking changes, verify on target runtime) | **odoo-upgrade** |
 | `odoo.conf`, workers, Docker, odoo.sh, CI test runs, deployment | **odoo-deploy** |
 | Diagnose an error, trace what actually runs, fix slowness | **odoo-debug**, **odoo-perf** |
 | Prove a change with tests (`at_install` vs `post_install`, etc.) | **odoo-testing** |
@@ -59,7 +60,7 @@ Odoo builds every model, view, security rule, and automation **at runtime** from
 - **Tier 0 — foundation:** `odoo-capabilities` (Step 0: is it already native?) → `odoo-introspect` (every other skill calls it).
 - **Tier 1 — core loop:** `odoo-dev` · `odoo-module-scaffold` · `odoo-views` · `odoo-security` · `odoo-testing` · `odoo-review` · `odoo-debug`.
 - **Tier 2 — frontend & report:** `odoo-owl` · `odoo-web` · `odoo-reports`.
-- **Tier 3 — lifecycle:** `odoo-data` · `odoo-migration` · `odoo-perf` · `odoo-deploy`.
+- **Tier 3 — lifecycle:** `odoo-data` · `odoo-migration` · `odoo-upgrade` · `odoo-perf` · `odoo-deploy`.
 - **Tier 4 — domain playbooks:** `odoo-domain-playbooks`.
 
 ## Context strategy — don't pour the whole codebase in

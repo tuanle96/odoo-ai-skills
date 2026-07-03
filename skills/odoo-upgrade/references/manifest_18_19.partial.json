@@ -1,0 +1,1277 @@
+{
+  "meta": {
+    "label": "18.0->19.0 (subset: base,hr,hr_contract,hr_recruitment,hr_expense)",
+    "generated_at": "2026-07-03T05:19:18+00:00",
+    "generator": "gen_manifest.py (odoo-upgrade skill)",
+    "method": "static AST + XML scan; _inherit extensions merged within the scanned tree only; rename matching is HEURISTIC (see *_candidates keys)",
+    "old": {
+      "root": "/home/claude/research/odoo18",
+      "git_ref": "18.0",
+      "py_files": 160,
+      "xml_files": 152,
+      "py_parse_errors": 0,
+      "xml_parse_errors": 0,
+      "modules_scanned": 5
+    },
+    "new": {
+      "root": "/home/claude/research/odoo19",
+      "git_ref": "19.0",
+      "py_files": 156,
+      "xml_files": 152,
+      "py_parse_errors": 0,
+      "xml_parse_errors": 0,
+      "modules_scanned": 4
+    },
+    "coverage_warning": "Findings are relative to the SCANNED subtrees. A 'removed' entry may mean 'moved to an unscanned addon'. For authoritative results scan full community+enterprise trees for both versions."
+  },
+  "modules": {
+    "removed": [
+      "hr_contract"
+    ],
+    "added": []
+  },
+  "models": {
+    "removed": {
+      "candidate.send.mail": {
+        "module": "hr_recruitment",
+        "field_count": 3
+      },
+      "hr.candidate": {
+        "module": "hr_recruitment",
+        "field_count": 30
+      },
+      "hr.contract": {
+        "module": "hr_contract",
+        "field_count": 27
+      },
+      "hr.contract.history": {
+        "module": "hr_contract",
+        "field_count": 24
+      },
+      "hr.employee.base": {
+        "module": "hr",
+        "field_count": 35
+      },
+      "hr.expense.sheet": {
+        "module": "hr_expense",
+        "field_count": 33
+      },
+      "res.partner.title": {
+        "module": "base",
+        "field_count": 2
+      }
+    },
+    "added": {
+      "hr.bank.account.allocation.wizard": {
+        "module": "hr",
+        "field_count": 2
+      },
+      "hr.bank.account.allocation.wizard.line": {
+        "module": "hr",
+        "field_count": 8
+      },
+      "hr.expense.post.wizard": {
+        "module": "hr_expense",
+        "field_count": 3
+      },
+      "hr.talent.pool": {
+        "module": "hr_recruitment",
+        "field_count": 9
+      },
+      "hr.version": {
+        "module": "hr",
+        "field_count": 63
+      },
+      "hr.version.wizard": {
+        "module": "hr",
+        "field_count": 1
+      },
+      "ir.actions.server.history": {
+        "module": "base",
+        "field_count": 2
+      },
+      "job.add.applicants": {
+        "module": "hr_recruitment",
+        "field_count": 2
+      },
+      "properties.base.definition": {
+        "module": "base",
+        "field_count": 2
+      },
+      "properties.base.definition.mixin": {
+        "module": "base",
+        "field_count": 2
+      },
+      "res.groups.privilege": {
+        "module": "base",
+        "field_count": 6
+      },
+      "server.action.history.wizard": {
+        "module": "base",
+        "field_count": 4
+      },
+      "talent.pool.add.applicants": {
+        "module": "hr_recruitment",
+        "field_count": 3
+      }
+    },
+    "renamed_candidates": [
+      {
+        "old": "hr.contract",
+        "new": "hr.version",
+        "similarity": 0.704,
+        "evidence": "overlap(field_names) vs ADDED model",
+        "note": "HEURISTIC — confirm against git history / upgrade scripts before use"
+      }
+    ],
+    "merged_candidates": [
+      {
+        "old": "hr.employee.base",
+        "new": "hr.employee.public",
+        "similarity": 0.943,
+        "evidence": "overlap(field_names) vs SURVIVING model",
+        "note": "HEURISTIC — confirm against git history / upgrade scripts before use"
+      },
+      {
+        "old": "hr.candidate",
+        "new": "hr.applicant",
+        "similarity": 0.767,
+        "evidence": "overlap(field_names) vs SURVIVING model",
+        "note": "HEURISTIC — confirm against git history / upgrade scripts before use"
+      },
+      {
+        "old": "hr.expense.sheet",
+        "new": "hr.expense",
+        "similarity": 0.636,
+        "evidence": "overlap(field_names) vs SURVIVING model",
+        "note": "HEURISTIC — confirm against git history / upgrade scripts before use"
+      }
+    ],
+    "changed": {
+      "account.move": {
+        "fields_removed": {
+          "expense_sheet_id": "Many2one",
+          "show_commercial_partner_warning": "Boolean"
+        },
+        "fields_added": {
+          "expense_ids": "One2many",
+          "nb_expenses": "Integer"
+        },
+        "methods_removed": [
+          "_compute_show_commercial_partner_warning",
+          "_must_delete_all_expense_entries",
+          "action_open_expense_report"
+        ]
+      },
+      "account.payment": {
+        "fields_removed": {
+          "expense_sheet_id": "Many2one"
+        },
+        "fields_added": {
+          "expense_ids": "One2many"
+        },
+        "methods_removed": [
+          "_must_delete_all_expense_payments",
+          "action_open_expense_report"
+        ]
+      },
+      "account.payment.register": {
+        "methods_removed": [
+          "_reconcile_payments"
+        ]
+      },
+      "applicant.get.refuse.reason": {
+        "fields_removed": {
+          "applicant_emails": "Text",
+          "single_applicant_email": "Char"
+        },
+        "fields_added": {
+          "attachment_ids": "Many2many",
+          "duplicate_applicant_ids": "Many2many",
+          "duplicate_applicant_ids_domain": "Binary",
+          "scheduled_date": "Char"
+        },
+        "methods_removed": [
+          "_compute_applicant_emails",
+          "_compute_duplicates_count",
+          "_compute_single_applicant_email",
+          "_inverse_single_applicant_email"
+        ]
+      },
+      "base.module.uninstall": {
+        "fields_removed": {
+          "module_id": "Many2one"
+        },
+        "fields_added": {
+          "impacted_module_ids": "Many2many"
+        },
+        "methods_removed": [
+          "_compute_module_ids",
+          "_onchange_module_id"
+        ]
+      },
+      "calendar.event": {
+        "fields_removed": {
+          "candidate_id": "Many2one"
+        },
+        "methods_removed": [
+          "_compute_candidate_id"
+        ]
+      },
+      "hr.applicant": {
+        "fields_removed": {
+          "candidate_id": "Many2one",
+          "other_applications_count": "Integer"
+        },
+        "fields_added": {
+          "application_count": "Integer",
+          "is_applicant_in_pool": "Boolean",
+          "is_pool_applicant": "Boolean",
+          "legend_waiting": "Char",
+          "pool_applicant_id": "Many2one",
+          "sequence": "Integer",
+          "talent_pool_count": "Integer",
+          "talent_pool_ids": "Many2many"
+        },
+        "field_rename_candidates": [
+          {
+            "old": "other_applications_count",
+            "new": "application_count",
+            "type": "Integer",
+            "similarity": 0.829
+          }
+        ],
+        "methods_removed": [
+          "_compute_categ_ids",
+          "_compute_other_applications_count",
+          "_compute_partner_name",
+          "_inverse_name",
+          "_message_get_suggested_recipients",
+          "_search_partner_name",
+          "action_open_other_applications",
+          "init",
+          "toggle_active"
+        ]
+      },
+      "hr.department": {
+        "fields_removed": {
+          "expense_sheets_to_approve_count": "Integer"
+        },
+        "fields_added": {
+          "expenses_to_approve_count": "Integer"
+        },
+        "field_rename_candidates": [
+          {
+            "old": "expense_sheets_to_approve_count",
+            "new": "expenses_to_approve_count",
+            "type": "Integer",
+            "similarity": 0.893
+          }
+        ],
+        "methods_removed": [
+          "_compute_expense_sheets_to_approve"
+        ]
+      },
+      "hr.departure.reason": {
+        "fields_removed": {
+          "reason_code": "Integer"
+        },
+        "fields_added": {
+          "country_code": "Char",
+          "country_id": "Many2one"
+        }
+      },
+      "hr.departure.wizard": {
+        "fields_removed": {
+          "employee_id": "Many2one"
+        },
+        "fields_added": {
+          "employee_ids": "Many2many",
+          "is_user_employee": "Boolean",
+          "remove_related_user": "Boolean"
+        },
+        "methods_removed": [
+          "_get_employee_departure_date"
+        ]
+      },
+      "hr.employee": {
+        "fields_removed": {
+          "additional_note": "Text",
+          "bank_account_id": "Many2one",
+          "calendar_mismatch": "Boolean",
+          "candidate_id": "One2many",
+          "children": "Integer",
+          "contract_id": "Many2one",
+          "contract_ids": "One2many",
+          "contract_warning": "Boolean",
+          "contracts_count": "Integer",
+          "country_id": "Many2one",
+          "department_id": "Many2one",
+          "departure_date": "Date",
+          "departure_description": "Html",
+          "departure_reason_id": "Many2one",
+          "distance_home_work": "Integer",
+          "distance_home_work_unit": "Selection",
+          "employee_type": "Selection",
+          "first_contract_date": "Date",
+          "gender": "Selection",
+          "identification_id": "Char",
+          "job_id": "Many2one",
+          "km_home_work": "Integer",
+          "marital": "Selection",
+          "notes": "Text",
+          "passport_id": "Char",
+          "private_city": "Char",
+          "private_country_id": "Many2one",
+          "private_state_id": "Many2one",
+          "private_street": "Char",
+          "private_street2": "Char",
+          "private_zip": "Char",
+          "sinid": "Char",
+          "spouse_birthdate": "Date",
+          "spouse_complete_name": "Char",
+          "ssnid": "Char",
+          "vehicle": "Char"
+        },
+        "fields_added": {
+          "applicant_ids": "One2many",
+          "bank_account_ids": "Many2many",
+          "birthday_public_display": "Boolean",
+          "birthday_public_display_string": "Char",
+          "coach_id": "Many2one",
+          "contract_date_end": "Date",
+          "contract_date_start": "Date",
+          "contract_type_id": "Many2one",
+          "contract_wage": "Monetary",
+          "current_date_version": "Date",
+          "current_version_id": "Many2one",
+          "date_end": "Date",
+          "date_start": "Date",
+          "email": "Char",
+          "filter_for_expense": "Boolean",
+          "has_multiple_bank_accounts": "Boolean",
+          "hr_icon_display": "Selection",
+          "hr_presence_state": "Selection",
+          "im_status": "Char",
+          "is_current": "Boolean",
+          "is_future": "Boolean",
+          "is_in_contract": "Boolean",
+          "is_past": "Boolean",
+          "is_trusted_bank_account": "Boolean",
+          "is_user_active": "Boolean",
+          "last_activity": "Date",
+          "last_activity_time": "Char",
+          "mobile_phone": "Char",
+          "newly_hired": "Boolean",
+          "parent_id": "Many2one",
+          "phone": "Char",
+          "primary_bank_account_id": "Many2one",
+          "resource_id": "Many2one",
+          "salary_distribution": "Json",
+          "share": "Boolean",
+          "show_hr_icon_display": "Boolean",
+          "structure_type_id": "Many2one",
+          "trial_date_end": "Date",
+          "tz": "Selection",
+          "version_id": "Many2one",
+          "version_ids": "One2many",
+          "version_revision": "Char",
+          "versions_count": "Integer",
+          "work_contact_id": "Many2one",
+          "work_email": "Char",
+          "work_location_name": "Char",
+          "work_location_type": "Selection",
+          "work_phone": "Char"
+        },
+        "field_rename_candidates": [
+          {
+            "old": "country_id",
+            "new": "contract_type_id",
+            "type": "Many2one",
+            "similarity": 0.692
+          },
+          {
+            "old": "department_id",
+            "new": "parent_id",
+            "type": "Many2one",
+            "similarity": 0.818
+          },
+          {
+            "old": "first_contract_date",
+            "new": "contract_date_end",
+            "type": "Date",
+            "similarity": 0.722
+          },
+          {
+            "old": "bank_account_id",
+            "new": "primary_bank_account_id",
+            "type": "Many2one",
+            "similarity": 0.789
+          },
+          {
+            "old": "contract_id",
+            "new": "contract_type_id",
+            "type": "Many2one",
+            "similarity": 0.815
+          },
+          {
+            "old": "contracts_count",
+            "new": "versions_count",
+            "type": "Integer",
+            "similarity": 0.621
+          },
+          {
+            "old": "private_country_id",
+            "new": "primary_bank_account_id",
+            "type": "Many2one",
+            "similarity": 0.634
+          }
+        ],
+        "methods_removed": [
+          "_check_ssnid",
+          "_compute_contract_warning",
+          "_compute_contracts_count",
+          "_compute_first_contract_date",
+          "_compute_km_home_work",
+          "_cron_check_work_permit_validity",
+          "_get_all_contracts",
+          "_get_first_contracts",
+          "_get_incoming_contracts",
+          "_get_marital_status_selection",
+          "_inverse_km_home_work",
+          "_unlink_except_open_contract",
+          "action_open_contract",
+          "filter_valid",
+          "toggle_active"
+        ]
+      },
+      "hr.employee.public": {
+        "fields_removed": {
+          "first_contract_date": "Date"
+        },
+        "fields_added": {
+          "birthday_public_display_string": "Char",
+          "country_code": "Char",
+          "email": "Char",
+          "filter_for_expense": "Boolean",
+          "hr_icon_display": "Selection",
+          "hr_presence_state": "Selection",
+          "im_status": "Char",
+          "is_user": "Boolean",
+          "last_activity": "Date",
+          "last_activity_time": "Char",
+          "member_of_department": "Boolean",
+          "newly_hired": "Boolean",
+          "phone": "Char",
+          "resource_calendar_id": "Many2one",
+          "share": "Boolean",
+          "show_hr_icon_display": "Boolean",
+          "work_location_name": "Char",
+          "work_location_type": "Selection"
+        },
+        "methods_removed": [
+          "_compute_employee_id",
+          "_search_employee_id",
+          "_search_first_contract_date"
+        ]
+      },
+      "hr.expense": {
+        "fields_removed": {
+          "accounting_date": "Date",
+          "approved_by": "Many2one",
+          "approved_on": "Datetime",
+          "product_uom_category_id": "Many2one",
+          "sheet_id": "Many2one"
+        },
+        "fields_added": {
+          "account_move_id": "Many2one",
+          "amount_residual": "Monetary",
+          "approval_date": "Datetime",
+          "approval_state": "Selection",
+          "can_approve": "Boolean",
+          "can_reset": "Boolean",
+          "department_id": "Many2one",
+          "former_sheet_id": "Integer",
+          "journal_id": "Many2one",
+          "manager_id": "Many2one",
+          "payment_method_line_id": "Many2one",
+          "selectable_payment_method_line_ids": "Many2many",
+          "split_expense_origin_id": "Many2one",
+          "untaxed_amount": "Monetary"
+        },
+        "methods_removed": [
+          "_check_payment_mode",
+          "_create_sheets_from_expense",
+          "_get_default_expense_sheet_values",
+          "_unlink_except_posted_or_approved",
+          "action_get_attachment_view",
+          "action_submit_expenses",
+          "action_view_sheet",
+          "check_amount_not_zero",
+          "get_expense_attachments",
+          "get_expenses_to_submit",
+          "unlink"
+        ]
+      },
+      "hr.expense.approve.duplicate": {
+        "fields_removed": {
+          "sheet_ids": "Many2many"
+        }
+      },
+      "hr.expense.refuse.wizard": {
+        "fields_removed": {
+          "sheet_ids": "Many2many"
+        },
+        "fields_added": {
+          "expense_ids": "Many2many"
+        },
+        "field_rename_candidates": [
+          {
+            "old": "sheet_ids",
+            "new": "expense_ids",
+            "type": "Many2many",
+            "similarity": 0.6
+          }
+        ]
+      },
+      "hr.expense.split": {
+        "fields_added": {
+          "approval_date": "Datetime",
+          "approval_state": "Selection",
+          "manager_id": "Many2one"
+        }
+      },
+      "hr.job": {
+        "fields_removed": {
+          "activities_overdue": "Integer",
+          "activities_today": "Integer",
+          "date_from": "Date",
+          "date_to": "Date"
+        },
+        "fields_added": {
+          "activity_count": "Integer",
+          "employee_count": "Integer",
+          "expected_degree": "Many2one",
+          "job_source_ids": "One2many",
+          "open_application_count": "Integer"
+        },
+        "field_rename_candidates": [
+          {
+            "old": "activities_today",
+            "new": "activity_count",
+            "type": "Integer",
+            "similarity": 0.6
+          },
+          {
+            "old": "activities_overdue",
+            "new": "activity_count",
+            "type": "Integer",
+            "similarity": 0.625
+          }
+        ],
+        "methods_removed": [
+          "action_open_late_activities",
+          "action_open_today_activities",
+          "close_dialog",
+          "edit_dialog"
+        ]
+      },
+      "hr.recruitment.degree": {
+        "fields_added": {
+          "score": "Float"
+        }
+      },
+      "hr.recruitment.source": {
+        "fields_added": {
+          "campaign_id": "Many2one"
+        }
+      },
+      "hr.recruitment.stage": {
+        "fields_added": {
+          "legend_waiting": "Char",
+          "rotting_threshold_days": "Integer"
+        }
+      },
+      "ir.actions.act_window": {
+        "fields_removed": {
+          "groups_id": "Many2many"
+        },
+        "fields_added": {
+          "cache": "Boolean",
+          "group_ids": "Many2many"
+        },
+        "field_rename_candidates": [
+          {
+            "old": "groups_id",
+            "new": "group_ids",
+            "type": "Many2many",
+            "similarity": 0.889
+          }
+        ]
+      },
+      "ir.actions.act_window.view": {
+        "methods_removed": [
+          "_auto_init"
+        ]
+      },
+      "ir.actions.report": {
+        "fields_removed": {
+          "groups_id": "Many2many"
+        },
+        "fields_added": {
+          "group_ids": "Many2many"
+        },
+        "field_rename_candidates": [
+          {
+            "old": "groups_id",
+            "new": "group_ids",
+            "type": "Many2many",
+            "similarity": 0.889
+          }
+        ]
+      },
+      "ir.actions.server": {
+        "fields_removed": {
+          "groups_id": "Many2many"
+        },
+        "fields_added": {
+          "allowed_states": "Json",
+          "automated_name": "Char",
+          "group_ids": "Many2many",
+          "html_value": "Html",
+          "ir_cron_ids": "One2many",
+          "parent_id": "Many2one",
+          "sequence_id": "Many2one",
+          "show_code_history": "Boolean",
+          "warning": "Text"
+        },
+        "fields_type_changed": {
+          "child_ids": {
+            "old": "Many2many",
+            "new": "One2many"
+          }
+        },
+        "field_rename_candidates": [
+          {
+            "old": "groups_id",
+            "new": "group_ids",
+            "type": "Many2many",
+            "similarity": 0.889
+          }
+        ],
+        "methods_removed": [
+          "_check_child_recursion",
+          "_check_webhook_field_ids",
+          "_compute_link_field_id",
+          "_raise_many2many_error",
+          "_register_hook",
+          "_stringify_path"
+        ]
+      },
+      "ir.attachment": {
+        "methods_removed": [
+          "_auto_init",
+          "_filter_attachment_access",
+          "validate_access"
+        ]
+      },
+      "ir.binary": {
+        "methods_removed": [
+          "_find_record_check_access"
+        ]
+      },
+      "ir.cron": {
+        "methods_removed": [
+          "_try_lock",
+          "try_write",
+          "unlink"
+        ]
+      },
+      "ir.default": {
+        "methods_removed": [
+          "_check_accessible_field_id"
+        ]
+      },
+      "ir.filters": {
+        "fields_removed": {
+          "user_id": "Many2one"
+        },
+        "fields_added": {
+          "user_ids": "Many2many"
+        },
+        "methods_removed": [
+          "_auto_init",
+          "_check_global_default",
+          "create_or_replace"
+        ]
+      },
+      "ir.http": {
+        "methods_removed": [
+          "get_translations_for_webclient",
+          "get_web_translations_hash"
+        ]
+      },
+      "ir.mail_server": {
+        "methods_removed": [
+          "_prepare_email_message",
+          "_smtp_login",
+          "build_email",
+          "connect"
+        ]
+      },
+      "ir.model": {
+        "fields_added": {
+          "abstract": "Boolean",
+          "fold_name": "Char"
+        },
+        "methods_removed": [
+          "_add_manual_models",
+          "_instanciate"
+        ]
+      },
+      "ir.model.constraint": {
+        "fields_removed": {
+          "create_date": "Datetime",
+          "write_date": "Datetime"
+        }
+      },
+      "ir.model.data": {
+        "methods_removed": [
+          "_auto_init"
+        ]
+      },
+      "ir.model.fields": {
+        "fields_removed": {
+          "complete_name": "Char"
+        },
+        "fields_type_changed": {
+          "translate": {
+            "old": "Boolean",
+            "new": "Selection"
+          }
+        },
+        "methods_removed": [
+          "_add_manual_fields",
+          "_instanciate"
+        ]
+      },
+      "ir.module.category": {
+        "fields_added": {
+          "privilege_ids": "One2many"
+        },
+        "methods_removed": [
+          "unlink",
+          "write"
+        ]
+      },
+      "ir.module.module": {
+        "methods_removed": [
+          "button_install_cancel",
+          "button_uninstall_cancel",
+          "button_upgrade_cancel"
+        ]
+      },
+      "ir.profile": {
+        "fields_added": {
+          "config_url": "Text",
+          "cpu_duration": "Float",
+          "others": "Text"
+        }
+      },
+      "ir.qweb": {
+        "methods_removed": [
+          "_compile_directive_cache",
+          "_compile_directive_nocache",
+          "_get_cache_key",
+          "_get_cached_values",
+          "_get_view_id",
+          "_load",
+          "_load_values"
+        ]
+      },
+      "ir.sequence": {
+        "methods_removed": [
+          "get",
+          "get_id"
+        ]
+      },
+      "ir.ui.menu": {
+        "fields_removed": {
+          "groups_id": "Many2many"
+        },
+        "fields_added": {
+          "group_ids": "Many2many"
+        },
+        "field_rename_candidates": [
+          {
+            "old": "groups_id",
+            "new": "group_ids",
+            "type": "Many2many",
+            "similarity": 0.889
+          }
+        ],
+        "methods_removed": [
+          "search_count",
+          "search_fetch"
+        ]
+      },
+      "ir.ui.view": {
+        "fields_removed": {
+          "groups_id": "Many2many"
+        },
+        "fields_added": {
+          "group_ids": "Many2many",
+          "invalid_locators": "Json"
+        },
+        "field_rename_candidates": [
+          {
+            "old": "groups_id",
+            "new": "group_ids",
+            "type": "Many2many",
+            "similarity": 0.889
+          }
+        ],
+        "methods_removed": [
+          "_auto_init",
+          "_get",
+          "_get_view_id",
+          "_read_template",
+          "_validate_tag_kanban"
+        ]
+      },
+      "ir.ui.view.custom": {
+        "methods_removed": [
+          "_auto_init"
+        ]
+      },
+      "mail.activity.schedule": {
+        "methods_removed": [
+          "_compute_plan_summary"
+        ]
+      },
+      "res.company": {
+        "fields_removed": {
+          "candidate_properties_definition": "PropertiesDefinition",
+          "expense_outstanding_account_id": "Many2one",
+          "mobile": "Char"
+        },
+        "fields_added": {
+          "company_registry_placeholder": "Char"
+        },
+        "methods_removed": [
+          "_company_default_get"
+        ]
+      },
+      "res.config.settings": {
+        "fields_removed": {
+          "expense_outstanding_account_id": "Many2one",
+          "group_applicant_cv_display": "Boolean",
+          "hr_employee_self_edit": "Boolean",
+          "module_hr_homeworking": "Boolean"
+        },
+        "fields_added": {
+          "module_hr_expense_stripe": "Boolean"
+        },
+        "methods_removed": [
+          "_check_advanced_presence",
+          "_register_hook",
+          "onchange_module"
+        ]
+      },
+      "res.country": {
+        "fields_added": {
+          "country_group_codes": "Json"
+        }
+      },
+      "res.country.group": {
+        "fields_added": {
+          "code": "Char"
+        }
+      },
+      "res.device.log": {
+        "methods_removed": [
+          "init"
+        ]
+      },
+      "res.groups": {
+        "fields_removed": {
+          "category_id": "Many2one",
+          "color": "Integer",
+          "trans_implied_ids": "Many2many",
+          "users": "Many2many"
+        },
+        "fields_added": {
+          "all_implied_by_ids": "Many2many",
+          "all_implied_ids": "Many2many",
+          "all_user_ids": "Many2many",
+          "all_users_count": "Integer",
+          "disjoint_ids": "Many2many",
+          "implied_by_ids": "Many2many",
+          "privilege_id": "Many2one",
+          "sequence": "Integer",
+          "user_ids": "Many2many",
+          "view_group_hierarchy": "Json"
+        },
+        "field_rename_candidates": [
+          {
+            "old": "users",
+            "new": "user_ids",
+            "type": "Many2many",
+            "similarity": 0.769
+          },
+          {
+            "old": "trans_implied_ids",
+            "new": "all_implied_ids",
+            "type": "Many2many",
+            "similarity": 0.812
+          }
+        ],
+        "methods_removed": [
+          "_check_one_user_type",
+          "_compute_trans_implied",
+          "_get_hidden_extra_categories",
+          "_update_user_groups_view",
+          "get_application_groups",
+          "get_groups_by_application"
+        ]
+      },
+      "res.lang": {
+        "fields_removed": {
+          "short_time_format": "Char"
+        },
+        "fields_type_changed": {
+          "grouping": {
+            "old": "Char",
+            "new": "Selection"
+          },
+          "date_format": {
+            "old": "Char",
+            "new": "Selection"
+          },
+          "time_format": {
+            "old": "Char",
+            "new": "Selection"
+          }
+        },
+        "methods_removed": [
+          "_check_grouping",
+          "toggle_active"
+        ]
+      },
+      "res.partner": {
+        "fields_removed": {
+          "mobile": "Char"
+        },
+        "fields_added": {
+          "applicant_ids": "One2many",
+          "application_statistics": "Json",
+          "company_registry_placeholder": "Char",
+          "type_address_label": "Char"
+        },
+        "methods_removed": [
+          "_commercial_sync_to_children",
+          "_get_gravatar_image",
+          "_onchange_parent_id_for_lang",
+          "_update_fields_values",
+          "onchange_email",
+          "update_address"
+        ]
+      },
+      "res.partner.bank": {
+        "fields_added": {
+          "bank_city": "Char",
+          "bank_country": "Many2one",
+          "bank_email": "Char",
+          "bank_phone": "Char",
+          "bank_state": "Many2one",
+          "bank_street": "Char",
+          "bank_street2": "Char",
+          "bank_zip": "Char",
+          "clearing_number": "Char",
+          "color": "Integer",
+          "currency_symbol": "Char",
+          "employee_has_multiple_bank_accounts": "Boolean",
+          "employee_id": "Many2many",
+          "employee_salary_amount": "Float",
+          "employee_salary_amount_is_percentage": "Boolean",
+          "note": "Text"
+        },
+        "methods_removed": [
+          "_condition_to_sql"
+        ]
+      },
+      "res.users": {
+        "fields_removed": {
+          "address_id": "Many2one",
+          "bank_account_id": "Many2one",
+          "birthday": "Date",
+          "can_edit": "Boolean",
+          "certificate": "Selection",
+          "children": "Integer",
+          "coach_id": "Many2one",
+          "country_of_birth": "Many2one",
+          "department_id": "Many2one",
+          "distance_home_work": "Integer",
+          "distance_home_work_unit": "Selection",
+          "employee_bank_account_id": "Many2one",
+          "employee_country_code": "Char",
+          "employee_country_id": "Many2one",
+          "employee_parent_id": "Many2one",
+          "employee_type": "Selection",
+          "expense_manager_id": "Many2one",
+          "gender": "Selection",
+          "groups_id": "Many2many",
+          "hr_presence_state": "Selection",
+          "identification_id": "Char",
+          "last_activity": "Date",
+          "last_activity_time": "Char",
+          "marital": "Selection",
+          "passport_id": "Char",
+          "permit_no": "Char",
+          "place_of_birth": "Char",
+          "private_lang": "Selection",
+          "spouse_birthdate": "Date",
+          "spouse_complete_name": "Char",
+          "ssnid": "Char",
+          "study_field": "Char",
+          "study_school": "Char",
+          "user_group_warning": "Text",
+          "vehicle": "Char",
+          "visa_no": "Char"
+        },
+        "fields_added": {
+          "all_group_ids": "Many2many",
+          "bank_account_ids": "Many2many",
+          "email_domain_placeholder": "Char",
+          "employee_bank_account_ids": "Many2many",
+          "group_ids": "Many2many",
+          "is_hr_user": "Boolean",
+          "phone": "Char",
+          "role": "Selection",
+          "view_group_hierarchy": "Json"
+        },
+        "field_rename_candidates": [
+          {
+            "old": "groups_id",
+            "new": "group_ids",
+            "type": "Many2many",
+            "similarity": 0.889
+          }
+        ],
+        "methods_removed": [
+          "USER_PRIVATE_FIELDS",
+          "_add_reified_groups",
+          "_apply_groups_to_existing_employees",
+          "_check_company",
+          "_check_one_user_type",
+          "_compute_can_edit",
+          "_compute_user_group_warning",
+          "_determine_fields_to_fetch",
+          "_fetch_query",
+          "_has_multiple_groups",
+          "_prepare_warning_for_group_inheritance",
+          "_read_format",
+          "_read_group_groupby",
+          "_read_group_select",
+          "_remove_reified_groups",
+          "_search",
+          "_should_alert_new_device",
+          "check",
+          "check_field_access_rights",
+          "default_get",
+          "toggle_active"
+        ]
+      },
+      "res.users.log": {
+        "fields_added": {
+          "create_uid": "Many2one"
+        }
+      },
+      "resource.calendar": {
+        "fields_removed": {
+          "contracts_count": "Integer"
+        },
+        "methods_removed": [
+          "_calculate_hours_per_week",
+          "_calculate_is_fulltime",
+          "_compute_contracts_count",
+          "action_open_contracts"
+        ]
+      },
+      "resource.resource": {
+        "fields_added": {
+          "calendar_id": "Many2one",
+          "work_location_id": "Many2one"
+        }
+      }
+    }
+  },
+  "xmlids": {
+    "removed": [
+      "base.action_partner_title_contact",
+      "base.default_user",
+      "base.ir_filters_delete_own_rule",
+      "base.module_category_human_resources_contracts",
+      "base.module_category_human_resources_employees",
+      "base.module_category_human_resources_expenses",
+      "base.module_category_human_resources_recruitment",
+      "base.module_category_inventory",
+      "base.module_category_manufacturing",
+      "base.module_category_usability",
+      "base.module_category_user_type",
+      "base.res_partner_title_doctor",
+      "base.res_partner_title_madam",
+      "base.res_partner_title_miss",
+      "base.res_partner_title_mister",
+      "base.res_partner_title_prof",
+      "base.res_partner_view_form_private",
+      "base.user_groups_view",
+      "base.view_partner_title_form",
+      "base.view_partner_title_tree",
+      "hr.contract_type_statutaire",
+      "hr.hr_departure_wizard_action",
+      "hr.ir_cron_data_check_work_permit_validity",
+      "hr.menu_hr_employee_user",
+      "hr.menu_hr_reporting_timesheet",
+      "hr.res_users_view_form_profile",
+      "hr_contract.action_hr_contract",
+      "hr_contract.group_hr_contract_employee_manager",
+      "hr_contract.group_hr_contract_manager",
+      "hr_contract.hr_contract_admin",
+      "hr_contract.hr_contract_admin_new",
+      "hr_contract.hr_contract_al",
+      "hr_contract.hr_contract_chs",
+      "hr_contract.hr_contract_fme",
+      "hr_contract.hr_contract_fpi",
+      "hr_contract.hr_contract_fpi_previous",
+      "hr_contract.hr_contract_han",
+      "hr_contract.hr_contract_history_to_review_view_list_action",
+      "hr_contract.hr_contract_history_view_form",
+      "hr_contract.hr_contract_history_view_form_action",
+      "hr_contract.hr_contract_history_view_kanban",
+      "hr_contract.hr_contract_history_view_list",
+      "hr_contract.hr_contract_history_view_list_action",
+      "hr_contract.hr_contract_history_view_search",
+      "hr_contract.hr_contract_jth",
+      "hr_contract.hr_contract_jve",
+      "hr_contract.hr_contract_mit",
+      "hr_contract.hr_contract_niv",
+      "hr_contract.hr_contract_qdp",
+      "hr_contract.hr_contract_stw",
+      "hr_contract.hr_contract_vad",
+      "hr_contract.hr_contract_view_activity",
+      "hr_contract.hr_contract_view_form",
+      "hr_contract.hr_contract_view_kanban",
+      "hr_contract.hr_contract_view_search",
+      "hr_contract.hr_contract_view_tree",
+      "hr_contract.hr_departure_wizard_view_form",
+      "hr_contract.hr_employee_view_graph_inherit_hr_contract",
+      "hr_contract.hr_employee_view_pivot_inherit_hr_contract",
+      "hr_contract.hr_employee_view_search",
+      "hr_contract.hr_hr_employee_view_form2",
+      "hr_contract.hr_hr_employee_view_form3",
+      "hr_contract.hr_menu_contract",
+      "hr_contract.hr_user_view_form",
+      "hr_contract.ir_cron_data_contract_update_state",
+      "hr_contract.ir_rule_hr_contract_employee_manager",
+      "hr_contract.ir_rule_hr_contract_history_multi_company",
+      "hr_contract.ir_rule_hr_contract_manager",
+      "hr_contract.ir_rule_hr_contract_multi_company",
+      "hr_contract.ir_rule_hr_payroll_structure_type_multi_company",
+      "hr_contract.menu_hr_employee_contracts",
+      "hr_contract.menu_human_resources_configuration_contract",
+      "hr_contract.mt_contract_close",
+      "hr_contract.mt_contract_pending",
+      "hr_contract.mt_department_contract_pending",
+      "hr_contract.res_config_settings_view_form",
+      "hr_contract.resource_calendar_view_form",
+      "hr_contract.resource_calendar_view_tree",
+      "hr_contract.structure_type_employee",
+      "hr_contract.structure_type_employee_cp200",
+      "hr_contract.structure_type_employee_cp200_pfi",
+      "hr_contract.structure_type_worker",
+      "hr_contract.view_employee_public_form",
+      "hr_contract.view_employee_tree",
+      "hr_expense.action_hr_expense_sheet_all",
+      "hr_expense.action_hr_expense_sheet_all_all",
+      "hr_expense.action_hr_expense_sheet_department_filtered",
+      "hr_expense.action_hr_expense_sheet_department_to_approve",
+      "hr_expense.action_hr_expense_sheet_my_all",
+      "hr_expense.action_hr_expense_sheet_my_all_kanban",
+      "hr_expense.action_hr_expense_sheet_my_all_tree",
+      "hr_expense.action_report_expense_sheet_img",
+      "hr_expense.action_report_hr_expense_sheet",
+      "hr_expense.customer_meeting_sheet",
+      "hr_expense.hr_expense_report_comp_rule",
+      "hr_expense.hr_expense_sheet_view_activity",
+      "hr_expense.hr_expense_sheet_view_search",
+      "hr_expense.hr_expense_sheet_view_search_with_panel",
+      "hr_expense.ir_rule_hr_expense_sheet_approver",
+      "hr_expense.ir_rule_hr_expense_sheet_employee",
+      "hr_expense.ir_rule_hr_expense_sheet_employee_not_draft",
+      "hr_expense.ir_rule_hr_expense_sheet_manager",
+      "hr_expense.menu_hr_expense_report",
+      "hr_expense.menu_hr_expense_sheet_my_reports",
+      "hr_expense.office_furniture_sheet",
+      "hr_expense.report_expense_sheet",
+      "hr_expense.report_expense_sheet_img",
+      "hr_expense.res_users_view_form_preferences",
+      "hr_expense.team_building_sheet",
+      "hr_expense.travel_ny_sheet",
+      "hr_expense.view_hr_expense_sheet_dashboard_tree_header",
+      "hr_expense.view_hr_expense_sheet_form",
+      "hr_expense.view_hr_expense_sheet_graph",
+      "hr_expense.view_hr_expense_sheet_kanban",
+      "hr_expense.view_hr_expense_sheet_kanban_header",
+      "hr_expense.view_hr_expense_sheet_kanban_no_header",
+      "hr_expense.view_hr_expense_sheet_pivot",
+      "hr_expense.view_hr_expense_sheet_tree",
+      "hr_recruitment.action_candidate_send_mail",
+      "hr_recruitment.action_hr_candidate",
+      "hr_recruitment.candidate_hired_template",
+      "hr_recruitment.candidate_send_mail_view_form",
+      "hr_recruitment.hr_candidate_advertisement",
+      "hr_recruitment.hr_candidate_comp_rule",
+      "hr_recruitment.hr_candidate_dev0",
+      "hr_recruitment.hr_candidate_dev1",
+      "hr_recruitment.hr_candidate_dev2",
+      "hr_recruitment.hr_candidate_dev3",
+      "hr_recruitment.hr_candidate_financejob0",
+      "hr_recruitment.hr_candidate_financejob1",
+      "hr_recruitment.hr_candidate_fresher0",
+      "hr_recruitment.hr_candidate_interviewer_rule",
+      "hr_recruitment.hr_candidate_marketingjob0",
+      "hr_recruitment.hr_candidate_mkt0",
+      "hr_recruitment.hr_candidate_mkt1",
+      "hr_recruitment.hr_candidate_programmer",
+      "hr_recruitment.hr_candidate_salesman0",
+      "hr_recruitment.hr_candidate_salesman1",
+      "hr_recruitment.hr_candidate_traineemca0",
+      "hr_recruitment.hr_candidate_traineemca1",
+      "hr_recruitment.hr_candidate_user_rule",
+      "hr_recruitment.hr_candidate_view_calendar",
+      "hr_recruitment.hr_candidate_view_form",
+      "hr_recruitment.hr_candidate_view_kanban",
+      "hr_recruitment.hr_candidate_view_search",
+      "hr_recruitment.hr_candidate_view_tree",
+      "hr_recruitment.hr_candidate_yrsexperienceinphp0",
+      "hr_recruitment.hr_recruitment_linkedin_ceo",
+      "hr_recruitment.ir_actions_server_refuse_applicant",
+      "hr_recruitment.mail_activity_candidate_0",
+      "hr_recruitment.mail_activity_candidate_1",
+      "hr_recruitment.mail_activity_candidate_2",
+      "hr_recruitment.mail_activity_candidate_3",
+      "hr_recruitment.mail_activity_candidate_4",
+      "hr_recruitment.mail_activity_candidate_5",
+      "hr_recruitment.mail_activity_candidate_6",
+      "hr_recruitment.menu_hr_candidate",
+      "hr_recruitment.msg_case_advertisement_aplicant",
+      "hr_recruitment.scenario_candidate_enrique",
+      "hr_recruitment.scenario_candidate_hannah",
+      "hr_recruitment.scenario_candidate_helen",
+      "hr_recruitment.scenario_candidate_maria",
+      "hr_recruitment.scenario_candidate_simon"
+    ],
+    "added_count": 131
+  }
+}

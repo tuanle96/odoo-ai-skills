@@ -1,0 +1,20 @@
+# {{module}}/migrations/{{target_series}}.1.0.0/post-migrate.py
+# Phase: POST — ORM is loaded; new fields/models exist. Use for data population.
+import logging
+from odoo.upgrade import util
+
+_logger = logging.getLogger(__name__)
+
+
+def migrate(cr, version):
+    if not version:
+        return
+    env = util.env(cr)
+    # --- repopulate after a type change (pair with pre backup) --------------
+    # cr.execute('SELECT id, old_field_bak FROM "{{table}}" WHERE old_field_bak IS NOT NULL')
+    # for rec_id, bak in cr.fetchall():
+    #     env["{{model}}"].browse(rec_id).new_field = transform(bak)
+
+    # --- resolve records by XML id, never by integer id ---------------------
+    # group = env.ref("base.group_user")
+    _logger.info("post-migrate {{module}} -> %s done", version)

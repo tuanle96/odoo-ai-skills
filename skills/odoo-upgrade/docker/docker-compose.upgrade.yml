@@ -1,0 +1,35 @@
+# Database upgrade rehearsal harness — Community path (OpenUpgrade 18 -> 19).
+# OpenUpgrade is AGPL: cloned by YOU, mounted read-only, invoked as an external
+# tool by db_upgrade.py — never vendored into this repo.
+#
+#   git clone --depth 1 --branch 19.0 https://github.com/OCA/OpenUpgrade ~/src/OpenUpgrade
+#   OPENUPGRADE=~/src/OpenUpgrade CUSTOM_ADDONS=/path/to/addons \
+#     python3 scripts/db_upgrade.py full --dump prod.dump --db up19 \
+#       --docker-compose docker/docker-compose.upgrade.yml
+#
+# Filestore: pg_restore covers the DATABASE only. Copy your filestore into the
+# `upgrade-filestore` volume (or accept missing attachments in the rehearsal).
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: postgres
+    volumes: [upgrade-db:/var/lib/postgresql/data]
+  odoo18:   # seed a rehearsal db / sanity-check the restored dump on its own version
+    image: odoo:18
+    depends_on: [db]
+    environment: {HOST: db, USER: odoo, PASSWORD: odoo}
+    volumes:
+      - ${CUSTOM_ADDONS:-./addons}:/mnt/extra-addons:ro
+      - upgrade-filestore:/var/lib/odoo
+  odoo19:   # runs OpenUpgrade (-u all with --upgrade-path) and the post-upgrade check
+    image: odoo:19
+    depends_on: [db]
+    environment: {HOST: db, USER: odoo, PASSWORD: odoo}
+    volumes:
+      - ${CUSTOM_ADDONS:-./addons}:/mnt/extra-addons:ro
+      - ${OPENUPGRADE:-./OpenUpgrade}:/opt/openupgrade:ro
+      - upgrade-filestore:/var/lib/odoo
+volumes: {upgrade-db: {}, upgrade-filestore: {}}
