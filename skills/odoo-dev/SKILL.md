@@ -33,14 +33,14 @@ Odoo composes each model at runtime from the installed addon dependency graph. T
 
 ### 1. Discover — read the instance (delegate to `odoo-introspect`)
 
-Pull ground truth before any code. Don't hand-roll introspection — invoke the **`odoo-introspect`** skill, which runs four layers:
+Pull ground truth before any code. Don't hand-roll introspection — invoke the **`odoo-introspect`** skill, which runs four reads:
 
-- **Layer A — `model_brief`**: fields, MRO + super-analysis (`has_super` / `super_position` / `returns_before_super`), security (ACL + record rules), auto-triggers, recommended `depends`. **Always run this.**
-- **Layer B — `entrypoints`**: form/list buttons → which method/action they call, view-level field modifiers, window actions. Run when a button/view/action is in scope.
-- **Layer C — `metadata`**: menu graph, seeded `noupdate` data, report definitions.
-- **Layer D — `trace_flow`**: the real runtime call sequence + SQL on a throwaway record (rolls back). Run for any sizable flow (sale/stock/account/mrp) — MRO alone is not enough there.
+- **`model_brief`**: fields, MRO + super-analysis (`has_super` / `super_position` / `returns_before_super`), security (ACL + record rules), auto-triggers, recommended `depends`. **Always run this.**
+- **`entrypoints`**: form/list buttons → which method/action they call, view-level field modifiers, window actions. Run when a button/view/action is in scope.
+- **`metadata`**: menu graph, seeded `noupdate` data, report definitions.
+- **`trace_flow`**: the real runtime call sequence + SQL on a throwaway record (rolls back). Run for any sizable flow (sale/stock/account/mrp) — MRO alone is not enough there.
 
-One command — `odoo-ai all <model>` — dumps A–D as JSON. No shell (Odoo Online/SaaS)? Use the skill's RPC fallback.
+One command — `odoo-ai all <model>` — dumps all four as JSON. No shell (Odoo Online/SaaS)? Use the skill's RPC fallback.
 
 ### 2. Plan — confirm before coding
 
@@ -48,7 +48,7 @@ From the briefs, state: model + **inheritance mode**; which fields to **reuse** 
 
 ### 3. Code — then prove it
 
-Write the smallest patch extending the real `super()` from step 1. Then satisfy the **test gate** — invoke the **`odoo-testing`** skill (test-first; non-admin / multi-company / batch where relevant; `-i` clean DB + `-u` data DB). A patch without that is vibe coding with extra steps. High coverage is **not** proof: CI enforces the un-fakeable gate (`odoo-ai deploy-gate --strict` — runtime-path binding, changed-line coverage, scenario satisfaction, test-quality lint, signed provenance) so a mock-heavy or vacuous-assert test can't turn the gate green.
+Write the smallest patch extending the real `super()` from step 1. Then satisfy the **test gate** — invoke the **`odoo-testing`** skill (test-first; non-admin / multi-company / batch where relevant; `-i` clean DB + `-u` data DB). A patch without that is vibe coding with extra steps. High coverage is **not** proof: CI enforces the **CI-bound evidence gate** (`odoo-ai deploy-gate --strict` — runtime-path binding, changed-line coverage, scenario satisfaction, test-quality lint, signed provenance) so a mock-heavy or vacuous-assert test can't turn the gate green. It hardens the trust boundary rather than removing it — human review stays mandatory for sensitive domains.
 
 ## Pick the built-in, don't hand-roll it
 

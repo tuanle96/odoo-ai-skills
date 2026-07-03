@@ -33,11 +33,11 @@ So the playbook tells you **where to look and what to read** — never what to t
 Then run these two via the `odoo-introspect` skill's `odoo-ai` CLI, feed the JSON to the agent, *then* plan the patch:
 
 ```bash
-# 1. model_brief (Layer A+B): fields, MRO + super-analysis, buttons/views, security — for the
+# 1. model_brief: fields, MRO + super-analysis, buttons/views, security — for the
 #    key model and the methods this app's playbook tells you to read first.
 odoo-ai --db <DB> all <key.model> --methods <m1>,<m2>,<m3>
 
-# 2. trace_flow (Layer C): execute the entry method on a throwaway record and record the REAL
+# 2. trace_flow: execute the entry method on a throwaway record and record the REAL
 #    cross-model call sequence (sale→stock→account, mrp→stock, purchase→stock→account).
 odoo-ai --db <DB> trace <key.model> <record_id> <entry_method>
 ```

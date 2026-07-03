@@ -1,0 +1,24 @@
+{
+  "id": "v0-003-stale-computed-depends",
+  "title": "Add a surcharge to a stored computed total",
+  "domain": "account",
+  "severity_class": "S3",
+  "weight": 8,
+  "safe": false,
+  "odoo_version": "17.0",
+  "required_modules": [
+    "base"
+  ],
+  "task_prompt": "Add a `surcharge` monetary field to membership.fee and include it in the stored `total`.",
+  "failure_mode": "`surcharge` is used in the formula but missing from @api.depends. Editing surcharge alone does NOT retrigger the compute, so the STORED `total` keeps its old value while the UI shows the new inputs. Financial reports and exports read the stale stored column → wrong revenue that reconciles to nothing. A create-time happy-path test passes because the compute runs once on create.",
+  "expected_detection": {
+    "check": "scenario: mutate `surcharge` after create, re-read stored `total` (stale-recompute probe) — plus a static @api.depends completeness check on changed compute methods",
+    "artifact": "scenario_membership_fee_stale.json"
+  },
+  "notes": "Any field READ inside a stored compute must appear in @api.depends. The most common silent-corruption bug an LLM ships, because the happy-path create test always passes.",
+  "context_files": {
+    "models/membership_fee.py": "from odoo import api, fields, models\n\n\nclass MembershipFee(models.Model):\n    _name = 'membership.fee'\n    _description = 'Membership Fee'\n\n    base_amount = fields.Monetary()\n    discount = fields.Monetary()\n    currency_id = fields.Many2one('res.currency')\n    total = fields.Monetary(compute='_compute_total', store=True)\n\n    @api.depends('base_amount', 'discount')\n    def _compute_total(self):\n        for fee in self:\n            fee.total = fee.base_amount - fee.discount\n"
+  },
+  "broken_patch": "--- a/models/membership_fee.py\n+++ b/models/membership_fee.py\n@@ -7,10 +7,11 @@\n \n     base_amount = fields.Monetary()\n     discount = fields.Monetary()\n+    surcharge = fields.Monetary()\n     currency_id = fields.Many2one('res.currency')\n     total = fields.Monetary(compute='_compute_total', store=True)\n \n     @api.depends('base_amount', 'discount')\n     def _compute_total(self):\n         for fee in self:\n-            fee.total = fee.base_amount - fee.discount\n+            fee.total = fee.base_amount - fee.discount + fee.surcharge\n",
+  "fixed_patch": "--- a/models/membership_fee.py\n+++ b/models/membership_fee.py\n@@ -7,10 +7,11 @@\n \n     base_amount = fields.Monetary()\n     discount = fields.Monetary()\n+    surcharge = fields.Monetary()\n     currency_id = fields.Many2one('res.currency')\n     total = fields.Monetary(compute='_compute_total', store=True)\n \n-    @api.depends('base_amount', 'discount')\n+    @api.depends('base_amount', 'discount', 'surcharge')\n     def _compute_total(self):\n         for fee in self:\n-            fee.total = fee.base_amount - fee.discount\n+            fee.total = fee.base_amount - fee.discount + fee.surcharge\n"
+}

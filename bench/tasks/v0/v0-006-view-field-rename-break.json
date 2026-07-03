@@ -1,0 +1,25 @@
+{
+  "id": "v0-006-view-field-rename-break",
+  "title": "Rename a field referenced by its form view",
+  "domain": "views",
+  "severity_class": "S2",
+  "weight": 4,
+  "safe": false,
+  "odoo_version": "17.0",
+  "required_modules": [
+    "base"
+  ],
+  "task_prompt": "Rename service.order.partner_ref to customer_ref — the old name is confusing.",
+  "failure_mode": "The Python field is renamed but views/service_order_views.xml still references `partner_ref`. On module upgrade Odoo validates the view arch and raises `ParseError: Field partner_ref does not exist` — the -u upgrade aborts and rolls back the WHOLE database update, taking every other module's migration with it. Existing partner_ref data is also orphaned (no oldname=/migration), so even a corrected rename loses the column's data.",
+  "expected_detection": {
+    "check": "upgrade-check / field-refs: renamed or removed field still referenced in a view arch (or missing oldname migration)",
+    "artifact": "upgrade_check_field_refs.json"
+  },
+  "notes": "A field rename is never a one-file change: every view arch, domain, @api.depends, and .py reference must move together, and a migration (oldname= or a pre-migrate rename) must carry the stored data. The minimal correct patch here touches both the model AND the view.",
+  "context_files": {
+    "models/service_order.py": "from odoo import fields, models\n\n\nclass ServiceOrder(models.Model):\n    _name = 'service.order'\n    _description = 'Service Order'\n\n    name = fields.Char()\n    partner_ref = fields.Char(string='Customer Reference')\n",
+    "views/service_order_views.xml": "<odoo>\n    <record id=\"view_service_order_form\" model=\"ir.ui.view\">\n        <field name=\"name\">service.order.form</field>\n        <field name=\"model\">service.order</field>\n        <field name=\"arch\" type=\"xml\">\n            <form>\n                <group>\n                    <field name=\"name\"/>\n                    <field name=\"partner_ref\"/>\n                </group>\n            </form>\n        </field>\n    </record>\n</odoo>\n"
+  },
+  "broken_patch": "--- a/models/service_order.py\n+++ b/models/service_order.py\n@@ -6,4 +6,4 @@\n     _description = 'Service Order'\n \n     name = fields.Char()\n-    partner_ref = fields.Char(string='Customer Reference')\n+    customer_ref = fields.Char(string='Customer Reference')\n",
+  "fixed_patch": "--- a/models/service_order.py\n+++ b/models/service_order.py\n@@ -6,4 +6,4 @@\n     _description = 'Service Order'\n \n     name = fields.Char()\n-    partner_ref = fields.Char(string='Customer Reference')\n+    customer_ref = fields.Char(string='Customer Reference')\n--- a/views/service_order_views.xml\n+++ b/views/service_order_views.xml\n@@ -6,7 +6,7 @@\n             <form>\n                 <group>\n                     <field name=\"name\"/>\n-                    <field name=\"partner_ref\"/>\n+                    <field name=\"customer_ref\"/>\n                 </group>\n             </form>\n         </field>\n"
+}

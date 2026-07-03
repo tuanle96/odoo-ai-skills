@@ -1,0 +1,24 @@
+{
+  "id": "v0-009-relabel-field-safe",
+  "title": "Relabel a field and add help text (SAFE)",
+  "domain": "views",
+  "severity_class": "S0",
+  "weight": 1,
+  "safe": true,
+  "odoo_version": "17.0",
+  "required_modules": [
+    "base"
+  ],
+  "task_prompt": "Change the label of delivery.note.ref from 'Reference' to 'Order Reference' and add a short help tooltip.",
+  "failure_mode": "NONE — this change is purely cosmetic (a `string=` label and a `help=` tooltip). No schema, security, data, or runtime behaviour changes. It is in the suite as a FALSE-POSITIVE probe: a healthy gate PASSES it. If a result marks safe_task_blocked=true, the gate cried wolf, which erodes trust and trains developers to bypass it. The 'broken_patch' here is a misnomer — it is the safe change under test.",
+  "expected_detection": {
+    "check": "NONE — gate MUST pass. Any block on this task is a false positive (record it as safe_task_blocked=true).",
+    "artifact": "deploy_gate_result.json"
+  },
+  "notes": "Nothing to fix — fixed_patch equals broken_patch on purpose. The metric of interest is per_mode.false_positives; a suite made only of traps would train the gate (and its users) to over-block, so at least one obviously-safe task must ship.",
+  "context_files": {
+    "models/delivery_note.py": "from odoo import fields, models\n\n\nclass DeliveryNote(models.Model):\n    _name = 'delivery.note'\n    _description = 'Delivery Note'\n\n    ref = fields.Char(string='Reference')\n    note = fields.Text()\n"
+  },
+  "broken_patch": "--- a/models/delivery_note.py\n+++ b/models/delivery_note.py\n@@ -5,5 +5,6 @@\n     _name = 'delivery.note'\n     _description = 'Delivery Note'\n \n-    ref = fields.Char(string='Reference')\n+    ref = fields.Char(string='Order Reference',\n+                      help='Reference shown to the customer.')\n     note = fields.Text()\n",
+  "fixed_patch": "--- a/models/delivery_note.py\n+++ b/models/delivery_note.py\n@@ -5,5 +5,6 @@\n     _name = 'delivery.note'\n     _description = 'Delivery Note'\n \n-    ref = fields.Char(string='Reference')\n+    ref = fields.Char(string='Order Reference',\n+                      help='Reference shown to the customer.')\n     note = fields.Text()\n"
+}

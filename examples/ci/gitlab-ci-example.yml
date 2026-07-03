@@ -1,0 +1,77 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Example: odoo-ai evidence gate on GitLab CI.
+#
+# GitLab has no composite-action equivalent, so this single job does what the
+# GitHub odoo-gate action does inline:
+#   1. run deploy_gate.py over the evidence bundle (it always exits 0),
+#   2. parse the decision,
+#   3. FAIL the job on `block` — or on a fail-closed severity when the decision
+#      is not `approve` (severity parsed defensively: absent → not fail-closed),
+#   4. keep gate_report.json (+ the bundle) as a job artifact.
+#
+# There is no sticky-PR-comment step here — post to a merge request via the
+# GitLab API in a follow-up job if you want one (pr_comment.py is GitHub-shaped).
+#
+# Copy into .gitlab-ci.yml. Assumes the odoo-ai-skills repo is checked out at the
+# project root (adjust SCRIPTS if it lives in a submodule / vendored path).
+# ──────────────────────────────────────────────────────────────────────────────
+stages:
+  - gate
+
+variables:
+  # Directory of committed evidence JSON (produce it on your Odoo staging runner
+  # and commit evidence_bundle/, or generate it in an earlier job).
+  BUNDLE_DIR: "evidence_bundle"
+  STRICT: "true"
+  FAIL_CLOSED_SEVERITIES: "S3,S4"
+
+odoo-ai-gate:
+  stage: gate
+  image: python:3.12-slim
+  script:
+    - SCRIPTS="skills/odoo-introspect/scripts"
+    - FLAG=""; if [ "$STRICT" = "true" ]; then FLAG="--strict"; fi
+    # deploy_gate.py prints the report and always exits 0; the job enforces.
+    - python "$SCRIPTS/deploy_gate.py" $FLAG "$BUNDLE_DIR" > gate_report.json
+    # Optional evidence artifact when the schema tool is present.
+    - |
+      if [ -f "$SCRIPTS/evidence_schema.py" ]; then
+        python "$SCRIPTS/evidence_schema.py" build "$BUNDLE_DIR" --out evidence_artifact.json || true
+      fi
+    # Parse + enforce in one defensive Python block (no jq dependency).
+    - |
+      python - "$FAIL_CLOSED_SEVERITIES" <<'PY'
+      import json, sys
+      fail_closed = {s.strip() for s in sys.argv[1].split(",") if s.strip()}
+      try:
+          report = json.load(open("gate_report.json"))
+      except Exception as e:
+          print(f"cannot read gate_report.json: {e}"); sys.exit(1)
+
+      d = report.get("decision")
+      decision = d.get("decision") if isinstance(d, dict) else d
+      decision = decision if isinstance(decision, str) else "unknown"
+      print(f"Gate decision: {decision}")
+
+      if decision == "block":
+          print("Evidence gate decision = block — failing the job."); sys.exit(1)
+
+      findings = d.get("blocking_findings") if isinstance(d, dict) else None
+      findings = findings or report.get("blocking_findings") or report.get("findings") or []
+      hits = sorted({
+          f.get("severity") for f in findings
+          if isinstance(f, dict) and f.get("severity") in fail_closed
+      })
+      if decision != "approve" and hits:
+          print(f"Fail-closed severities present ({', '.join(hits)}) with "
+                f"decision={decision} — failing the job."); sys.exit(1)
+
+      print("No blocking decision / fail-closed severity — job passes.")
+      PY
+  artifacts:
+    when: always
+    paths:
+      - gate_report.json
+      - evidence_artifact.json
+      - evidence_bundle/
+    expire_in: 30 days

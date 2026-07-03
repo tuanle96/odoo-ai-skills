@@ -4,6 +4,7 @@ filesystem I/O except TestBuildReport which uses tempfile).
 """
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -635,6 +636,262 @@ class V091GateTests(unittest.TestCase):
         })
         r = dg.build_report(d)
         self.assertEqual(r["decision"]["decision"], "approve")
+
+
+# ---------------------------------------------------------------------------
+# v0.14 Layer M: severity classes, findings_detail, fail-closed policy
+# (APPENDED — additive, backward compatible; no existing test above modified)
+# ---------------------------------------------------------------------------
+
+class SeverityAndFailClosedTests(unittest.TestCase):
+    """Severity mapping, findings_detail/severity_summary shape, and the opt-in
+    fail-closed policy (gate_policy.json / env / --policy) + human sign-off."""
+
+    def _bundle(self, files):
+        d = tempfile.mkdtemp()
+        for name, obj in files.items():
+            with open(Path(d) / name, "w") as fh:
+                fh.write(obj if isinstance(obj, str) else json.dumps(obj))
+        return d
+
+    def _clean_core(self, extra=None):
+        """A clean, would-approve legacy core bundle (+ optional extra files)."""
+        files = {
+            "native_check.json": {"confirmed_candidates": []},
+            "scenarios.json": {"risk": {"tier": "normal"}},
+            "validate.json": {"summary": {"blocking": 0, "warning": 0}},
+            "scan_secrets.json": {"count": 0},
+        }
+        files.update(extra or {})
+        return self._bundle(files)
+
+    def _security_bundle(self, extra=None):
+        """A would-approve core + a manifest that touches security (present, clean
+        security artifact). Without policy → needs_human with exactly one S4
+        finding (the access-control approval). A clean, deterministic S4 source."""
+        files = {
+            "manifest.json": {"touches_security": True},
+            "security.json": {"is_superuser": False, "_warnings": []},
+        }
+        files.update(extra or {})
+        return self._clean_core(files)
+
+    # --- SEVERITY mapping ---------------------------------------------------
+
+    def test_severity_by_category_known_mappings(self):
+        m = dg.SEVERITY_BY_CATEGORY
+        self.assertEqual(m["security"], "S4")
+        self.assertEqual(m["scan_secrets"], "S4")
+        self.assertEqual(m["provenance"], "S4")
+        self.assertEqual(m["upgrade"], "S3")
+        self.assertEqual(m["data_integrity"], "S3")
+        self.assertEqual(m["validate"], "S2")
+        self.assertEqual(m["test_quality"], "S2")
+        self.assertEqual(m["changed_coverage"], "S2")
+        self.assertEqual(m["doc"], "S1")
+        # every value is a well-formed S0..S4 class
+        self.assertTrue(all(v in {"S0", "S1", "S2", "S3", "S4"} for v in m.values()))
+
+    def test_unknown_category_defaults_to_s2(self):
+        entry = dg._finding_entry("mystery: something new", "no_such_category")
+        self.assertEqual(entry["severity"], "S2")
+        self.assertEqual(entry["remediation"], dg._DEFAULT_REMEDIATION)
+
+    def test_blocking_finding_prefix_classified(self):
+        # upgrade blocking → S3, scan-secrets → S4, validate → S2
+        r = dg.build_report(self._bundle({"upgrade.json": {"summary": {"blocking": 1, "warning": 0}}}))
+        by_sev = {fd["severity"] for fd in r["findings_detail"]}
+        self.assertIn("S3", by_sev)   # the upgrade blocking finding
+        r = dg.build_report(self._bundle({"scan_secrets.json": {"count": 2}}))
+        self.assertTrue(any(fd["severity"] == "S4" for fd in r["findings_detail"]))
+
+    # --- findings_detail + severity_summary shape ---------------------------
+
+    def test_findings_detail_shape(self):
+        r = dg.build_report(self._bundle({"validate.json": {"summary": {"blocking": 1, "warning": 0}}}))
+        fd = r["findings_detail"]
+        self.assertIsInstance(fd, list)
+        self.assertTrue(fd)
+        for entry in fd:
+            self.assertEqual(set(entry), {"finding", "severity", "remediation"})
+            self.assertIsInstance(entry["finding"], str)
+            self.assertIn(entry["severity"], {"S0", "S1", "S2", "S3", "S4"})
+            self.assertIsInstance(entry["remediation"], str)
+            self.assertTrue(entry["remediation"])
+
+    def test_findings_detail_is_parallel_not_replacing(self):
+        # existing flat keys keep their element type (list[str]); findings_detail
+        # is a separate list[dict]
+        r = dg.build_report(self._bundle({"validate.json": {"summary": {"blocking": 1, "warning": 0}}}))
+        self.assertTrue(all(isinstance(x, str) for x in r["decision"]["blocking_findings"]))
+        self.assertTrue(all(isinstance(x, dict) for x in r["findings_detail"]))
+
+    def test_severity_summary_counts_match(self):
+        r = dg.build_report(self._security_bundle())
+        summary = r["severity_summary"]
+        self.assertEqual(set(summary), {"S0", "S1", "S2", "S3", "S4"})
+        # summary must equal the per-severity tally of findings_detail
+        expect = {f"S{i}": 0 for i in range(5)}
+        for fd in r["findings_detail"]:
+            expect[fd["severity"]] += 1
+        self.assertEqual(summary, expect)
+        self.assertEqual(summary["S4"], 1)   # exactly the access-control approval
+
+    def test_approve_has_empty_findings_and_zero_summary(self):
+        r = dg.build_report(self._clean_core())
+        self.assertEqual(r["decision"]["decision"], "approve")
+        self.assertEqual(r["findings_detail"], [])
+        self.assertEqual(r["severity_summary"], {f"S{i}": 0 for i in range(5)})
+
+    def test_new_report_keys_always_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            r = dg.build_report(tmp)
+        for key in ("findings_detail", "severity_summary", "fail_closed"):
+            self.assertIn(key, r)
+        self.assertFalse(r["fail_closed"]["active"])
+
+    # --- FAIL-CLOSED policy: gate_policy.json -------------------------------
+
+    def test_fail_closed_gate_policy_escalates_s4_to_block(self):
+        d = self._security_bundle({"gate_policy.json": {
+            "fail_closed_severities": ["S3", "S4"], "required_signoff_roles": ["reviewer"]}})
+        r = dg.build_report(d)
+        self.assertEqual(r["decision"]["decision"], "block")
+        self.assertTrue(r["fail_closed"]["active"])
+        self.assertTrue(r["fail_closed"]["escalated"])
+        self.assertFalse(r["fail_closed"]["signoff_present"])
+        self.assertEqual(r["fail_closed"]["source"], "gate_policy.json")
+        self.assertTrue(any("fail-closed policy" in b for b in r["decision"]["blocking_findings"]))
+
+    def test_fail_closed_signoff_downgrades_to_needs_human(self):
+        d = self._security_bundle({
+            "gate_policy.json": {"fail_closed_severities": ["S3", "S4"],
+                                 "required_signoff_roles": ["reviewer"]},
+            "human_signoff.json": {"signoffs": [
+                {"role": "reviewer", "name": "Alice", "at": "2026-07-03T10:00:00Z"}]},
+        })
+        r = dg.build_report(d)
+        self.assertEqual(r["decision"]["decision"], "needs_human")   # never approve
+        self.assertTrue(r["fail_closed"]["signoff_present"])
+        self.assertFalse(r["fail_closed"]["escalated"])
+
+    def test_fail_closed_wrong_role_signoff_still_blocks(self):
+        # a sign-off that does NOT cover the required role must not downgrade
+        d = self._security_bundle({
+            "gate_policy.json": {"fail_closed_severities": ["S4"],
+                                 "required_signoff_roles": ["reviewer"]},
+            "human_signoff.json": {"signoffs": [
+                {"role": "intern", "name": "Bob", "at": "2026-07-03T10:00:00Z"}]},
+        })
+        r = dg.build_report(d)
+        self.assertEqual(r["decision"]["decision"], "block")
+        self.assertFalse(r["fail_closed"]["signoff_present"])
+        self.assertTrue(r["fail_closed"]["escalated"])
+
+    def test_fail_closed_only_lower_severity_does_not_escalate(self):
+        # policy fails closed on S3 only; the bundle's finding is S4 → still triggers.
+        # Use a bundle whose ONLY finding is S2 to prove a non-matching class is inert.
+        d = self._clean_core({
+            "manifest.json": {"has_migration": True},   # requires 'upgrade' (S3) evidence
+            "gate_policy.json": {"fail_closed_severities": ["S0"]},   # nothing maps to S0
+        })
+        r = dg.build_report(d)
+        # missing upgrade → S3 finding exists, but policy only fails closed on S0
+        self.assertTrue(r["fail_closed"]["active"])
+        self.assertFalse(r["fail_closed"]["escalated"])
+        self.assertNotEqual(r["decision"]["decision"], "block")
+
+    # --- FAIL-CLOSED policy: env var ---------------------------------------
+
+    def test_fail_closed_env_var_source(self):
+        d = self._security_bundle()
+        os.environ["ODOO_AI_FAIL_CLOSED"] = "S3,S4"
+        try:
+            r = dg.build_report(d)
+        finally:
+            os.environ.pop("ODOO_AI_FAIL_CLOSED", None)
+        self.assertEqual(r["decision"]["decision"], "block")
+        self.assertEqual(r["fail_closed"]["source"], "env:ODOO_AI_FAIL_CLOSED")
+        self.assertTrue(r["fail_closed"]["escalated"])
+
+    def test_env_signoff_downgrades_when_no_roles_required(self):
+        # env source declares no required roles → any valid sign-off file downgrades
+        d = self._security_bundle({"human_signoff.json": {
+            "signoffs": [{"role": "anyone", "name": "Carol", "at": "2026-07-03T10:00:00Z"}]}})
+        os.environ["ODOO_AI_FAIL_CLOSED"] = "S4"
+        try:
+            r = dg.build_report(d)
+        finally:
+            os.environ.pop("ODOO_AI_FAIL_CLOSED", None)
+        self.assertEqual(r["decision"]["decision"], "needs_human")
+        self.assertTrue(r["fail_closed"]["signoff_present"])
+
+    # --- FAIL-CLOSED policy: --policy flag ---------------------------------
+
+    def test_policy_flag_source(self):
+        d = self._security_bundle()
+        pol = Path(d) / "external_policy.json"
+        pol.write_text(json.dumps({"fail_closed_severities": ["S4"],
+                                   "required_signoff_roles": ["reviewer"]}))
+        r = dg.build_report(d, policy_path=str(pol))
+        self.assertEqual(r["decision"]["decision"], "block")
+        self.assertTrue(r["fail_closed"]["source"].startswith("--policy"))
+
+    def test_policy_flag_precedes_gate_policy_file(self):
+        # explicit --policy (S4 fail-closed) wins over an inert gate_policy.json
+        d = self._security_bundle({"gate_policy.json": {"fail_closed_severities": ["S0"]}})
+        pol = Path(d) / "external_policy.json"
+        pol.write_text(json.dumps({"fail_closed_severities": ["S4"]}))
+        r = dg.build_report(d, policy_path=str(pol))
+        self.assertTrue(r["fail_closed"]["source"].startswith("--policy"))
+        self.assertEqual(r["decision"]["decision"], "block")
+
+    def test_main_parses_policy_flag(self):
+        import io
+        from contextlib import redirect_stdout
+        d = self._security_bundle()
+        pol = Path(d) / "p.json"
+        pol.write_text(json.dumps({"fail_closed_severities": ["S4"]}))
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            # argv[0] is the program name (main slices it off, like sys.argv)
+            dg.main(["deploy_gate.py", "--policy", str(pol), d])
+        out = json.loads(buf.getvalue())
+        self.assertEqual(out["decision"]["decision"], "block")
+        self.assertTrue(out["fail_closed"]["active"])
+
+    def test_malformed_policy_flag_warns_and_falls_back(self):
+        # a missing --policy path is ignored (warned) and other sources apply
+        d = self._security_bundle()
+        r = dg.build_report(d, policy_path=str(Path(d) / "does_not_exist.json"))
+        self.assertFalse(r["fail_closed"]["active"])   # no other source present
+        self.assertTrue(any("--policy" in w for w in r["_warnings"]))
+
+    # --- NO-POLICY behaviour is byte-for-byte legacy ------------------------
+
+    def test_no_policy_decision_identical_to_legacy(self):
+        # For a matrix of bundles, the decision with no policy present must equal
+        # the historically-expected decision, and fail_closed must be inactive.
+        cases = [
+            (self._clean_core(), "approve"),
+            (self._security_bundle(), "needs_human"),
+            (self._bundle({"validate.json": {"summary": {"blocking": 1, "warning": 0}}}), "block"),
+            (self._bundle({}), "needs_human"),
+        ]
+        for d, expected in cases:
+            r = dg.build_report(d)
+            self.assertEqual(r["decision"]["decision"], expected, d)
+            self.assertFalse(r["fail_closed"]["active"], d)
+            self.assertNotIn("source", r["fail_closed"], d)
+
+    def test_no_policy_report_keys_unchanged_types(self):
+        # existing keys keep exact shape; new keys are purely additive
+        r = dg.build_report(self._clean_core())
+        self.assertEqual(r["policy"], "v1-legacy")
+        self.assertIn("decision", r["decision"])
+        self.assertIsInstance(r["decision"]["blocking_findings"], list)
+        self.assertIsInstance(r["decision"]["missing_evidence"], list)
+        self.assertIsInstance(r["decision"]["required_approvals"], list)
 
 
 if __name__ == "__main__":

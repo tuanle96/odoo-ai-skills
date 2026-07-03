@@ -1,0 +1,24 @@
+{
+  "id": "v0-008-button-wrong-action-dict",
+  "title": "Filter a smart-button action to incoming pickings",
+  "domain": "views",
+  "severity_class": "S1",
+  "weight": 2,
+  "safe": false,
+  "odoo_version": "17.0",
+  "required_modules": [
+    "stock"
+  ],
+  "task_prompt": "The 'View Deliveries' button on purchase.request should open only the INCOMING stock pickings for that request.",
+  "failure_mode": "Two mistakes: `view_type` is not a valid act_window key (the real key is `view_mode`), so the window opens with no configured view; and the domain is a flat tuple, not a list of leaf tuples, so Odoo raises 'Invalid domain'. Clicking the button lands on an error dialog / blank screen — a UX dead-end. No data is touched or corrupted, hence S1: annoying, not dangerous.",
+  "expected_detection": {
+    "check": "scenario / runtime path probe: invoke the button method and assert it returns a valid act_window (view_mode present, domain a well-formed list)",
+    "artifact": "scenario_button_action.json"
+  },
+  "notes": "Low blast radius but a good sensitivity check: the gate should catch the malformed action without over-reacting. A domain is always a list of ('field','op','value') leaves; `view_type` stopped being an act_window key years ago.",
+  "context_files": {
+    "models/purchase_request.py": "from odoo import models\n\n\nclass PurchaseRequest(models.Model):\n    _name = 'purchase.request'\n    _description = 'Purchase Request'\n\n    def action_view_deliveries(self):\n        self.ensure_one()\n        return {\n            'type': 'ir.actions.act_window',\n            'res_model': 'stock.picking',\n            'view_mode': 'list,form',\n            'domain': [('origin', '=', self.name)],\n        }\n"
+  },
+  "broken_patch": "--- a/models/purchase_request.py\n+++ b/models/purchase_request.py\n@@ -10,6 +10,6 @@\n         return {\n             'type': 'ir.actions.act_window',\n             'res_model': 'stock.picking',\n-            'view_mode': 'list,form',\n-            'domain': [('origin', '=', self.name)],\n+            'view_type': 'list',\n+            'domain': ('origin', '=', self.name, 'in', 'incoming'),\n         }\n",
+  "fixed_patch": "--- a/models/purchase_request.py\n+++ b/models/purchase_request.py\n@@ -11,5 +11,6 @@\n             'type': 'ir.actions.act_window',\n             'res_model': 'stock.picking',\n             'view_mode': 'list,form',\n-            'domain': [('origin', '=', self.name)],\n+            'domain': [('origin', '=', self.name),\n+                       ('picking_type_code', '=', 'incoming')],\n         }\n"
+}

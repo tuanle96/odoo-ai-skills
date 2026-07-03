@@ -506,5 +506,93 @@ class TestRedGreenReplay(unittest.TestCase):
         self.assertEqual(r["decision"]["decision"], "approve")
 
 
+# ---------------------------------------------------------------------------
+# v0.14 Layer M: severity classes + fail-closed policy compose with strict
+# (APPENDED — additive; every strict test above is unmodified)
+# ---------------------------------------------------------------------------
+
+class TestStrictSeverityAndFailClosed(unittest.TestCase):
+
+    def test_strict_new_keys_present_and_inert_on_approve(self):
+        """A genuine strict-approve bundle carries the additive keys, and they are
+        inert: no findings, zero summary, fail-closed inactive."""
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            _clean_core_v2(p)
+            with _KeyEnv(head="b", probe="sha256:TESTPROBE"):
+                _sign_all(p)
+                r = dg.build_report(p, strict=True)
+        self.assertEqual(r["decision"]["decision"], "approve")
+        self.assertEqual(r["findings_detail"], [])
+        self.assertEqual(r["severity_summary"], {f"S{i}": 0 for i in range(5)})
+        self.assertIn("fail_closed", r)
+        self.assertFalse(r["fail_closed"]["active"])
+
+    def test_strict_blocking_findings_get_severities(self):
+        """The un-fakeable strict blocks surface as severity-classified findings."""
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            _clean_core_v2(p, **{"runtime_path.json": {
+                "targets": [{"target_id": "res.partner:write:x.py:1"}],
+                "summary": {"targets": 1, "bound": 0, "unbound": 1},
+                "producer": {"tool": "runtime_observer", "tool_digest": "sha256:TESTPROBE",
+                             "trace_integrity": "sealed", "sealed": True}}})
+            with _KeyEnv(head="b", probe="sha256:TESTPROBE"):
+                _sign_all(p)
+                r = dg.build_report(p, strict=True)
+        self.assertEqual(r["decision"]["decision"], "block")
+        # every blocking finding is represented in findings_detail with a class
+        self.assertTrue(r["findings_detail"])
+        cats = {fd["severity"] for fd in r["findings_detail"]}
+        self.assertTrue(cats <= {"S0", "S1", "S2", "S3", "S4"})
+        # runtime-path is test-quality/coverage class → S2
+        self.assertTrue(any("runtime-path" in fd["finding"] and fd["severity"] == "S2"
+                            for fd in r["findings_detail"]))
+
+    def test_strict_fail_closed_escalates_missing_provenance_s4(self):
+        """A genuine-but-unsigned strict bundle is needs_human (missing provenance,
+        an S4 category). A gate_policy.json failing closed on S4 escalates to block;
+        a covering sign-off downgrades it back to (at most) needs_human."""
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            _clean_core_v2(p)   # no _sign_all → provenance missing (S4)
+            _write(p, "gate_policy.json", {"fail_closed_severities": ["S4"],
+                                           "required_signoff_roles": ["reviewer"]})
+            with _KeyEnv():     # key set, no signing performed
+                r = dg.build_report(p, strict=True)
+        self.assertIn("provenance", r["decision"]["missing_evidence"])
+        self.assertTrue(any(fd["severity"] == "S4" for fd in r["findings_detail"]))
+        self.assertEqual(r["decision"]["decision"], "block")
+        self.assertTrue(r["fail_closed"]["escalated"])
+
+    def test_strict_fail_closed_signoff_downgrades(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            _clean_core_v2(p)
+            _write(p, "gate_policy.json", {"fail_closed_severities": ["S4"],
+                                           "required_signoff_roles": ["reviewer"]})
+            _write(p, "human_signoff.json", {"signoffs": [
+                {"role": "reviewer", "name": "Dana", "at": "2026-07-03T12:00:00Z"}]})
+            with _KeyEnv():
+                r = dg.build_report(p, strict=True)
+        self.assertNotEqual(r["decision"]["decision"], "approve")
+        self.assertNotEqual(r["decision"]["decision"], "block")
+        self.assertTrue(r["fail_closed"]["signoff_present"])
+        self.assertFalse(r["fail_closed"]["escalated"])
+
+    def test_strict_no_policy_decision_unchanged(self):
+        """With no policy source, the strict decision is exactly the pre-change
+        result and fail-closed is inactive (genuine signed bundle → approve)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            _clean_core_v2(p)
+            with _KeyEnv(head="b", probe="sha256:TESTPROBE"):
+                _sign_all(p)
+                r = dg.build_report(p, strict=True)
+        self.assertEqual(r["decision"]["decision"], "approve")
+        self.assertFalse(r["fail_closed"]["active"])
+        self.assertNotIn("source", r["fail_closed"])
+
+
 if __name__ == "__main__":
     unittest.main()

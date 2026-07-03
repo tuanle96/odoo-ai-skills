@@ -26,7 +26,17 @@ jobs:
             skills/odoo-introspect/scripts/state_capture.py \
             skills/odoo-introspect/scripts/capabilities.py \
             skills/odoo-introspect/scripts/native_check.py \
-            skills/odoo-introspect/scripts/viz.py
+            skills/odoo-introspect/scripts/viz.py \
+            skills/odoo-introspect/scripts/facts.py \
+            skills/odoo-introspect/scripts/dossier.py \
+            skills/odoo-introspect/scripts/dossier_report.py \
+            skills/odoo-introspect/scripts/fixture_factory.py \
+            skills/odoo-introspect/scripts/fit_gap.py \
+            skills/odoo-introspect/scripts/snapshot_cache.py \
+            skills/odoo-introspect/scripts/evidence_schema.py \
+            skills/odoo-introspect/scripts/pr_comment.py \
+            skills/odoo-introspect/scripts/mcp_server.py \
+            skills/odoo-introspect/scripts/uat_pack.py
 
       - name: Install test deps
         run: pip install pytest

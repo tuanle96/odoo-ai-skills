@@ -1,0 +1,25 @@
+{
+  "id": "v0-007-manifest-missing-dependency",
+  "title": "Trim 'unused' manifest dependencies",
+  "domain": "orm",
+  "severity_class": "S2",
+  "weight": 4,
+  "safe": false,
+  "odoo_version": "17.0",
+  "required_modules": [
+    "sale"
+  ],
+  "task_prompt": "This module's manifest lists dependencies we no longer seem to use. Slim it down — drop the ones that aren't needed.",
+  "failure_mode": "The patch drops BOTH extra deps, including `sale`. But models/sale_order.py does `_inherit = 'sale.order'`, so `sale` IS required. On the developer's DB sale is already installed and the upgrade succeeds — nothing looks wrong. On a FRESH install (or any DB without sale) the module loads without sale and raises `KeyError: sale.order` / 'Model does not exist in registry'; install fails hard. The classic 'works on my machine' dependency bug that only surfaces in the customer's clean environment. (`stock` genuinely was unused — dropping only it is the correct trim.)",
+  "expected_detection": {
+    "check": "upgrade-check: manifest dependency completeness — a model _inherit/_inherits target whose module is not in `depends`",
+    "artifact": "upgrade_check_manifest_deps.json"
+  },
+  "notes": "`sale` is NOT unused: the module extends sale.order. Any model, view, action, or XML id borrowed from another module must stay in `depends`, and the trim must be verified against a FRESH DB, never the dev DB where everything is already installed. Only `stock` was safe to drop.",
+  "context_files": {
+    "__manifest__.py": "{\n    'name': 'Customer Credit Hold',\n    'version': '17.0.1.0.0',\n    # 'stock' is leftover from a removed picking view; 'sale' is used\n    # by the model below.\n    'depends': ['base', 'sale', 'stock'],\n    'data': [],\n    'license': 'LGPL-3',\n}\n",
+    "models/sale_order.py": "from odoo import fields, models\n\n\nclass SaleOrder(models.Model):\n    _inherit = 'sale.order'\n\n    credit_hold = fields.Boolean(string='Credit Hold')\n"
+  },
+  "broken_patch": "--- a/__manifest__.py\n+++ b/__manifest__.py\n@@ -3,7 +3,7 @@\n     'version': '17.0.1.0.0',\n     # 'stock' is leftover from a removed picking view; 'sale' is used\n     # by the model below.\n-    'depends': ['base', 'sale', 'stock'],\n+    'depends': ['base'],\n     'data': [],\n     'license': 'LGPL-3',\n }\n",
+  "fixed_patch": "--- a/__manifest__.py\n+++ b/__manifest__.py\n@@ -3,7 +3,7 @@\n     'version': '17.0.1.0.0',\n     # 'stock' is leftover from a removed picking view; 'sale' is used\n     # by the model below.\n-    'depends': ['base', 'sale', 'stock'],\n+    'depends': ['base', 'sale'],\n     'data': [],\n     'license': 'LGPL-3',\n }\n"
+}

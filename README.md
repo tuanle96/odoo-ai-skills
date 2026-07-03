@@ -7,7 +7,7 @@
 [![license: LGPL-3](https://img.shields.io/badge/license-LGPL--3-blue)](#license)
 [![skills.sh](https://skills.sh/b/tuanle96/odoo-ai-skills)](https://skills.sh/tuanle96/odoo-ai-skills)
 
-A [Claude Code](https://docs.claude.com/en/docs/claude-code) **skills suite for doing Odoo development with an AI agent — correctly.**
+**odoo-ai-skills gives [Claude Code](https://docs.claude.com/en/docs/claude-code) / Codex fast local Odoo instance truth and a CI-bound evidence gate, so AI-written Odoo 17–19 changes are inspected, runtime-verified, and reported before PR, UAT, or release.**
 
 > **Static indexes *suggest*; `odoo-ai-skills` *verifies* — against your running Odoo instance.**
 
@@ -38,11 +38,11 @@ But a static index, by construction, **cannot know what is true in _your_ instan
 
 `odoo-ai-skills` is the other half: it reads **this running instance** and turns a proposed change into proof — then gates the merge. The line is **static indexes suggest; the running instance disposes.**
 
-- **Local-first / sovereign.** Everything runs in your shell. No account, no API key, no per-seat fee; sensitive instance data (that's why [`redact`](#the-enforcement-gates-layer-i) exists) never leaves your environment.
+- **Local-first / sovereign.** Everything runs in your shell. No account, no API key, no per-seat fee; sensitive instance data (that's why [`redact`](#the-gate) exists) never leaves your environment.
 - **Instance-grounded, not memory-grounded.** The instance *is* the index for what's installed here — no per-version re-indexing treadmill.
-- **Verification & enforcement, not just lookup.** [Layer I](#the-enforcement-gates-layer-i) gates the deploy: scenario tests, env drift, validation, redaction, migration risk, and an `approve / needs-human / block` verdict.
+- **Verification & enforcement, not just lookup.** [The Gate](#the-gate) checks the deploy: scenario tests, env drift, validation, redaction, migration risk, and an `approve / needs-human / block` verdict.
 
-Want ecosystem breadth too? Feed an external index's suggestions in as *claims* — `odoo-ai-skills` verifies each against the live instance rather than trusting it (see `verify-claims`). The suite's own `docs` lookup (Layer J) is just one such upstream source, built locally and existence-gated.
+Want ecosystem breadth too? Feed an external index's suggestions in as *claims* — `odoo-ai-skills` verifies each against the live instance rather than trusting it (see `verify-claims`). The suite's own `docs` lookup is just one such upstream source, built locally and existence-gated.
 
 ## Quick install (any skills-compatible agent)
 
@@ -114,14 +114,23 @@ skills/odoo-introspect/scripts/odoo-ai --db <DB> all sale.order
 - For introspection: shell access to run `odoo-bin shell` against a dev/staging DB (self-hosted or an odoo.sh branch), or the RPC fallback for Odoo Online/SaaS — see `skills/odoo-introspect/references/introspection.md`.
 - Optional: the [`tuanle96/mcp-odoo`](https://github.com/tuanle96/mcp-odoo) MCP server to expose introspection as agent tools — it also ships a companion pack of 4 credentials-only **business-workflow skills** (data-quality gate, migration copilot, month-end close, agency fleet review): `npx skills add tuanle96/mcp-odoo`.
 
+## Odoo hosting reality
+
+Where your Odoo runs decides what this suite can do:
+
+- **Self-hosted & Odoo.sh** — full power. You have shell / SSH / CI, so the code path runs end to end: **inspect** the live registry, runtime-**verify** the change, and enforce the **CI-bound evidence gate** before merge, UAT, or release.
+- **Odoo Online (SaaS)** — **advisory only.** Odoo Online allows *no custom code*, so there is nothing to code-verify there. Working today over RPC: generated **end-user guides** (`odoo-user-guide`). On the **v0.15 roadmap** (an RPC-only mode for the shell-backed tools): the **instance dossier**, **config audit**, and **fit-gap** analysis — these currently need `odoo-bin shell`, so on Online they wait for the RPC fallback.
+
+The code gate targets environments where code can actually run (self-hosted, Odoo.sh). It never claims to verify custom code on Odoo Online.
+
 ## The skills
 
 ### Tier 0 — Foundation (the ground-truth engine)
 | Skill | What it does |
 |-------|--------------|
-| **odoo-capabilities** | **Step 0** — before reinventing platform behavior, ask what Odoo already ships. `odoo-ai native-check "<requirement>"` (Layer H gate-then-rank) recall-matches ~34 curated capability cards (TF-IDF + intent-phrase), then **existence-gates** each against the live instance and returns candidates with cited evidence; `odoo-ai capabilities <model>` / `--module <addon>` maps the full native surface (wizards, actions, crons, automations, sequences, mixins, fields) with xmlids as evidence. `odoo-ai native-learn "<phrase>" --card <id>` teaches it mappings so recall improves from use. Fires only for *additive* / core-override tasks. |
-| **odoo-introspect** | The engine every other skill calls first. JSON layers — A: fields+MRO+super+security · B: views/buttons · C: menu/data/reports · D: real runtime trace (with SQL-hotspot / write-map / exception summary) · **G: effective per-user/company security** — plus focused scanners: **refs** (reverse field impact, graph-resolved dotted paths), **preflight** (is it even loaded?), and **state_capture** (Layer F: runtime values at a breakpoint + exception post-mortem) — and the `odoo-ai` CLI. Also hosts the **Layer I enforcement gates** (scenario tests · env parity · static validator · redaction · upgrade harness · deploy-gate · evidence bundle · BYO-index `verify-claims`). |
-| **odoo-docs** | **Layer J** — local developer-docs lookup. Build a TF-IDF index of the official Odoo docs once (`odoo-ai docs-build --version 18`), then `odoo-ai docs "<question>"` returns ranked passages + canonical odoo.com URLs. Subordinate to introspection (docs *propose*, the instance *disposes*); built locally, never vendored (clean CC-BY-SA). |
+| **odoo-capabilities** | **Step 0** — before reinventing platform behavior, ask what Odoo already ships. `odoo-ai native-check "<requirement>"` (native-capability check, gate-then-rank) recall-matches ~34 curated capability cards (TF-IDF + intent-phrase), then **existence-gates** each against the live instance and returns candidates with cited evidence; `odoo-ai capabilities <model>` / `--module <addon>` maps the full native surface (wizards, actions, crons, automations, sequences, mixins, fields) with xmlids as evidence. `odoo-ai native-learn "<phrase>" --card <id>` teaches it mappings so recall improves from use. Fires only for *additive* / core-override tasks. |
+| **odoo-introspect** | The engine every other skill calls first. JSON facts — fields+MRO+super+security · views/buttons · menu/data/reports · real runtime trace (with SQL-hotspot / write-map / exception summary) · **effective per-user/company security** — plus focused scanners: **refs** (reverse field impact, graph-resolved dotted paths), **preflight** (is it even loaded?), and **state_capture** (runtime values at a breakpoint + exception post-mortem) — and the `odoo-ai` CLI. Also hosts **the Gate** — the enforcement suite (scenario tests · env parity · static validator · redaction · upgrade harness · deploy-gate · evidence bundle · BYO-index `verify-claims`). |
+| **odoo-docs** | **Inspect: docs lookup** — a local developer-docs index. Build a TF-IDF index of the official Odoo docs once (`odoo-ai docs-build --version 18`), then `odoo-ai docs "<question>"` returns ranked passages + canonical odoo.com URLs. Subordinate to introspection (docs *propose*, the instance *disposes*); built locally, never vendored (clean CC-BY-SA). |
 
 ### Tier 1 — Core loop
 | Skill | What it does |
@@ -130,9 +139,9 @@ skills/odoo-introspect/scripts/odoo-ai --db <DB> all sale.order
 | **odoo-module-scaffold** | New module skeleton + correct `__manifest__.py` (incl. `external_dependencies` hygiene). |
 | **odoo-views** | View XML (form/list/kanban/search) + inheritance/xpath; the v17/18 `attrs`-removal & `<list>`/`<chatter/>` changes. |
 | **odoo-security** | ACL, record rules, groups, multi-company — authoring + the real eval order. |
-| **odoo-testing** | The test gate: `at_install`/`post_install`, non-admin, multi-company, batch, `-i`/`-u`. Hosts the **Layer L** hardened evidence gate — CI-produced, HMAC-signed proof (diff-targets, changed-line coverage, runtime-path binding, scenario satisfaction, test-quality lint, mutation smoke, red/green replay) that makes "high coverage but runtime breaks" a **block**, not a green tick. |
+| **odoo-testing** | The test gate: `at_install`/`post_install`, non-admin, multi-company, batch, `-i`/`-u`. Hosts the **CI-bound evidence gate** — CI-produced, HMAC-signed proof (diff-targets, changed-line coverage, runtime-path binding, scenario satisfaction, test-quality lint, mutation smoke, red/green replay) that makes "high coverage but runtime breaks" a **block**, not a green tick. Human review stays mandatory for sensitive domains — it hardens the trust boundary, it doesn't remove it. |
 | **odoo-review** | The review gate: catch the security / data-loss / silent-correctness / perf defects AI ships before merge. |
-| **odoo-debug** | Symptom→tool table, traceback decoder, `--dev`, runtime tracing + **runtime state capture / exception post-mortem** (Layer F) and **debugpy/DAP** step-through, "my change didn't apply" preflight. |
+| **odoo-debug** | Symptom→tool table, traceback decoder, `--dev`, runtime tracing + **runtime state capture / exception post-mortem** and **debugpy/DAP** step-through, "my change didn't apply" preflight. |
 
 ### Tier 2 — Frontend & reporting
 | Skill | What it does |
@@ -158,7 +167,7 @@ skills/odoo-introspect/scripts/odoo-ai --db <DB> all sale.order
 | Skill | What it does |
 |-------|--------------|
 | **html-report** | Render any audit / review / analysis / RCA / summary as **one consistent, self-contained HTML page** — shared bold "Magazine" theme, CSS inlined (no CDN, no server), auto-opens. Presentation only; *not* Odoo QWeb business documents (that's `odoo-reports`). |
-| **odoo-user-guide** | Generate an **end-user how-to guide** for a flow from the running instance: ground the steps with `odoo-ai` (Layer K entrypoints + effective per-role security), drive the real UI with Playwright on a **sandbox** DB, screenshot each step, **assert the resulting state at the backend** (the proof), then render a self-contained annotated HTML guide. Manifest-first &amp; re-runnable; demo-DB-only, hard-fails on production mutation. Voice/MP4 are roadmap. |
+| **odoo-user-guide** | Generate an **end-user how-to guide** for a flow from the running instance: ground the steps with `odoo-ai` (entrypoint discovery + effective per-role security), drive the real UI with Playwright on a **sandbox** DB, screenshot each step, **assert the resulting state at the backend** (the proof), then render a self-contained annotated HTML guide. Manifest-first &amp; re-runnable; demo-DB-only, hard-fails on production mutation. Voice/MP4 are roadmap. |
 
 ### Router
 | Skill | What it does |
@@ -170,10 +179,10 @@ skills/odoo-introspect/scripts/odoo-ai --db <DB> all sale.order
 One command gathers ground truth for the agent before any code is written:
 
 ```bash
-# everything (Layers A+B+C) for a model:
+# everything (fields + views + data) for a model:
 scripts/odoo-ai --db <DB> all sale.order --methods action_confirm,write,create
 
-# add the real runtime trace (Layer D):
+# add the real runtime trace:
 scripts/odoo-ai --db <DB> all sale.order --methods action_confirm \
     --record-id 42 --method action_confirm
 
@@ -182,7 +191,7 @@ scripts/odoo-ai --db <DB> refs sale.order commitment_date --resolve-paths  # who
 scripts/odoo-ai --db <DB> preflight my_module               # installed? loaded from where? shadowed?
 scripts/odoo-ai --db <DB> security sale.order --user 7      # effective ACL + record rules + restricted fields
 
-# runtime values (Layer F) — the JSON analog of an IDE's "inspect variables":
+# runtime values — the JSON analog of an IDE's "inspect variables":
 scripts/odoo-ai --db <DB> state sale.order 42 action_confirm \
     --break sale.order._action_confirm --fields state,amount_total   # args/locals/self at the breakpoint
 scripts/odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception   # full stack + locals if it raises
@@ -190,9 +199,9 @@ scripts/odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception   # 
 
 See `skills/odoo-introspect/` for the JSON shape of each layer and the SaaS RPC fallback.
 
-## The enforcement gates (Layer I)
+## The Gate
 
-Reading ground truth stops the agent *guessing*; it doesn't yet *prove* the change is safe. Layer I turns the evidence into gates — the realistic target is **agent-written, tool-verified, human-approved**, not blind autonomous deploy. Four of these are **pure and local** (no `odoo-bin shell`, no DB — they run in CI or on a laptop):
+Reading ground truth stops the agent *guessing*; it doesn't yet *prove* the change is safe. **The Gate** turns that evidence into enforced checks — the realistic target is **agent-written, tool-verified, human-approved**, not blind autonomous deploy. Four of these are **pure and local** (no `odoo-bin shell`, no DB — they run in CI or on a laptop):
 
 ```bash
 # turn introspection into the MANDATORY tests for this change (risk-tiered):
@@ -219,9 +228,9 @@ scripts/odoo-ai deploy-gate /tmp/odoo-ai/evidence_bundle/   # → approve | need
 
 These came out of the v0.7 codebase evaluation (under `plans/reports/`), which found the suite excellent at *grounding* but advisory-only at *enforcement*. Each gate's pure logic is unit-tested without Odoo.
 
-## Discovery, sampling, measurement & enforcement (Layer K)
+## Discovery, sampling, measurement & enforcement
 
-The layers above all assume you already know *what* to introspect. Layer K answers the cold-start problem — *where does reality start in this instance?* — and makes the tools impossible to skip:
+The steps above all assume you already know *what* to introspect. Entry-point discovery answers the cold-start problem — *where does reality start in this instance?* — and makes the tools impossible to skip:
 
 ```bash
 # DISCOVER where to start — rank the live entrypoint surface (buttons, server
@@ -243,13 +252,45 @@ scripts/odoo-ai gate-edit addons/my_module/models/sale_order.py
 
 Wire `gate-edit` as a Claude Code **PreToolUse hook** (`skills/odoo-introspect/references/enforcement-hooks.md`) so the agent *cannot* edit an Odoo model before reading its ground truth — the Oracle's "even perfect tools ≠ used tools" failure mode, closed. `surface`/`esg` stay true to *runtime-grounded, never memorized*: process understanding **emerges from sampled traces**, never a stale stored atlas. (Design rationale: the codebase analysis under `plans/reports/`.)
 
+## New in v0.14 — fast context, the Instance Dossier, and a client-facing evidence artifact
+
+As models improve they write plausible-wrong code *faster*, so the leverage moves from **catching** bad patches to **feeding the agent instance truth before it writes** — and from a green tick to an evidence artifact a reviewer, partner lead, and client can all read. v0.14 adds both halves plus the consultant-facing surface:
+
+```bash
+# FAST CONTEXT — small, per-model instance facts to feed the agent BEFORE it edits
+scripts/odoo-ai --db <DB> facts sale.order --kind security     # model | security | views | flows
+scripts/odoo-ai --db <DB> mcp                                  # ...same facts as a bounded read-only MCP server
+
+# INSTANCE DOSSIER — one read-only command: the takeover / pre-sales inventory
+scripts/odoo-ai --db <DB> dossier                              # modules, Studio, custom fields, security,
+scripts/odoo-ai dossier-report /tmp/odoo-ai/dossier/dossier.dossier.json   # data volumes → upgrade-risk flags → HTML
+
+# VALID TEST DATA — business-record fixtures agents keep getting wrong
+scripts/odoo-ai --db <DB> fixture sale_order_stockable         # paste-ready TransactionCase skeleton
+scripts/odoo-ai --db <DB> fixture sale_order_stockable --exec  # ...or run it in a savepoint + roll back
+
+# FIT-GAP (alpha) — classify requirements vs the live instance (decision support, not a consultant)
+scripts/odoo-ai --db <DB> fit-gap --requirements-file reqs.json --domains sale,stock,account
+
+# UAT PACK (alpha) — role-based UAT scripts from the live surface + risk scenarios
+scripts/odoo-ai uat-pack --surface surface.json --scenarios scenarios.json --html
+
+# THE EVIDENCE ARTIFACT — the stable, public, client-facing proof (build + validate)
+scripts/odoo-ai evidence-artifact build <bundle_dir> --out evidence.json
+scripts/odoo-ai evidence-artifact validate evidence.json
+```
+
+The **snapshot cache** (`cache`) keeps warm context fast inside the agent loop under one hard rule — **warm cache never approves a merge; only a cold run is merge-eligible**, and the provenance rides on every payload. The **Gate** now classifies every finding **S0–S4** and supports an opt-in **fail-closed** policy (`deploy-gate --policy …`): an **S3/S4** finding (silent data corruption, ACL bypass, multi-company leak) **blocks** the merge unless a `human_signoff.json` downgrades it — never silently to *approve*. A composite **GitHub Action** (`.github/actions/odoo-gate`), a sticky **PR comment**, and a GitLab recipe make it real in CI ([`docs/ci-integration.md`](docs/ci-integration.md), [`docs/evidence-artifact.md`](docs/evidence-artifact.md)). And [**Odoo Agent Safety Bench v0**](bench/) is a public, reproducible benchmark whose metric is the **unsafe-change escape rate** — how often an unsafe change reaches PR/UAT/release undetected — *not* task completion; ten severity-weighted tasks, four run modes, a living adversarial corpus, and by design **no single headline score**.
+
+> **Consultant / BA note.** The Instance Dossier, Fit-Gap, and UAT Pack are the takeover-audit, gap-fit, and UAT deliverables the functional side asks for. Fit-Gap and UAT Pack are **alpha** (scoped to sale/stock/account for now), and on **Odoo Online** the Dossier/Fit-Gap wait for the v0.15 RPC-only mode — see [`docs/odoo-online-advisory.md`](docs/odoo-online-advisory.md).
+
 ## Tested against real Odoo
 
-Beyond the unit suite, the integration smoke runs **every layer + gate against live Odoo 17 / 18 / 19** in CI (`.github/workflows/integration.yml`) — including Layer K (`surface`/`esg`/`eval`): **89/89 checks pass on each of 17, 18, and 19**, reproducible locally in one command via `docker-compose.e2e.yml` (Postgres + the three Odoo versions). The `eval` harness scores **detection_rate 1.0 / truth_recall 1.0** on all three (every classic hallucination caught, every real confirmed). The suite has also been validated end-to-end against a real **390-module Enterprise** instance (Studio fields, custom addons, multi-company): all read-only layers (A–H), the enforcement gates, the BYO-index `verify-claims` (it correctly flagged an external claim about a module *absent* from that instance), and the write/execute layers — a runtime `trace` of `sale.order.action_confirm` captured the real cross-app cascade (`stock.picking` / `stock.move` / `quality.check`) and rolled back. The failures a static index can't catch are in `docs/high-risk-playbooks.md`.
+Beyond the unit suite, the integration smoke runs **every inspection stage and gate against live Odoo 17 / 18 / 19** in CI (`.github/workflows/integration.yml`) — including entry-point discovery (`surface`/`esg`/`eval`): **89/89 checks pass on each of 17, 18, and 19**, reproducible locally in one command via `docker-compose.e2e.yml` (Postgres + the three Odoo versions). The `eval` harness scores **detection_rate 1.0 / truth_recall 1.0** on all three (every classic hallucination caught, every real confirmed). The suite has also been validated end-to-end against a real **390-module Enterprise** instance (Studio fields, custom addons, multi-company): all read-only inspection (fields, MRO, security, native capability), the enforcement gates, the BYO-index `verify-claims` (it correctly flagged an external claim about a module *absent* from that instance), and the write/execute layers — a runtime `trace` of `sale.order.action_confirm` captured the real cross-app cascade (`stock.picking` / `stock.move` / `quality.check`) and rolled back. The failures a static index can't catch are in `docs/high-risk-playbooks.md`.
 
 ## Security — handling introspection output
 
-The introspection layers dump real instance data. **Layer F (`state`) captures runtime args, locals, and `self` field values, and `SOURCE=1` on Layer A includes full method bodies.** This output can contain secrets, tokens, API keys, passwords, customer PII, or proprietary business logic.
+The introspection stages dump real instance data. **The `state` capture returns runtime args, locals, and `self` field values, and `SOURCE=1` on the model brief includes full method bodies.** This output can contain secrets, tokens, API keys, passwords, customer PII, or proprietary business logic.
 
 - **`state` redacts common sensitive keys by default** — locals/dict-keys/fields named like `password`, `token`, `secret`, `api_key`, `authorization`, `session`, etc. become `<redacted>`. Extend with `--redact-extra ssn,iban`; disable with `--no-redact` only on a trusted dev box. Redaction is key-name based, so it won't catch a secret stored under an innocuous name.
 - **Source bodies and field *values* are not redacted** — `SOURCE=1` and `--fields` can still surface sensitive content. **Do not paste raw `state` / source JSON into an external LLM or a public issue unless it's been reviewed and redacted.**
@@ -271,13 +312,14 @@ skills/odoo-introspect/scripts/  # the introspection engine + odoo-ai CLI
 The introspection scripts are import-safe: the env-dependent work runs only inside `odoo-bin shell`, while the pure helpers are unit-tested without Odoo.
 
 ```bash
+python -m unittest discover -s tests -p "test_*.py"          # gate + tool suite (no Odoo, no pytest)
 python -m pytest skills/odoo-introspect/scripts/tests -q     # pure-function tests
 python skills/odoo-introspect/scripts/tests/test_pure_functions.py   # no-pytest fallback
 ```
 
-CI (`.github/workflows/`) compiles every script and runs these tests on each push.
+CI (`.github/workflows/`) compiles every script and runs both suites on each push.
 
-**Integration smoke test (needs a real Odoo).** `scripts/tests/integration_smoke.py` runs the layers against a live instance and asserts on the JSON (selection literals, manifest `by_location` split, view `inheritance_chain`, seeded `noupdate`, Layer F redaction). It's opt-in — skipped unless `ODOO_DB` is set — so it never breaks the unit CI. Run it against a dev container or let `.github/workflows/integration.yml` run it on the official `odoo:17.0` / `18.0` / `19.0` images (with a dedicated job running the `sale_confirm_guard` worked example on `odoo:18.0`). See `skills/odoo-introspect/references/introspection.md` for the container wrapper and exact invocation.
+**Integration smoke test (needs a real Odoo).** `scripts/tests/integration_smoke.py` runs the inspection stages against a live instance and asserts on the JSON (selection literals, manifest `by_location` split, view `inheritance_chain`, seeded `noupdate`, `state` redaction). It's opt-in — skipped unless `ODOO_DB` is set — so it never breaks the unit CI. Run it against a dev container or let `.github/workflows/integration.yml` run it on the official `odoo:17.0` / `18.0` / `19.0` images (with a dedicated job running the `sale_confirm_guard` worked example on `odoo:18.0`). See `skills/odoo-introspect/references/introspection.md` for the container wrapper and exact invocation.
 
 ## Contributing & security
 

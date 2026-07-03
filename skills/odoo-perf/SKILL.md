@@ -14,7 +14,7 @@ description: >-
 
 # Odoo performance
 
-In Odoo, wall-clock is dominated by **SQL query count**, not Python. The ORM already batches writes, prefetches relations, and caches reads across a whole recordset — almost all slowness is *fighting* it: a `search` or `browse` inside a loop turns one query into N. **Measure the real count first**, then fix the hot path. Delegate measurement to the **`odoo-introspect`** skill — `trace_flow` (Layer D) reports `total_sql` and per-call `sql_count`:
+In Odoo, wall-clock is dominated by **SQL query count**, not Python. The ORM already batches writes, prefetches relations, and caches reads across a whole recordset — almost all slowness is *fighting* it: a `search` or `browse` inside a loop turns one query into N. **Measure the real count first**, then fix the hot path. Delegate measurement to the **`odoo-introspect`** skill — `trace_flow` reports `total_sql` and per-call `sql_count`:
 
 ```bash
 odoo-ai --db <DB> trace <model> <record_id> <method>   # total_sql + sql_count per call

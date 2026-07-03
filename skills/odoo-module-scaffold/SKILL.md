@@ -23,7 +23,7 @@ A module installs only when its declared structure matches what the registry exp
 
 `depends` is the one manifest key with weight beyond "make it install": it sets module load order, which sets where your class lands in the model's MRO. Override `sale.order` while depending only on `sale` (not `sale_stock`) and your method sits at a *different layer* than the stock hooks — `super()` then reaches a different chain than you expect.
 
-Before writing `depends`, run the `odoo-introspect` skill's **model_brief (Layer A)** on the model you extend: it reports the **recommended manifest depends** for the fields/methods you touch. Add only what you use. (→ `odoo-dev` for the override itself.)
+Before writing `depends`, run the `odoo-introspect` skill's **model_brief** on the model you extend: it reports the **recommended manifest depends** for the fields/methods you touch. Add only what you use. (→ `odoo-dev` for the override itself.)
 
 ## Standard layout
 
@@ -114,6 +114,6 @@ from . import library_book          # add one line per new model file
 ## References
 
 - `references/module-skeleton.md` — full copy-pasteable minimal module (model + ACL csv + menu/action/form+list) that installs clean on v17/18.
-- `odoo-introspect` model_brief (Layer A) — recommended manifest depends before you write `depends`.
+- `odoo-introspect` model_brief — recommended manifest depends before you write `depends`.
 - `odoo-dev` — the override/extension once the module exists.
 - `odoo-views` — authoring the view XML this skeleton stubs.

@@ -147,7 +147,7 @@ Odoo terms*, the fix, and — for correctness — the test that should prove it.
 Don't rewrite the whole patch; point to the smallest correct change (the
 `odoo-dev` ethos).
 
-## Run the checklist as a linter (Layer I)
+## Run the checklist as a linter
 
 Much of the checklist above is now **executable**: `odoo-ai validate <path...>`
 (local, no DB) statically flags the high-signal, mechanical defects — `attrs`/

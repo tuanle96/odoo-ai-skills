@@ -1,0 +1,24 @@
+{
+  "id": "v0-005-tax-ignore-price-include",
+  "title": "Add an untaxed subtotal beside the tax-included total",
+  "domain": "account",
+  "severity_class": "S3",
+  "weight": 8,
+  "safe": false,
+  "odoo_version": "17.0",
+  "required_modules": [
+    "account"
+  ],
+  "task_prompt": "Add a stored `price_subtotal` (untaxed amount) field to quote.line alongside the existing tax-included `price_total`.",
+  "failure_mode": "The patch reimplements tax math by hand and IGNORES price_include. When the line's tax has price_include=True, price_unit ALREADY contains the tax: base*(1+rate) double-taxes the total, and price_subtotal=base overstates the untaxed amount (base still holds the tax). Both fields are wrong ONLY for tax-included pricing (standard in EU/retail/B2C), so a test using a tax-excluded fixture passes. Customers are over-charged and the tax reported to authorities is wrong — a compliance/refund problem. Also ignores rounding method and tax groups.",
+  "expected_detection": {
+    "check": "scenario: price_include=True tax fixture — assert price_total/price_subtotal equal account.tax.compute_all()'s total_included/total_excluded",
+    "artifact": "scenario_tax_price_include.json"
+  },
+  "notes": "Never reimplement tax math. compute_all() is the only thing that correctly handles price_include, rounding (per-line vs global), tax groups, fixed vs percent, and affected-base chains. The fix adds the field by reading total_excluded from the SAME compute_all call.",
+  "context_files": {
+    "models/quote_line.py": "from odoo import api, fields, models\n\n\nclass QuoteLine(models.Model):\n    _name = 'quote.line'\n    _description = 'Quotation Line'\n\n    price_unit = fields.Float()\n    quantity = fields.Float(default=1.0)\n    tax_id = fields.Many2one('account.tax')\n    price_total = fields.Float(compute='_compute_amounts', store=True)\n\n    @api.depends('price_unit', 'quantity', 'tax_id')\n    def _compute_amounts(self):\n        for line in self:\n            taxes = line.tax_id.compute_all(\n                line.price_unit, quantity=line.quantity)\n            line.price_total = taxes['total_included']\n"
+  },
+  "broken_patch": "--- a/models/quote_line.py\n+++ b/models/quote_line.py\n@@ -9,10 +9,13 @@\n     quantity = fields.Float(default=1.0)\n     tax_id = fields.Many2one('account.tax')\n     price_total = fields.Float(compute='_compute_amounts', store=True)\n+    price_subtotal = fields.Float(compute='_compute_amounts', store=True)\n \n     @api.depends('price_unit', 'quantity', 'tax_id')\n     def _compute_amounts(self):\n         for line in self:\n-            taxes = line.tax_id.compute_all(\n-                line.price_unit, quantity=line.quantity)\n-            line.price_total = taxes['total_included']\n+            # direct calc: base and base * (1 + tax%)\n+            base = line.price_unit * line.quantity\n+            rate = line.tax_id.amount / 100.0\n+            line.price_subtotal = base\n+            line.price_total = base * (1.0 + rate)\n",
+  "fixed_patch": "--- a/models/quote_line.py\n+++ b/models/quote_line.py\n@@ -9,10 +9,12 @@\n     quantity = fields.Float(default=1.0)\n     tax_id = fields.Many2one('account.tax')\n     price_total = fields.Float(compute='_compute_amounts', store=True)\n+    price_subtotal = fields.Float(compute='_compute_amounts', store=True)\n \n     @api.depends('price_unit', 'quantity', 'tax_id')\n     def _compute_amounts(self):\n         for line in self:\n             taxes = line.tax_id.compute_all(\n                 line.price_unit, quantity=line.quantity)\n+            line.price_subtotal = taxes['total_excluded']\n             line.price_total = taxes['total_included']\n"
+}

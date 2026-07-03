@@ -1,0 +1,25 @@
+{
+  "id": "zoo-short-slug",
+  "title": "One-line human label for the case",
+  "domain": "sale|stock|account|purchase|security|views|orm",
+  "severity_class": "S0|S1|S2|S3|S4",
+  "weight": 12,
+  "safe": false,
+  "odoo_version": "17.0",
+  "required_modules": ["base"],
+  "task_prompt": "The instruction the agent was given, phrased like a real ticket. Never hints at the trap.",
+  "context_files": {
+    "models/example_model.py": "from odoo import api, fields, models\n\n\nclass Example(models.Model):\n    _name = 'example.model'\n    _description = 'Example'\n\n    name = fields.Char()\n"
+  },
+  "broken_patch": "--- a/models/example_model.py\n+++ b/models/example_model.py\n@@ ... @@\n-    # original\n+    # the plausible-but-unsafe change the agent produced\n",
+  "failure_mode": "Precise runtime failure and WHO it hurts (the portal user, the accountant, the fresh install). This is the adjudicator's reference.",
+  "expected_detection": {
+    "check": "which suite check should catch it, in the suite's vocabulary (e.g. 'security-sim record-rule probe')",
+    "artifact": "expected_artifact_filename_pattern.json"
+  },
+  "fixed_patch": "--- a/models/example_model.py\n+++ b/models/example_model.py\n@@ ... @@\n-    # the unsafe change\n+    # the correct minimal change (equals broken_patch if this is a safe probe)\n",
+  "notes": "The generalizable lesson an agent should have known.",
+  "reported_by": "your-handle-or-org, or bench-run:<date> for a published miss",
+  "seen_in_wild": false,
+  "provenance": "the ticket / run / CVE class / reasoning that produced this case"
+}

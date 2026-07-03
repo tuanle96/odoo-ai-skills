@@ -40,7 +40,7 @@ Full cross-suite matrix (incl. v18.1/18.2 deltas) → `skills/odoo-introspect/re
 
 OWL "ground truth" is the JS/XML source in the installed addons plus the view/action wiring in the DB:
 
-- **Wiring** → run the `odoo-introspect` skill's `odoo-ai entrypoints <model>` (Layer B): it reads the resolved `get_view()` arch — which view places `<field widget="x"/>` or `<widget name="y"/>`, and which window/client action is in scope. `odoo-ai brief <model>` (Layer A) + `metadata` list the model fields and the menu/action records. Never guess the view or action tag.
+- **Wiring** → run the `odoo-introspect` skill's `odoo-ai entrypoints <model>`: it reads the resolved `get_view()` arch — which view places `<field widget="x"/>` or `<widget name="y"/>`, and which window/client action is in scope. `odoo-ai brief <model>` + `metadata` list the model fields and the menu/action records. Never guess the view or action tag.
 - **The API you're extending** → read the actual file: `grep -rl 'category("fields").add' <addons>/web/static/src/views/fields/` and open the closest field to what you need. Odoo's own field/view/service implementations are the contract — match their imports and prop shapes rather than recalling them.
 
 ## What you're building → where it registers
