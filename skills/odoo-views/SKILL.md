@@ -18,7 +18,7 @@ description: >-
 
 The view you edit is **not** the view that renders. Odoo merges the base arch with every inheriting view across the addon graph at `get_view()` time. An xpath that doesn't match the *resolved* arch silently no-ops — the field you "added" never appears and nothing is logged.
 
-**Read ground truth first.** Run the `odoo-introspect` skill's **entrypoints (Layer B)** on the model: it dumps the inheritance-resolved arch, the buttons (which method/action each fires), and the view-level field modifiers (readonly/invisible/required). It also returns the **`inheritance_chain`** — the base view plus every applied extension in priority order — so you pick the right view to inherit and can see which siblings already touch your target node. Render one specific view with `--view-xmlid`/`--view-id`. Now your xpath targets exist and you won't duplicate a field.
+**Read ground truth first.** Run the `odoo-introspect` skill's **entrypoints** on the model: it dumps the inheritance-resolved arch, the buttons (which method/action each fires), and the view-level field modifiers (readonly/invisible/required). It also returns the **`inheritance_chain`** — the base view plus every applied extension in priority order — so you pick the right view to inherit and can see which siblings already touch your target node. Render one specific view with `--view-xmlid`/`--view-id`. Now your xpath targets exist and you won't duplicate a field.
 
 **Version floor: Odoo 17/18, through Odoo 19 (current LTS).** Pre-17 deltas and the v18.1 → 19 changes → `skills/odoo-introspect/references/version-matrix.md`.
 
@@ -97,5 +97,5 @@ Full mechanics + every position with examples → `references/view-inheritance.m
 
 - `references/view-inheritance.md` — xpath positions, primary vs extension, `<attribute>` add/remove, priority, debugging a dead xpath.
 - `references/view-types.md` — per-type arch (form/list/kanban/search/pivot/graph/calendar) with v18 syntax.
-- `odoo-introspect` entrypoints (Layer B) — resolved arch + buttons + modifiers, before you edit.
+- `odoo-introspect` entrypoints — resolved arch + buttons + modifiers, before you edit.
 - `odoo-module-scaffold` — where view files get registered in `__manifest__.py` `data`.

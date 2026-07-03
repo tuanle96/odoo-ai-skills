@@ -16,7 +16,7 @@ description: >-
 
 Effective access on a model is **composed at runtime** from every installed addon: ACL lines union across the user's groups, and record rules from many modules AND/OR together. Neither the source tree nor your memory tells you the effective permission for *this* instance — only the running registry does. Guessing is why "I added a group and it still 403s" and "admin works, user doesn't" keep happening.
 
-**Read the real dossier first.** Delegate discovery to the **`odoo-introspect`** skill — `model_brief` (Layer A) dumps the model's ACL + record rules straight from the DB:
+**Read the real dossier first.** Delegate discovery to the **`odoo-introspect`** skill — `model_brief` dumps the model's ACL + record rules straight from the DB:
 
 ```bash
 odoo-ai --db <DB> brief <model>     # security{} = access_rights (ACL) + record_rules
@@ -24,7 +24,7 @@ odoo-ai --db <DB> all  <model>      # + entrypoints / metadata / trace
 odoo-ai --db <DB> security <model> --user <login|id> [--company <id|name>] [--allowed-companies <a,b>]  # EFFECTIVE access for one user
 ```
 
-Inspect `security.access_rights` (the ACL union) and `security.record_rules` (global vs group, `domain_force`, `perm_*`) before changing anything. When the question is "what can **this specific user** actually do / see" (the classic *admin OK, user 403s*), run **`security` (Layer G)**: it combines the ACL additively and resolves the record-rule `effective_domain` with Odoo's own combiner under `with_user`, lists the group-restricted fields, and cross-checks against `check_access`.
+Inspect `security.access_rights` (the ACL union) and `security.record_rules` (global vs group, `domain_force`, `perm_*`) before changing anything. When the question is "what can **this specific user** actually do / see" (the classic *admin OK, user 403s*), run **`security`**: it combines the ACL additively and resolves the record-rule `effective_domain` with Odoo's own combiner under `with_user`, lists the group-restricted fields, and cross-checks against `check_access`.
 
 **Version floor: Odoo 17/18, through Odoo 19 (current LTS).** ACL/record-rule *semantics* are stable back to v14, but group external IDs and the introspection tooling assume 17/18+. Two recent security-relevant renames AI gets wrong: the access-check API was unified (**`check_access`** raises / **`has_access`** returns bool / **`_filtered_access`** filters a recordset) in v18 and the old `check_access_rights`/`check_access_rule` pair is superseded → v19; and from **v18.2 public model methods are RPC-callable by default** — see the `@api.private` note below. Details in `skills/odoo-introspect/references/version-matrix.md`.
 

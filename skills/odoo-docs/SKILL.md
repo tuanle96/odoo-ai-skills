@@ -8,7 +8,7 @@ description: >
   odoo.com URLs. Always subordinate to live instance introspection.
 ---
 
-# odoo-docs — Local Developer Doc Index (Layer J)
+# odoo-docs — Local Developer Doc Index
 
 Offline TF-IDF search over Odoo developer documentation, built once from the
 official `odoo/documentation` repository (CC-BY-SA-4.0, © Odoo S.A.).

@@ -19,4 +19,8 @@ For Odoo tasks:
   `odoo-ai redact`.
 - Prove changes with the smallest relevant test or gate before claiming done.
 
-Do not add an MCP wrapper unless shell access to `odoo-ai` is no longer enough.
+The bundled read-only MCP context server (`skills/odoo-introspect/scripts/mcp_server.py`,
+ships in v0.14) is the sanctioned bounded-facts surface: no arbitrary RPC, redacted
+output, cache-provenance-labeled. Use it when an agent needs Odoo facts as tools.
+Arbitrary-RPC MCP wrappers remain forbidden — they reopen the guessing/leak surface the
+suite exists to close.

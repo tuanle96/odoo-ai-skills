@@ -7,7 +7,7 @@ description: >-
   view definition" XML errors), turning on dev mode (--dev=all/xml/qweb/reload),
   dropping into pdb / odoo-bin shell, scoping log output (--log-handler), logging
   SQL, tracing what actually runs at runtime, capturing runtime VALUES
-  (args/locals/self at a breakpoint + exception post-mortem stack via Layer F
+  (args/locals/self at a breakpoint + exception post-mortem stack via
   state_capture), and interactive step-through with debugpy/DAP. Use whenever an
   Odoo stack trace, failed -i/-u, blank or 500 page, "works locally not in prod",
   a wrong-at-runtime value, or "why did it raise" shows up, or before you guess
@@ -30,8 +30,8 @@ Most Odoo errors are about the **composed runtime**, not a typo: a field/method/
 | `MissingError` / record does not exist | delete/rollback ordering, or company record rule hiding it; `trace_flow` |
 | Wrong / stale computed value | `model_brief` `depends` — incomplete `@api.depends` (see `odoo-perf`) |
 | "My override never runs" | `model_brief` MRO + `trace_flow` — real call order, not assumed |
-| Big flow does the wrong thing | `trace_flow` (Layer D) — actual cross-addon call sequence |
-| **A value is wrong at runtime — what *was* it?** | `state_capture` (Layer F) — break at the `model.method` and dump args/locals/`self` |
+| Big flow does the wrong thing | `trace_flow` — actual cross-addon call sequence |
+| **A value is wrong at runtime — what *was* it?** | `state_capture` — break at the `model.method` and dump args/locals/`self` |
 | **It raises and the traceback doesn't explain why** | `state_capture --on-exception` — full call stack with every frame's locals |
 | Need to **step through** interactively | `debugpy` attach (VS Code/PyCharm) — see "Interactive debugging" below |
 | Slow endpoint / suspected N+1 | `trace_flow` SQL counts → `odoo-perf` |
@@ -70,7 +70,7 @@ Most Odoo errors are about the **composed runtime**, not a typo: a field/method/
 
 ## What actually runs — trace it
 
-When the bug is "the flow does X but should do Y", MRO and grep can't tell you the real sequence. `trace_flow` (Layer D, via `odoo-introspect`) executes the method on a throwaway record and records the cross-addon call order **+ SQL per call** (rolls back by default):
+When the bug is "the flow does X but should do Y", MRO and grep can't tell you the real sequence. `trace_flow` (via `odoo-introspect`) executes the method on a throwaway record and records the cross-addon call order **+ SQL per call** (rolls back by default):
 
 ```bash
 odoo-ai --db <DB> trace <model> <record_id> <method>
@@ -82,7 +82,7 @@ Read `distinct_steps` for the call order and `total_sql` / per-call `sql_count` 
 
 `trace_flow` tells you *what* runs; often the bug is in *what the values were*. Two ways to see them — pick by who's driving.
 
-### Non-interactive state capture (Layer F) — agent-native, no IDE
+### Non-interactive state capture — agent-native, no IDE
 
 `state_capture` (via `odoo-introspect`) is the JSON analog of an IDE's "inspect variables" and post-mortem. It executes the method on a throwaway record (rolls back) and captures runtime **state**, so an agent reads it like any other layer — no `(Pdb)` prompt to sit at:
 
@@ -100,7 +100,7 @@ odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception
 
 `exception_stack` is the thing a bare traceback throws away: each addon frame deepest-last, with its locals and `self` recordset. Recordsets serialize to `model + ids` (cheap); pass `--fields` to read named field values off `self`. This is the first move for "the value is wrong / why did it raise", before reaching for an interactive debugger.
 
-Layer F **redacts sensitive locals/keys/fields by default** (`password`, `token`, `secret`, `api_key`, …) as `<redacted>`; extend with `--redact-extra`, disable with `--no-redact` on a trusted box. Note `--fields` values and `--source` bodies are not redacted — don't ship raw output to an external LLM unreviewed.
+The `state` capture **redacts sensitive locals/keys/fields by default** (`password`, `token`, `secret`, `api_key`, …) as `<redacted>`; extend with `--redact-extra`, disable with `--no-redact` on a trusted box. Note `--fields` values and `--source` bodies are not redacted — don't ship raw output to an external LLM unreviewed.
 
 ### Interactive step-through (debugpy + DAP) — when you must drive it live
 
@@ -133,7 +133,7 @@ python -m debugpy --listen 0.0.0.0:5678 odoo-bin -c odoo.conf -d <DB> --workers=
 - `references/tracebacks.md` — annotated real tracebacks per error class, the log-reading recipe, `--log-handler` patterns, pdb / shell session examples, the "first vs last frame" rule, and install/upgrade failure diagnosis.
 
 **Other skills in the loop**
-- `odoo-introspect` — Tier 0 engine; `odoo-ai all <model>`, `trace_flow` (Layer D) for real call order + SQL, and `state_capture` (Layer F) for runtime values + exception post-mortem.
+- `odoo-introspect` — Tier 0 engine; `odoo-ai all <model>`, `trace_flow` for real call order + SQL, and `state_capture` for runtime values + exception post-mortem.
 - `odoo-security` — `AccessError` / record-rule decoding. `odoo-perf` — SQL-count / cache / N+1.
 - `odoo-dev` — once the cause is known, the smallest safe patch.
 - `html-report` — present a debug write-up / RCA as a shareable, self-contained HTML page.

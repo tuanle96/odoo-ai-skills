@@ -24,8 +24,8 @@ Odoo composes each model class at runtime from the installed addon dependency gr
 ## Three different "orders" — do not conflate them
 
 1. **Module load order** — from `depends` in `__manifest__.py`. Determines what exists when the registry builds. Override `sale.order.action_confirm` while depending only on `sale` (not `sale_stock`) and your override lands at a *different MRO layer* than intended.
-2. **Method resolution order (MRO)** — the class chain of the final registry model. The **potential** `super()` path, **not** a guarantee of what runs. An override that skips `super()` cuts the chain; an early `return` under a context flag skips the rest. Layer A reports `has_super` / `super_position` / `returns_before_super` (heuristics) so you can judge.
-3. **Runtime call order** — what actually executes on a click/cron: onchange → constrains → method → procurement → stock moves → invoice hooks → automations → recomputes. A **graph across many models**, not a list. Static analysis can't reconstruct it. Trace it (Layer D).
+2. **Method resolution order (MRO)** — the class chain of the final registry model. The **potential** `super()` path, **not** a guarantee of what runs. An override that skips `super()` cuts the chain; an early `return` under a context flag skips the rest. The `model_brief` reports `has_super` / `super_position` / `returns_before_super` (heuristics) so you can judge.
+3. **Runtime call order** — what actually executes on a click/cron: onchange → constrains → method → procurement → stock moves → invoice hooks → automations → recomputes. A **graph across many models**, not a list. Static analysis can't reconstruct it. Trace it (`trace_flow`).
 
 ## The four ground-truth layers
 
@@ -48,7 +48,7 @@ And one runtime-**state** layer for when you need the values, not just the call 
 
 | Layer | Script | Answers | Run when |
 |-------|--------|---------|----------|
-| **F (state)** | `state_capture.py` | the **values** at runtime — args/locals/`self` at a breakpoint (`model.method` or source line), and the **full call stack with every frame's locals** when the method raises. The non-interactive, JSON analog of an IDE's "inspect variables" / post-mortem | Layer D shows *what* runs but you need *what the values were*, or a flow raises and the traceback alone doesn't explain why |
+| **F (state)** | `state_capture.py` | the **values** at runtime — args/locals/`self` at a breakpoint (`model.method` or source line), and the **full call stack with every frame's locals** when the method raises. The non-interactive, JSON analog of an IDE's "inspect variables" / post-mortem | `trace_flow` shows *what* runs but you need *what the values were*, or a flow raises and the traceback alone doesn't explain why |
 
 And one **discovery + measurement** layer for when you don't yet know *where to start* — the cold-start problem every other layer assumes away (they need you to already name the model/method/field):
 
@@ -58,7 +58,7 @@ And one **discovery + measurement** layer for when you don't yet know *where to 
 | **K (esg)** | `esg_sample.py` | **what does the overall process look like?** — samples the top entrypoints (trace each on a real record, rolled back), then merges the skeletons into one cross-model/cross-app graph (models touched · model→model edges · app→app edges · write-map). Process understanding that **emerges from traces**, never a stored map that goes stale | you need orientation across a flow (sale→stock→account) before diving micro; onboarding to a customized instance |
 | **K (eval)** | `eval_harness.py` | **did hallucinations actually go down?** — runs a benchmark of the classic LLM Odoo mistakes (account.invoice, customer_id, fields_view_get, a 'customer' selection) + stable reals against the live registry and scores the gate's `detection_rate` / `truth_recall`. A regression signal, not a vibe | you changed the suite and want proof the gate still catches hallucinations; release gating |
 
-> **Layer K is discovery + measurement, NOT a static process atlas.** Odoo's real flow is a runtime-trace *distribution* (conditional on group/company/automations/Studio), so a stored map would make the agent confidently wrong. `surface` ranks the roots; `esg` samples the real edges from those roots; `eval` measures that the gate works. The honest macro layer: orient cheaply, then verify micro.
+> **`surface`/`esg`/`eval` are discovery + measurement, NOT a static process atlas.** Odoo's real flow is a runtime-trace *distribution* (conditional on group/company/automations/Studio), so a stored map would make the agent confidently wrong. `surface` ranks the roots; `esg` samples the real edges from those roots; `eval` measures that the gate works. The honest macro layer: orient cheaply, then verify micro.
 
 And one **enforcement** gate — the Oracle's "even perfect tools ≠ used tools": make reading ground truth a precondition, not a prompt:
 
@@ -67,6 +67,21 @@ And one **enforcement** gate — the Oracle's "even perfect tools ≠ used tools
 | **K (gate-edit)** | `gate_edit.py` | **may I edit this yet?** — extracts the models a patch touches (`_name`/`_inherit`; view `model=`), checks the evidence dir for an introspection brief of each + runs the validator → `allow`/`block` with the exact `odoo-ai` commands to unblock. **LOCAL, no DB.** Wire as a Claude Code PreToolUse hook (`references/enforcement-hooks.md`) for *no-introspect-no-edit* | always, via the hook — so the agent can't skip introspection before an Odoo edit |
 
 Each script runs inside `odoo-bin shell` and prints pure JSON between sentinels (`===ODOO_BRIEF_START===` … etc.). Feed that JSON to the agent **before** any code. (`gate-edit` is LOCAL — plain `python3`, no shell.)
+
+### v0.14 — fast context, the Instance Dossier, fixtures, and Fit-Gap
+
+The Inspect stage also ships *small, fast* context primitives (feed them **before** an edit) and the consultant-facing artifacts:
+
+| Command | Script | Answers | Run when |
+|---------|--------|---------|----------|
+| `facts` | `facts.py` | *compact* facts for one model (`--kind model\|security\|views\|flows`) — small enough to drop straight into context, with an `instance_fingerprint` | you want ground truth for one model without a full brief; feeding an agent pre-edit |
+| `dossier` | `dossier.py` | the **whole-instance** read-only inventory — modules (standard/OCA/custom), Studio footprint, custom fields, actions/crons, security, view overrides, data volumes → **upgrade-risk flags**. Redacted by default; `dossier-report` renders HTML | takeover / pre-sales due diligence, upgrade scoping, support triage |
+| `fixture` | `fixture_factory.py` | a **valid** business-record fixture — CODE mode emits a `TransactionCase` skeleton; `--exec` runs it in a savepoint and rolls back | you need realistic sale/stock/account/mrp test data an agent keeps getting wrong |
+| `fit-gap` | `fit_gap.py` | requirements classified vs the live instance (`native_config` … `no_known_pattern`) with effort band + risk — **decision support, not a consultant replacement** | scoping sale/stock/account requirements against what this instance already does |
+| `cache` | `snapshot_cache.py` | inspect the content-addressed snapshot cache — **warm facts never approve a merge** (cold-only is merge-eligible) | checking / clearing cached context |
+| `mcp` | `mcp_server.py` | run the bounded read-only MCP context server (6 fact tools, no arbitrary RPC, redacted, cache-provenance-labelled) over stdio | wiring Claude Code / Codex to pull instance truth on demand |
+
+The Gate + Report stage adds `evidence-artifact` (build/validate the public [Evidence Artifact v1](../../docs/evidence-artifact.md)) and `pr-comment` (the sticky CI gate comment); `uat-pack` turns `surface` + `scenarios` into role-based UAT scripts. See `docs/ci-integration.md` and `docs/evidence-artifact.md`.
 
 ## One command: `odoo-ai all <model>`
 
@@ -95,14 +110,14 @@ scripts/odoo-ai --db <DB> security sale.order --user salesperson@acme.com   # wh
 scripts/odoo-ai --db <DB> security sale.order --user 7 --company 2          # ...with company 2 active
 scripts/odoo-ai --db <DB> security sale.order --user 7 --company 2 --allowed-companies 1,2  # ...with both companies toggled on
 
-# runtime VALUES (Layer F): break when execution enters a method and dump its state,
+# runtime VALUES (state): break when execution enters a method and dump its state,
 # or capture the full stack-with-locals if it raises:
 scripts/odoo-ai --db <DB> state sale.order 42 action_confirm \
     --break sale.order._action_confirm --fields state,amount_total   # inspect-variables, as JSON
 scripts/odoo-ai --db <DB> state sale.order 42 action_confirm --on-exception   # post-mortem stack + locals
 ```
 
-> **Layer F redacts sensitive data by default.** Locals, dict keys, and field names that look like secrets (`password`, `token`, `secret`, `api_key`, `authorization`, `session`, …) are emitted as `<redacted>`. Add more with `--redact-extra ssn,iban`; turn it off with `--no-redact` on a trusted dev box only. Redaction is key-name based — it won't catch a secret stored under a benign name, and source bodies (`--source`) / explicit `--fields` values are **not** redacted. Don't paste raw `state`/source JSON into an external LLM unless reviewed.
+> **The `state` capture redacts sensitive data by default.** Locals, dict keys, and field names that look like secrets (`password`, `token`, `secret`, `api_key`, `authorization`, `session`, …) are emitted as `<redacted>`. Add more with `--redact-extra ssn,iban`; turn it off with `--no-redact` on a trusted dev box only. Redaction is key-name based — it won't catch a secret stored under a benign name, and source bodies (`--source`) / explicit `--fields` values are **not** redacted. Don't paste raw `state`/source JSON into an external LLM unless reviewed.
 
 > **Code bodies are gated, not dumped.** `brief` returns server-action and cron `code` as `code_present` / `code_len` only — `code_preview` is `null` by default, because even a head-only slice can carry a token, webhook URL, or API key. Pass `--code-preview` for a short head slice or `--code` for full bodies (env `CODE_PREVIEW=1` / `CODE=1` work too), and `--source` for method source — all trusted context only, and review before pasting into an external LLM.
 
@@ -116,45 +131,45 @@ See `references/sample-output.md` for the JSON shape each layer returns.
 
 ## Workflow: discover → plan → code (never skip step 1)
 
-1. **Discover** — run `odoo-ai all <model>` (always Layer A; add B/C/D as scope demands). No shell on Odoo Online/SaaS? See `references/introspection.md` for the RPC fallback + `mcp-odoo` helper.
+1. **Discover** — run `odoo-ai all <model>` (always `model_brief`; add `entrypoints`/`metadata`/`trace_flow` as scope demands). No shell on Odoo Online/SaaS? See `references/introspection.md` for the RPC fallback + `mcp-odoo` helper.
 2. **Plan** — from the briefs: which inheritance mode; which fields to **reuse** vs add (half the "new" fields already exist — check the inventory); the **smallest** extension point (prefer a `_prepare_*` / `_action_*` hook over overriding `create`/`write`/`action_*`); whether/where you'll call `super()`; the `depends` so your override lands at the right MRO layer; security / multi-company / performance risk.
 3. **Code** — smallest patch extending the real `super()` from step 1, then prove it with a test.
 
 ## Gotchas that fail silently
 
-- **MRO ≠ runtime.** The chain lists where overrides *resolve*, not what *runs*. A layer that doesn't call `super()` ends it. `super_position` is a regex heuristic (`"heuristic": true`) — confirm big flows with Layer D.
-- **`noupdate=True` seeded records** (Layer C) are loaded once on install, then **protected from `-u`** — your later XML edits won't apply either. To change one on an installed DB, write a migration. (Default `noupdate=False` records are re-asserted from XML on `-u`, so runtime/UI edits revert.)
+- **MRO ≠ runtime.** The chain lists where overrides *resolve*, not what *runs*. A layer that doesn't call `super()` ends it. `super_position` is a regex heuristic (`"heuristic": true`) — confirm big flows with `trace_flow`.
+- **`noupdate=True` seeded records** (from `metadata`) are loaded once on install, then **protected from `-u`** — your later XML edits won't apply either. To change one on an installed DB, write a migration. (Default `noupdate=False` records are re-asserted from XML on `-u`, so runtime/UI edits revert.)
 - **Wrong `depends` → wrong MRO layer.** Depend on the addon that owns the method you extend, or your override silently sits below the one that matters and "never runs".
 - **API renames bite across versions** — `name_get`→`_compute_display_name`, `fields_view_get`→`get_view`, `attrs`/`states` removed. See `references/version-matrix.md`.
 - **Empty `_warnings` ≠ nothing wrong**, but a non-empty one (e.g. `field_modules lookup failed`) means a layer is partial — read it.
-- **`writes_by_model` (Layer D) is addon-scoped.** It captures create/write field names from traced `odoo.addons.*` frames only. A `record.write(vals)` on a model that doesn't override `write` in an addon runs in core `odoo.models` and won't appear — read it as "writes seen in addon code", not "every ORM write the flow made" (see `summary._writes_caveat`).
+- **`writes_by_model` (from `trace_flow`) is addon-scoped.** It captures create/write field names from traced `odoo.addons.*` frames only. A `record.write(vals)` on a model that doesn't override `write` in an addon runs in core `odoo.models` and won't appear — read it as "writes seen in addon code", not "every ORM write the flow made" (see `summary._writes_caveat`).
 
 ## References & scripts
 
-- `scripts/model_brief.py` — Layer A: fields, MRO + super analysis, security, auto-triggers, depends.
-- `scripts/entrypoints.py` — Layer B: buttons, view modifiers, view inheritance chain, window actions, reports (quick). `VIEW_XMLID`/`VIEW_ID` renders one specific view.
-- `scripts/metadata.py` — Layer C: menu graph, seeded data + noupdate, deep report wiring.
-- `scripts/trace_flow.py` — Layer D: real runtime call sequence (executes; rolls back unless `COMMIT=1`).
-- `scripts/field_refs.py` — Layer E: reverse impact of a field (computes/related/views/rules/filters/actions that depend on it) before a rename/retype/drop.
+- `scripts/model_brief.py` — **Inspect** (A): fields, MRO + super analysis, security, auto-triggers, depends.
+- `scripts/entrypoints.py` — **Inspect** (B): buttons, view modifiers, view inheritance chain, window actions, reports (quick). `VIEW_XMLID`/`VIEW_ID` renders one specific view.
+- `scripts/metadata.py` — **Inspect** (C): menu graph, seeded data + noupdate, deep report wiring.
+- `scripts/trace_flow.py` — **Verify** (D): real runtime call sequence (executes; rolls back unless `COMMIT=1`).
+- `scripts/field_refs.py` — **Inspect** (E): reverse impact of a field (computes/related/views/rules/filters/actions that depend on it) before a rename/retype/drop.
 - `scripts/preflight.py` — module preflight: installed/loaded state, load path, shadow/duplicate `addons_path` traps.
-- `scripts/state_capture.py` — Layer F: runtime state — breakpoint snapshot (args/locals/`self` at a `model.method` or source line) + exception post-mortem (full call stack with each frame's locals). Non-interactive, JSON.
-- `scripts/capabilities.py` — Layer H: native capability surface (wizards/actions/crons/automations/sequences/mixins/functional fields) for a model or module, from the live registry. Exposed as `odoo-ai capabilities <model>` / `--module <addon>` and driven by the **`odoo-capabilities`** skill (Step 0: is it already native?).
-- `scripts/native_check.py` — Layer H gate-then-rank: recall-matches the `odoo-capabilities` curated cards against a requirement, then existence-gates each against the live registry (12 probe kinds). Exposed as `odoo-ai native-check "<requirement>"`.
-- `scripts/scenario_gen.py` — **Layer I** risk-based scenario test generator: required scenarios (non-admin/multi-company/batch/upgrade) + a `TransactionCase` skeleton. `odoo-ai scenarios <model>`.
-- `scripts/env_diff.py` — **Layer I** environment parity: fingerprint this instance (`odoo-ai env-fingerprint`) and diff dev-vs-prod (`odoo-ai env-diff a.json b.json`, local).
-- `scripts/upgrade_check.py` — **Layer I** upgrade/migration harness: rename-vs-drop, new-required, `noupdate` risks + a pre-migrate scaffold. `odoo-ai upgrade-check <model> --against old.json` (or `upgrade-diff`, local).
-- `scripts/patch_validator.py` — **Layer I** static Odoo anti-pattern linter (the `odoo-review` checklist, executable). `odoo-ai validate <path...>` — **local, no DB**.
-- `scripts/redaction.py` — **Layer I** enforced privacy redaction for external-LLM-safe output. `odoo-ai redact <file>` / `odoo-ai scan-secrets <file>` — **local, no DB**.
-- `scripts/deploy_gate.py` — **Layer I** deploy approval orchestrator: aggregate evidence → approve/needs-human/block. `odoo-ai deploy-gate <bundle_dir>` — **local, no DB**.
-- `scripts/evidence_bundle.py` — **Layer I** flagship: render a folder of gate outputs into a deploy verdict + a **PR-comment Markdown**. `odoo-ai evidence <bundle_dir>` — **local, no DB**.
-- `scripts/claim_verify.py` — **Layer I** BYO-index claim verifier: check external-source claims against the live instance (confirmed/contradicted/needs-shell/needs-human). `odoo-ai verify-claims <claims.json>`.
-- `scripts/doc_index.py` — **Layer J** local Odoo dev-docs index (TF-IDF, build-local, never vendored). `odoo-ai docs-build` / `odoo-ai docs` — **local, no DB**; driven by the **odoo-docs** skill.
-- `scripts/entrypoint_surface.py` — **Layer K** entrypoint discovery: rank the live entrypoint surface (buttons/server-actions/crons/automations/reports/routes) so the agent knows where to start. `odoo-ai surface [<model>|--module <addon>]`.
-- `scripts/esg_sample.py` — **Layer K** Execution Surface Graph: sample the top entrypoints' real traces → merged cross-model/cross-app flow skeleton (process understanding that emerges from traces). `odoo-ai esg [<model>]`.
-- `scripts/eval_harness.py` — **Layer K** hallucination eval: score the gate's `detection_rate`/`truth_recall` on the classic-LLM-mistake benchmark (`references/eval-benchmark.json`). `odoo-ai eval`.
-- `scripts/gate_edit.py` — **Layer K** enforcement: `no-introspect-no-edit` precondition gate (touched models → has-brief? + validator → allow/block). `odoo-ai gate-edit <files>` — **local, no DB**. Hook recipe in `references/enforcement-hooks.md`.
+- `scripts/state_capture.py` — **Verify** (F): runtime state — breakpoint snapshot (args/locals/`self` at a `model.method` or source line) + exception post-mortem (full call stack with each frame's locals). Non-interactive, JSON.
+- `scripts/capabilities.py` — **Inspect: native capability** (H): native capability surface (wizards/actions/crons/automations/sequences/mixins/functional fields) for a model or module, from the live registry. Exposed as `odoo-ai capabilities <model>` / `--module <addon>` and driven by the **`odoo-capabilities`** skill (Step 0: is it already native?).
+- `scripts/native_check.py` — **Inspect: native capability** (H) gate-then-rank: recall-matches the `odoo-capabilities` curated cards against a requirement, then existence-gates each against the live registry (12 probe kinds). Exposed as `odoo-ai native-check "<requirement>"`.
+- `scripts/scenario_gen.py` — **Gate** (I): risk-based scenario test generator: required scenarios (non-admin/multi-company/batch/upgrade) + a `TransactionCase` skeleton. `odoo-ai scenarios <model>`.
+- `scripts/env_diff.py` — **Gate** (I): environment parity: fingerprint this instance (`odoo-ai env-fingerprint`) and diff dev-vs-prod (`odoo-ai env-diff a.json b.json`, local).
+- `scripts/upgrade_check.py` — **Gate** (I): upgrade/migration harness: rename-vs-drop, new-required, `noupdate` risks + a pre-migrate scaffold. `odoo-ai upgrade-check <model> --against old.json` (or `upgrade-diff`, local).
+- `scripts/patch_validator.py` — **Gate** (I): static Odoo anti-pattern linter (the `odoo-review` checklist, executable). `odoo-ai validate <path...>` — **local, no DB**.
+- `scripts/redaction.py` — **Gate** (I): enforced privacy redaction for external-LLM-safe output. `odoo-ai redact <file>` / `odoo-ai scan-secrets <file>` — **local, no DB**.
+- `scripts/deploy_gate.py` — **Gate** (I): deploy approval orchestrator: aggregate evidence → approve/needs-human/block. `odoo-ai deploy-gate <bundle_dir>` — **local, no DB**.
+- `scripts/evidence_bundle.py` — **Gate + Report** (I) flagship: render a folder of gate outputs into a deploy verdict + a **PR-comment Markdown**. `odoo-ai evidence <bundle_dir>` — **local, no DB**.
+- `scripts/claim_verify.py` — **Gate** (I): BYO-index claim verifier: check external-source claims against the live instance (confirmed/contradicted/needs-shell/needs-human). `odoo-ai verify-claims <claims.json>`.
+- `scripts/doc_index.py` — **Inspect: docs lookup** (J): local Odoo dev-docs index (TF-IDF, build-local, never vendored). `odoo-ai docs-build` / `odoo-ai docs` — **local, no DB**; driven by the **odoo-docs** skill.
+- `scripts/entrypoint_surface.py` — **Inspect** (K): entrypoint discovery: rank the live entrypoint surface (buttons/server-actions/crons/automations/reports/routes) so the agent knows where to start. `odoo-ai surface [<model>|--module <addon>]`.
+- `scripts/esg_sample.py` — **Inspect** (K): Execution Surface Graph: sample the top entrypoints' real traces → merged cross-model/cross-app flow skeleton (process understanding that emerges from traces). `odoo-ai esg [<model>]`.
+- `scripts/eval_harness.py` — **Inspect** (K): hallucination eval: score the gate's `detection_rate`/`truth_recall` on the classic-LLM-mistake benchmark (`references/eval-benchmark.json`). `odoo-ai eval`.
+- `scripts/gate_edit.py` — **Gate** (K): `no-introspect-no-edit` precondition gate (touched models → has-brief? + validator → allow/block). `odoo-ai gate-edit <files>` — **local, no DB**. Hook recipe in `references/enforcement-hooks.md`.
 - `scripts/hooks/pre_edit_gate.py` — the Claude Code PreToolUse hook that runs `gate-edit` before every Edit/Write on an Odoo file.
-- `scripts/viz.py` — render introspection JSON into a **self-contained HTML report with charts**: Layer A → MRO/`super()` ladder, C → menu tree, D → SQL-hotspot bars + call order, G → effective-security matrix, K (ESG) → model→model bars + Mermaid. `odoo-ai viz <bundle_dir | *.json>` — **local, no DB**; reuses the **html-report** skill's stylesheet.
+- `scripts/viz.py` — render introspection JSON into a **self-contained HTML report with charts**: `model_brief` → MRO/`super()` ladder, `metadata` → menu tree, `trace_flow` → SQL-hotspot bars + call order, `security` → effective-security matrix, `esg` → model→model bars + Mermaid. `odoo-ai viz <bundle_dir | *.json>` — **local, no DB**; reuses the **html-report** skill's stylesheet.
 - `scripts/odoo-ai` — CLI that runs every layer and writes a JSON folder.
 - `references/introspection.md` — RPC fallback for SaaS + mcp-odoo integration.
 - `references/sample-output.md` — abbreviated sample JSON for each of the four layers.

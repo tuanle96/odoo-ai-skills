@@ -12,9 +12,10 @@ in the JSON they emit** and where that JSON goes.
 
 Introspection output can contain sensitive material:
 
-- **Layer F (`state_capture.py`)** captures runtime args, locals, and `self`
-  field values.
-- **Layer A with `SOURCE=1`** includes full method source bodies.
+- **The runtime state capture (`state_capture.py`)** captures runtime args,
+  locals, and `self` field values.
+- **The model brief (`model_brief.py`) with `SOURCE=1`** includes full method
+  source bodies.
 - Field values, domains, server-action code, and record-rule domains can carry
   secrets, tokens, customer PII, or proprietary business logic.
 

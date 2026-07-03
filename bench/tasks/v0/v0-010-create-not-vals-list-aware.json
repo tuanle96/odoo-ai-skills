@@ -1,0 +1,24 @@
+{
+  "id": "v0-010-create-not-vals-list-aware",
+  "title": "Auto-generate a code in create()",
+  "domain": "orm",
+  "severity_class": "S2",
+  "weight": 4,
+  "safe": false,
+  "odoo_version": "17.0",
+  "required_modules": [
+    "base"
+  ],
+  "task_prompt": "Auto-generate a sequential `code` on event.registration.custom records when one isn't supplied at creation.",
+  "failure_mode": "The override drops back to the single-dict @api.model signature while modern Odoo calls create() with a LIST of vals. When any batch path runs — a data import, `create([{...}, {...}])`, or another module creating several registrations at once — `vals` is a list, so `vals['code'] =` raises `TypeError: list indices must be integers`, breaking every other module's create chain in the same transaction. The single-record UI create a developer tests by hand still works, so it ships. Imports and integrations break in production.",
+  "expected_detection": {
+    "check": "scenario: batch create([{...}, {...}]) probe — override must be @api.model_create_multi and preserve the super() chain",
+    "artifact": "scenario_batch_create.json"
+  },
+  "notes": "Since Odoo 13 every create() override must accept a vals_list, be decorated @api.model_create_multi, iterate the list, and call super() with the list. Reverting to @api.model + single dict silently breaks batching for the whole registry.",
+  "context_files": {
+    "models/event_registration.py": "from odoo import api, fields, models\n\n\nclass EventRegistrationCustom(models.Model):\n    _name = 'event.registration.custom'\n    _description = 'Event Registration'\n\n    name = fields.Char()\n    code = fields.Char()\n\n    @api.model_create_multi\n    def create(self, vals_list):\n        for vals in vals_list:\n            if not vals.get('code'):\n                vals['code'] = 'REG'\n        return super().create(vals_list)\n"
+  },
+  "broken_patch": "--- a/models/event_registration.py\n+++ b/models/event_registration.py\n@@ -8,9 +8,7 @@\n     name = fields.Char()\n     code = fields.Char()\n \n-    @api.model_create_multi\n-    def create(self, vals_list):\n-        for vals in vals_list:\n-            if not vals.get('code'):\n-                vals['code'] = 'REG'\n-        return super().create(vals_list)\n+    @api.model\n+    def create(self, vals):\n+        vals['code'] = self.env['ir.sequence'].next_by_code('event.reg')\n+        return super(EventRegistrationCustom, self).create(vals)\n",
+  "fixed_patch": "--- a/models/event_registration.py\n+++ b/models/event_registration.py\n@@ -12,5 +12,6 @@\n     def create(self, vals_list):\n         for vals in vals_list:\n             if not vals.get('code'):\n-                vals['code'] = 'REG'\n+                vals['code'] = (self.env['ir.sequence']\n+                                .next_by_code('event.reg') or 'REG')\n         return super().create(vals_list)\n"
+}

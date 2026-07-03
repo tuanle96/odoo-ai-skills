@@ -1,0 +1,126 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Example: end-to-end odoo-ai evidence gate on GitHub Actions.
+#
+# This is the FULL pipeline: spin a real Odoo + Postgres, produce an evidence
+# bundle from the running instance, then hand it to the odoo-gate composite
+# action which decides approve / needs_human / block, posts a sticky PR comment,
+# and fails the build on a block or a fail-closed severity.
+#
+# It is the instance-backed companion to .github/workflows/odoo-ai-gate.yml
+# (that one runs only the LOCAL, no-DB gates). Copy this into your Odoo repo's
+# .github/workflows/, adjust the module name / db / addons path, and go.
+#
+# The shell-bound bundle steps are sketched as comments where they are
+# instance-specific — fill in your module and model names.
+# ──────────────────────────────────────────────────────────────────────────────
+name: odoo-ai evidence gate (instance-backed)
+
+on:
+  pull_request:
+    paths:
+      - "**.py"
+      - "**.xml"
+      - "evidence_bundle/**"
+
+# The sticky PR comment needs write access to pull requests.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+
+    # A throwaway Postgres for the Odoo instance to initialise a clean DB against.
+    services:
+      db:
+        image: postgres:15
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U odoo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+        ports:
+          - 5432:5432
+
+    steps:
+      # ── 1. Checkout (full history so the diff-based gates work) ─────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ── 2. Produce the evidence bundle from a REAL Odoo instance ────────────
+      # These layers need odoo-bin + a DB, so they run here (not in the local
+      # workflow). Pin the Odoo image to your target version (17.0 / 18.0 / 19.0).
+      # Replace `your_module` / `sale.order` with your change's module and models.
+      - name: Build evidence bundle
+        env:
+          ODOO_DB: ci
+          # deploy_gate --strict binds the bundle to THIS commit; CI sets the SHA.
+          ODOO_AI_EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence_bundle
+          OAI="skills/odoo-introspect/scripts/odoo-ai"
+
+          # -- LOCAL gates (no DB): always available. -----------------------------
+          BASE="${{ github.base_ref }}"
+          TARGETS=$(git diff --name-only "origin/${BASE:-main}...HEAD" | grep -E '\.(py|xml)$' || true)
+          if [ -n "$TARGETS" ]; then
+            python3 "$OAI" --json validate $TARGETS > evidence_bundle/validate.json || true
+          fi
+
+          # -- INSTANCE gates (need odoo-bin + DB): sketch — wire to your setup. ---
+          # Start Odoo against the `db` service and initialise your module, e.g.:
+          #   docker run --rm -d --name odoo --network host \
+          #     -e HOST=localhost -e USER=odoo -e PASSWORD=odoo odoo:18.0 \
+          #     odoo -d "$ODOO_DB" -i your_module --stop-after-init
+          #
+          # Then capture live evidence into the bundle (each writes one JSON):
+          #   python3 "$OAI" --db "$ODOO_DB" scenarios sale.order   > evidence_bundle/scenarios.json
+          #   python3 "$OAI" --db "$ODOO_DB" env-fingerprint        > evidence_bundle/env_fingerprint.json
+          #   python3 "$OAI" --db "$ODOO_DB" security sale.order --user demo > evidence_bundle/security.json
+          #   python3 "$OAI" --db "$ODOO_DB" trace sale.order 1 action_confirm > evidence_bundle/trace.json
+          #
+          # A manifest lets the gate demand the RIGHT evidence for this change:
+          #   echo '{"touched_models":["sale.order"],"touches_security":false}' > evidence_bundle/manifest.json
+          echo "Bundle contents:"; ls -la evidence_bundle
+
+      # ── 3. Gate + sticky comment + enforce (the composite action) ───────────
+      # strict runs Layer L policy v2; fail_closed_severities fails the build on
+      # S3/S4 findings even when the decision is only needs_human.
+      - name: Odoo AI evidence gate
+        id: odoo_gate
+        uses: ./.github/actions/odoo-gate
+        with:
+          bundle_dir: evidence_bundle
+          strict: "true"
+          fail_closed_severities: "S3,S4"
+          comment: "true"
+
+      # ── 4. Always upload the bundle + report for the audit trail ────────────
+      # if: always() so a failing gate still archives the evidence it judged.
+      - name: Upload evidence bundle + gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odoo-ai-evidence
+          path: |
+            evidence_bundle/**
+            gate_report.json
+            evidence_artifact.json
+          if-no-files-found: warn
+
+      - name: Show decision
+        if: always()
+        run: echo "Gate decision = ${{ steps.odoo_gate.outputs.decision }}"

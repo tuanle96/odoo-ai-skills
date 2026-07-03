@@ -1,0 +1,24 @@
+{
+  "id": "v0-004-sql-injection-fstring",
+  "title": "Make a code lookup match partial codes",
+  "domain": "orm",
+  "severity_class": "S4",
+  "weight": 12,
+  "safe": false,
+  "odoo_version": "17.0",
+  "required_modules": [
+    "base"
+  ],
+  "task_prompt": "search_by_code currently matches the exact default_code. Make it also match partial codes (the search box on the public catalog sends the raw string).",
+  "failure_mode": "`code` is attacker-controlled and interpolated straight into SQL. `code = \"' UNION SELECT id FROM res_users --\"` exfiltrates arbitrary rows; `code = \"' OR '1'='1\"` dumps the whole table. Worse, raw SQL bypasses ir.rule entirely, so even a legitimate-looking query returns records the caller could never read through the ORM. Full read compromise + record-rule bypass from a public search box.",
+  "expected_detection": {
+    "check": "static scan: cr.execute with f-string / % string interpolation (SQLi), plus raw-SQL-bypasses-ir.rule flag on a search method",
+    "artifact": "scan_findings_sql_injection.json"
+  },
+  "notes": "Parameters are passed as the second arg to execute(); the ILIKE wildcards go INTO the parameter value, never the query string. For a rule-respecting result the ideal fix is `self.search([...])`; the parameterised query at least closes the injection.",
+  "context_files": {
+    "models/product_lookup.py": "from odoo import api, models\n\n\nclass ProductLookup(models.Model):\n    _name = 'product.lookup'\n    _description = 'Product Lookup'\n\n    @api.model\n    def search_by_code(self, code):\n        # Hot path: skip ORM search, hit the column directly.\n        query = \"SELECT id FROM product_template WHERE default_code = %s\"\n        self.env.cr.execute(query, [code])\n        return [row[0] for row in self.env.cr.fetchall()]\n"
+  },
+  "broken_patch": "--- a/models/product_lookup.py\n+++ b/models/product_lookup.py\n@@ -7,7 +7,7 @@\n \n     @api.model\n     def search_by_code(self, code):\n-        # Hot path: skip ORM search, hit the column directly.\n-        query = \"SELECT id FROM product_template WHERE default_code = %s\"\n-        self.env.cr.execute(query, [code])\n+        # partial match on code\n+        query = f\"SELECT id FROM product_template WHERE default_code ILIKE '%{code}%'\"\n+        self.env.cr.execute(query)\n         return [row[0] for row in self.env.cr.fetchall()]\n",
+  "fixed_patch": "--- a/models/product_lookup.py\n+++ b/models/product_lookup.py\n@@ -7,7 +7,7 @@\n \n     @api.model\n     def search_by_code(self, code):\n-        # Hot path: skip ORM search, hit the column directly.\n-        query = \"SELECT id FROM product_template WHERE default_code = %s\"\n-        self.env.cr.execute(query, [code])\n+        # partial match on code, parameterised (no string interpolation)\n+        query = \"SELECT id FROM product_template WHERE default_code ILIKE %s\"\n+        self.env.cr.execute(query, [\"%\" + (code or \"\") + \"%\"])\n         return [row[0] for row in self.env.cr.fetchall()]\n"
+}

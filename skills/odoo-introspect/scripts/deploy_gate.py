@@ -98,6 +98,95 @@ _LEGACY_ARTIFACT_NAMES = frozenset({
 # Model-name fragments that flag an accounting/stock/payment/hr domain
 _SENSITIVE_KEYWORDS = ("account", "stock", "payment", "hr", "payroll")
 
+# ---------------------------------------------------------------------------
+# Severity classification + remediation hints (additive, v0.14 Layer M)
+# ---------------------------------------------------------------------------
+# A gate finding/check "category" (the token in front of a blocking finding, a
+# missing-evidence artifact name, or a required-approval label) maps to a
+# severity class S0..S4 by WHAT the finding protects:
+#   S4  security / record-rule / access-control / secrets / evidence-trust
+#   S3  migration / upgrade / data-integrity / critical-change sign-off
+#   S2  install / validation / view breakage / test-quality / coverage gaps
+#   S1  documentation / advisory
+#   S0  informational (reserved; nothing maps here by default)
+# Unknown categories fall back to S2 (the conservative default).
+SEVERITY_BY_CATEGORY = {
+    # --- S4 ---------------------------------------------------------------
+    "security": "S4",
+    "access_control": "S4",
+    "scan_secrets": "S4",
+    "provenance": "S4",
+    # --- S3 ---------------------------------------------------------------
+    "upgrade": "S3",
+    "migration": "S3",
+    "data_integrity": "S3",
+    "critical_signoff": "S3",
+    # --- S2 ---------------------------------------------------------------
+    "validate": "S2",
+    "native_check": "S2",
+    "env_diff": "S2",
+    "scenarios": "S2",
+    "diff_targets": "S2",
+    "trace": "S2",
+    "test_quality": "S2",
+    "changed_coverage": "S2",
+    "runtime_path": "S2",
+    "scenario_satisfaction": "S2",
+    "mutation_smoke": "S2",
+    "red_green_replay": "S2",
+    # --- S1 ---------------------------------------------------------------
+    "doc": "S1",
+    "advisory": "S1",
+}
+
+# The conservative fallbacks used when a category is not in the maps above.
+_DEFAULT_SEVERITY = "S2"
+_DEFAULT_REMEDIATION = (
+    "Review this finding and attach the corresponding odoo-ai evidence artifact "
+    "before deploy.")
+
+# One short, actionable hint per category. Included per finding in findings_detail.
+REMEDIATION_BY_CATEGORY = {
+    "security": "Run odoo-ai security review and attach the security artifact; obtain an "
+                "access-control reviewer sign-off for the ACL/record-rule change.",
+    "access_control": "Have an access-control owner review the ACL/ir.rule change and record "
+                      "it in human_signoff.json.",
+    "scan_secrets": "Remove the secret from the diff, rotate it, and re-run odoo-ai "
+                    "scan-secrets — a non-zero secret count must never ship.",
+    "provenance": "Re-run the evidence build in CI so every artifact is HMAC-attested; a "
+                  "hand-authored or tampered bundle is rejected.",
+    "upgrade": "Run odoo-ai upgrade-check on the migration and resolve every blocking issue "
+               "before deploy.",
+    "migration": "Provide the migration scripts and an upgrade-check artifact; dry-run the "
+                 "data migration on a copy first.",
+    "data_integrity": "Obtain a finance/ops owner sign-off and record it in human_signoff.json "
+                      "for the sensitive-model change.",
+    "critical_signoff": "Obtain a senior Odoo developer sign-off for this critical-risk change.",
+    "validate": "Run odoo-ai validate and fix every blocking finding (bad view/field/xml-id) "
+                "before re-gating.",
+    "native_check": "Run odoo-ai native-check cold to confirm no native capability was "
+                    "reinvented — warm-cache evidence is rejected.",
+    "env_diff": "Run odoo-ai env-diff and reconcile the high-severity environment drift.",
+    "scenarios": "Run odoo-ai scenario to record the risk tier and required behaviours.",
+    "diff_targets": "Run odoo-ai diff-targets so the gate knows exactly which methods changed.",
+    "trace": "Re-run odoo-ai trace cold and fix the recorded runtime error — a trace error is "
+             "an executable break.",
+    "test_quality": "Fix the flagged tests (vacuous assert / mocked model / swallowed "
+                    "exception) and re-run test-quality.",
+    "changed_coverage": "Add a real test that executes the changed lines and re-run "
+                        "changed-coverage — warm-cache evidence is rejected.",
+    "runtime_path": "Bind the changed method through the live registry (no mock/stub) and "
+                    "re-run runtime-path with a sealed observer.",
+    "scenario_satisfaction": "Exercise every required scenario at runtime and attach the "
+                             "scenario_satisfaction artifact.",
+    "mutation_smoke": "Strengthen the assertions until no mutant survives, then re-run "
+                      "mutation-smoke.",
+    "red_green_replay": "Provide a red/green replay proving the test fails on base and passes "
+                        "on head.",
+    "doc": "Update the referenced documentation.",
+    "advisory": "Review the advisory note; there is no automated blocker, but confirm intent.",
+}
+
 
 # ---------------------------------------------------------------------------
 # Pure helpers (no Odoo, unit-testable)
@@ -767,7 +856,155 @@ def _verify_provenance(bundle_path, consumed_files, required_names, expected_hea
     return failures, False, len(env_files)
 
 
-def build_report(bundle_dir, strict=False):
+def _category_from_prefix(finding):
+    """Category for a blocking-finding string — the token before the first ':',
+    hyphen/space-normalised (``scan-secrets: …`` → ``scan_secrets``). Unknown → the
+    conservative default so a novel finding never reads as low-severity."""
+    head = str(finding).split(":", 1)[0].strip().lower().replace("-", "_").replace(" ", "_")
+    return head if head in SEVERITY_BY_CATEGORY else "default"
+
+
+def _category_from_approval(label):
+    """Category for a required-approval label (free-text, not ``prefix:``)."""
+    t = str(label).lower()
+    if ("controller" in t or "acl" in t or "record-rule" in t or "record_rule" in t
+            or "access-control" in t or "access control" in t or "security" in t):
+        return "security"          # S4
+    if "finance" in t or "ops owner" in t or "payroll" in t:
+        return "data_integrity"    # S3
+    if "senior" in t:
+        return "critical_signoff"  # S3
+    return "default"
+
+
+def _finding_entry(text, category):
+    """Build one findings_detail element: {finding, severity, remediation}."""
+    return {
+        "finding":     text,
+        "severity":    SEVERITY_BY_CATEGORY.get(category, _DEFAULT_SEVERITY),
+        "remediation": REMEDIATION_BY_CATEGORY.get(category, _DEFAULT_REMEDIATION),
+    }
+
+
+def build_findings_detail(decision):
+    """Structured, severity-classified view of the gate's surfaced findings.
+
+    Parallel to (never replaces) the flat ``blocking_findings`` /
+    ``missing_evidence`` / ``required_approvals`` lists — each becomes one
+    ``{finding, severity, remediation}`` entry. De-duplicated on the finding text.
+    """
+    detail, seen = [], set()
+
+    def add(text, category):
+        if text in seen:
+            return
+        seen.add(text)
+        detail.append(_finding_entry(text, category))
+
+    for f in decision.get("blocking_findings", []) or []:
+        add(f, _category_from_prefix(f))
+    for name in decision.get("missing_evidence", []) or []:
+        cat = name if name in SEVERITY_BY_CATEGORY else "default"
+        add(f"missing required evidence: {name}", cat)
+    for a in decision.get("required_approvals", []) or []:
+        add(a, _category_from_approval(a))
+    return detail
+
+
+def severity_summary(findings_detail):
+    """Count findings per severity class. Always returns all of S0..S4."""
+    summary = {f"S{i}": 0 for i in range(5)}
+    for fd in findings_detail:
+        sev = fd.get("severity")
+        if sev in summary:
+            summary[sev] += 1
+    return summary
+
+
+def _load_json_file(path):
+    """Strict-load a JSON file, returning None on absence/parse error (opt-in
+    policy + sign-off files fail closed: an unreadable file grants nothing)."""
+    try:
+        return _loads_strict(Path(path).read_text())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def resolve_fail_closed_policy(bundle_path, policy_path=None):
+    """Resolve the opt-in fail-closed policy from the first available source.
+
+    Precedence (first present wins):
+      (a) ``--policy <path>``  → {"fail_closed_severities": [...],
+                                  "required_signoff_roles": [...]}
+      (b) ``bundle_dir/gate_policy.json`` → same shape
+      (c) env ``ODOO_AI_FAIL_CLOSED="S3,S4"`` → severities only, no roles
+
+    Returns ``(active, severities:set, required_roles:list, source:str|None,
+    warning:str|None)``. When NO source is present ``active`` is False and the
+    caller's decision logic is completely unchanged.
+    """
+    cfg, source, warning = None, None, None
+
+    if policy_path is not None:                          # (a)
+        cfg = _load_json_file(policy_path)
+        if cfg is None:
+            warning = (f"gate-policy: --policy {policy_path!r} is missing or unparseable "
+                       "— ignored; falling back to other policy sources")
+        elif not isinstance(cfg, dict):
+            warning = f"gate-policy: --policy {policy_path!r} is not a JSON object — ignored"
+            cfg = None
+        else:
+            source = f"--policy {policy_path}"
+
+    if cfg is None:                                      # (b)
+        gp = bundle_path / "gate_policy.json"
+        if gp.exists():
+            loaded = _load_json_file(gp)
+            if isinstance(loaded, dict):
+                cfg, source = loaded, "gate_policy.json"
+            else:
+                warning = (warning or
+                           "gate-policy: gate_policy.json is unparseable or not an object — ignored")
+
+    if cfg is None:                                      # (c)
+        env_fc = os.environ.get("ODOO_AI_FAIL_CLOSED")
+        if env_fc and env_fc.strip():
+            sevs = [s.strip() for s in env_fc.split(",") if s.strip()]
+            cfg, source = {"fail_closed_severities": sevs, "required_signoff_roles": []}, \
+                "env:ODOO_AI_FAIL_CLOSED"
+
+    if cfg is None:
+        return False, set(), [], None, warning
+
+    sev = cfg.get("fail_closed_severities")
+    sev = {s for s in sev if isinstance(s, str)} if isinstance(sev, list) else set()
+    roles = cfg.get("required_signoff_roles")
+    roles = [r for r in roles if isinstance(r, str)] if isinstance(roles, list) else []
+    return True, sev, roles, source, warning
+
+
+def _signoff_covers(bundle_path, required_roles):
+    """True when ``human_signoff.json`` exists, is well-shaped, and its signoffs
+    cover every required role. Fails closed: a missing/unparseable/mis-shaped file
+    grants nothing. An empty ``required_roles`` is satisfied by any valid file."""
+    fp = bundle_path / "human_signoff.json"
+    if not fp.exists():
+        return False
+    doc = _load_json_file(fp)
+    if not isinstance(doc, dict):
+        return False
+    signoffs = doc.get("signoffs")
+    if not isinstance(signoffs, list):
+        return False
+    covered = {
+        s.get("role") for s in signoffs
+        if isinstance(s, dict) and isinstance(s.get("role"), str)
+        and isinstance(s.get("name"), str) and s.get("name").strip()
+    }
+    return all(r in covered for r in required_roles)
+
+
+def build_report(bundle_dir, strict=False, policy_path=None):
     """Read artifact files from *bundle_dir*, classify risk, return a gate report.
 
     ``strict`` selects Layer L policy v2: the hardened core (`_CORE_REQUIRED_V2`),
@@ -775,8 +1012,14 @@ def build_report(bundle_dir, strict=False):
     provenance (HMAC-attestation) verification of the evidence bundle. The legacy
     default (``strict=False``) is unchanged.
 
-    Returns ``{"bundle_dir","evidence","risk","decision","required_evidence",
-    "policy","_warnings","_caveat"}``.
+    ``policy_path`` is the optional ``--policy`` fail-closed policy file (opt-in).
+    When neither it, ``bundle_dir/gate_policy.json`` nor ``ODOO_AI_FAIL_CLOSED`` is
+    present, the decision is identical to legacy behaviour.
+
+    Returns ``{"bundle_dir","evidence","risk","decision","findings_detail",
+    "severity_summary","fail_closed","required_evidence","policy","_warnings",
+    "_caveat"}``. ``findings_detail``/``severity_summary``/``fail_closed`` are
+    always present and purely additive; existing keys are unchanged.
     """
     bundle_path = Path(bundle_dir)
     warnings = []
@@ -884,11 +1127,60 @@ def build_report(bundle_dir, strict=False):
                              has_parse_errors=bool(warnings), strict=strict,
                              provenance_failures=prov_failures)
 
+    # --- Severity-classified findings + summary (always additive) ----------
+    findings_detail = build_findings_detail(decision)
+
+    # --- Fail-closed policy (opt-in only) ----------------------------------
+    # When NO policy source is present, fc_active is False and the decision is
+    # left exactly as gate_decision produced it (byte-for-byte legacy behaviour).
+    fc_active, fc_sev, req_roles, fc_source, fc_warning = \
+        resolve_fail_closed_policy(bundle_path, policy_path)
+    if fc_warning:
+        warnings.append(fc_warning)
+    fail_closed = {
+        "active":         fc_active,
+        "severities":     sorted(fc_sev),
+        "signoff_present": False,
+        "escalated":      False,
+    }
+    if fc_source:
+        fail_closed["source"] = fc_source
+    if req_roles:
+        fail_closed["required_signoff_roles"] = list(req_roles)
+
+    if fc_active and fc_sev:
+        triggering = [fd for fd in findings_detail if fd["severity"] in fc_sev]
+        if triggering:
+            signoff_present = _signoff_covers(bundle_path, req_roles)
+            fail_closed["signoff_present"] = signoff_present
+            trig_sev = sorted({t["severity"] for t in triggering})
+            if not signoff_present:
+                fail_closed["escalated"] = True
+                reason = (
+                    f"fail-closed policy: {len(triggering)} finding(s) at severity "
+                    f"{'/'.join(trig_sev)} require a human sign-off"
+                    + (f" from role(s) {', '.join(req_roles)}" if req_roles else "")
+                    + " that is absent — see human_signoff.json")
+                decision["decision"] = "block"
+                decision["blocking_findings"].append(reason)
+                findings_detail.append({
+                    "finding":     reason,
+                    "severity":    max(trig_sev),   # S4 > S3 > … lexicographically
+                    "remediation": REMEDIATION_BY_CATEGORY["critical_signoff"],
+                })
+            elif decision["decision"] == "approve":
+                # A covering sign-off downgrades to at most needs_human — never a
+                # silent approve while a fail-closed-severity finding is present.
+                decision["decision"] = "needs_human"
+
     return {
         "bundle_dir": str(bundle_dir),
         "evidence":   evidence,
         "risk":       risk,
         "decision":   decision,
+        "findings_detail": findings_detail,
+        "severity_summary": severity_summary(findings_detail),
+        "fail_closed": fail_closed,
         "required_evidence": sorted(req),
         "policy":     "v2-strict" if strict else "v1-legacy",
         "_warnings":  warnings,
@@ -897,23 +1189,33 @@ def build_report(bundle_dir, strict=False):
 
 
 def main(argv=None):
-    """Entry point: ``deploy_gate.py [--strict] <bundle_dir>``."""
+    """Entry point: ``deploy_gate.py [--strict] [--policy <path>] <bundle_dir>``."""
     args = (argv if argv is not None else sys.argv)[1:]
     strict = False
+    policy_path = None
     positional = []
-    for a in args:
+    i = 0
+    while i < len(args):
+        a = args[i]
         if a in ("--strict", "-s"):
             strict = True
+        elif a == "--policy":
+            i += 1
+            if i < len(args):
+                policy_path = args[i]
+        elif a.startswith("--policy="):
+            policy_path = a.split("=", 1)[1]
         else:
             positional.append(a)
+        i += 1
     if not positional:
         print(json.dumps({
             "error":    "No bundle_dir supplied.",
-            "usage":    "deploy_gate.py [--strict] <bundle_dir>",
+            "usage":    "deploy_gate.py [--strict] [--policy <path>] <bundle_dir>",
             "_caveat":  _CAVEAT,
         }, indent=2))
         return
-    report = build_report(positional[0], strict=strict)
+    report = build_report(positional[0], strict=strict, policy_path=policy_path)
     # allow_nan=False: never emit NaN/Infinity (not valid JSON) into the decision.
     print(json.dumps(report, indent=2, default=str, allow_nan=False))
 

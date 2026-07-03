@@ -6,6 +6,94 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-07-03
+
+The strategy pivot from *"a suite of Odoo skills"* to **the local-first evidence
+layer for AI-assisted Odoo delivery**. Public architecture is now four stages —
+**Inspect → Verify → Gate → Report** — and the internal "Layer A…L" labels are
+retired from user-facing prose (they live on only in changelog cross-references).
+The trust language is corrected throughout: this is a **CI-bound evidence gate
+with an explicit trust boundary**, not an "unfakeable" one — CI produces and binds
+the evidence; human review stays mandatory for sensitive domains.
+
+### Added
+- **Fast Inspect: context primitives (`facts`).** `facts.py` emits *small* instance
+  facts for agent context — `--kind model|security|views|flows` for one model —
+  so an agent reads ground truth *before* it edits, not an exhaustive dump. Every
+  payload carries an `instance_fingerprint` (db uuid, module-graph hash, installed
+  count).
+- **Snapshot cache (`cache`).** `snapshot_cache.py` is a content-addressed cache
+  (keyed by db uuid + module graph + addon file fingerprint + context) so warm
+  context is fast inside the agent loop. **Invariant: warm/stale cache accelerates
+  analysis but never approves a merge** — only cold runs are merge-eligible, and the
+  provenance rides on every payload (`_cache.provenance`, `_cache.merge_eligible`).
+- **Instance Dossier (`dossier`, `dossier-report`).** The one-command, read-only
+  takeover / pre-sales due-diligence artifact: installed modules (standard/OCA/custom),
+  Studio footprint, custom fields, server/automated/scheduled actions, security
+  (groups + record rules, multi-company flags), custom view overrides, data volumes,
+  and derived **upgrade-risk flags**. Redacted by default (`--redact external`, safe
+  to share; `local` keeps sensitive-model schema names on a trusted box). Renders to a
+  self-contained HTML report.
+- **MCP context server (`mcp`).** `mcp_server.py` is a bounded, read-only MCP stdio
+  server exposing six fact tools (`odoo_facts_model/security/views/flows`,
+  `odoo_dossier_summary`, `odoo_native_check`) — validated inputs, **no arbitrary
+  RPC or code execution**, redaction always applied, cache provenance on every
+  response. `claude mcp add odoo-context -- python3 …/mcp_server.py --db <DB>`.
+- **Evidence Artifact v1 (`evidence-artifact`).** `evidence_schema.py` — a stable,
+  public, machine-validatable schema (`build`/`validate`) for the evidence a partner
+  shows a client: git binding, instance fingerprint, per-check severity + cache
+  provenance, decision, human sign-offs, redaction status. Encodes the invariant that
+  a `warm`-cache check can never back an `approve`. See `docs/evidence-artifact.md`.
+- **Severity classes + fail-closed policy in the Gate.** `deploy_gate.py` now
+  classifies every finding S0–S4 (S4 = security / multi-company / silent corruption),
+  emits `findings_detail` + `severity_summary` + per-finding remediation hints, and
+  supports an **opt-in fail-closed policy** (`--policy`, `gate_policy.json`, or
+  `ODOO_AI_FAIL_CLOSED`): an S3/S4 finding blocks the merge unless a covering
+  `human_signoff.json` downgrades it to `needs_human` — never silently to `approve`.
+  Strictly additive; the no-policy path is byte-for-byte the prior behaviour.
+- **First-class CI/PR integration.** A composite GitHub Action
+  (`.github/actions/odoo-gate`), a sticky PR-comment renderer (`pr-comment`, marker
+  `<!-- odoo-ai-gate -->`), a GitLab recipe, and policy presets (advisory / strict /
+  regulated) — see `docs/ci-integration.md`. The action enforces: `block` and
+  fail-closed S3/S4 findings fail the build; the evidence artifact is uploaded.
+- **Fixture factories (`fixture`).** `fixture_factory.py` gives agents *valid* business
+  records for tests — 9 recipes across sale/purchase/stock/account/mrp/multi-company.
+  CODE mode emits a paste-ready `TransactionCase` skeleton; `--exec` runs the recipe in
+  a **savepoint and rolls back**, validating it against this instance's modules / chart
+  of accounts.
+- **Fit-Gap alpha (`fit-gap`).** `fit_gap.py` classifies requirements against the live
+  instance — `native_config` / `config_plus_gap` / `module_available_not_installed` /
+  `pattern_known_not_present` / `no_known_pattern` — with heuristic effort bands and
+  risk class. Scoped to sale/stock/account. It is **decision support for a functional
+  consultant, not a replacement**: gated items are instance-verified, heuristic items
+  need human validation.
+- **UAT Pack alpha (`uat-pack`).** `uat_pack.py` turns `surface` + `scenarios` (+ optional
+  `dossier`) into role-based UAT scripts a consultant hands to a client — role, data
+  setup (suggested fixture recipe), numbered steps, expected result, evidence slot,
+  sign-off — as JSON + Markdown (checkbox sign-offs) + optional HTML. Scenarios with no
+  entrypoint match are surfaced, never dropped silently.
+- **Odoo Agent Safety Bench v0 (`bench/`).** A public, reproducible benchmark whose core
+  metric is the **unsafe-change escape rate** — how often an unsafe Odoo change reaches
+  PR/UAT/release undetected — *not* task completion. Ten frozen v0 tasks (≥5
+  high-severity: portal `sudo()` ACL bypass, dropped multi-company record-rule clause,
+  stale `@api.depends` ledger drift, f-string SQL injection, price-include tax error),
+  severity-weighted scorer (S0×1 … S4×12), four run modes (alone / +context / +gate /
+  both), a living adversarial `zoo/`, and a RUNBOOK. No single headline score by design.
+- **Business & governance docs.** `docs/pilot-package.md`, `docs/partner-enablement.md`,
+  `docs/governance.md`, `docs/artifact-governance.md`, `docs/odoo-online-advisory.md` —
+  the paid-partner-enablement model around an open standard, artifact-handling rules for
+  sensitive dumps, and the path toward neutral (OCA/partner) corpus co-maintenance.
+
+### Changed
+- **Public naming and positioning.** README, `AGENTS.md`, `docs/index.html`, and 17
+  `SKILL.md` files reworded to the Inspect/Verify/Gate/Report vocabulary; new top-line
+  positioning sentence; a new **Odoo hosting reality** section (self-hosted & Odoo.sh =
+  full code gate; **Odoo Online = advisory-only**, no custom code). The `AGENTS.md` MCP
+  rule now sanctions the bundled bounded MCP context server while still forbidding
+  arbitrary-RPC wrappers.
+- **`build_report(bundle_dir, strict=False, policy_path=None)`** gained an optional
+  `policy_path`; existing callers (evidence bundle, CLI) are unaffected.
+
 ## [0.13.0] - 2026-07-01
 
 ### Added

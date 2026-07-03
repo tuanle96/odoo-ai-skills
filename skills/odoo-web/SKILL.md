@@ -39,7 +39,7 @@ Public wiring is ground truth too — don't grep for it, read it:
   introspect engine's route scan, or in `odoo-bin shell`:
   `env['ir.http']._routing_map()` enumerates every live `http.route`. A route you
   "add" that collides with an existing path silently loses to load order.
-- **Website templates / pages** — `metadata.py` (Layer C) lists `ir.ui.view`
+- **Website templates / pages** — `metadata.py` lists `ir.ui.view`
   pages and `website.page`. The `key` (`module.template_name`) is what you
   `t-call` and inherit — never hand-guess it (→ same trap as `odoo-reports`).
 - **Portal reach** — portal documents are gated by **record rules**, not by your
@@ -140,7 +140,7 @@ Portal documents follow a fixed contract (the `portal` / `portal.mixin` addons):
   logging in — validate it with the model's `_portal_ensure_token` /
   `access_url` helpers; don't roll your own.
 - The model must inherit `portal.mixin` to get `access_url` / `get_portal_url()`
-  (check `capabilities.portal` in the Layer A brief).
+  (check `capabilities.portal` in the `model_brief`).
 
 ## Frontend JS — `publicWidget` vs Interactions (the v17/18 trap)
 
@@ -239,7 +239,7 @@ registry.category("public.interactions").add("library.LibraryCard", LibraryCard)
   `publicWidget`→Interactions migration in detail.
 
 **Other skills in the loop**
-- `odoo-introspect` — route map (`_routing_map()`), website pages (Layer C),
+- `odoo-introspect` — route map (`_routing_map()`), website pages (`metadata`),
   portal record-rule reach (security dossier). Read first.
 - `odoo-owl` — the **backend** web client (OWL components, field widgets). A
   client action or backend widget is OWL, not this skill.

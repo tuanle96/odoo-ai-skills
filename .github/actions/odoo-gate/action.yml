@@ -1,0 +1,173 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# odoo-gate — composite GitHub Action
+#
+# Runs the LOCAL odoo-ai evidence gate (deploy_gate.py) over a committed evidence
+# bundle, posts a sticky PR comment with the verdict, and — crucially — ENFORCES:
+# deploy_gate.py always exits 0 (so its JSON is never suppressed); THIS action is
+# what fails the build on a `block` decision or a fail-closed severity.
+#
+# Paths are resolved relative to the action file ($GITHUB_ACTION_PATH), so this
+# works both in-repo and when odoo-ai-skills is consumed as a plugin checkout
+# (uses: owner/odoo-ai-skills/.github/actions/odoo-gate@vX). $GITHUB_ACTION_PATH
+# points at .github/actions/odoo-gate/, so ../../../ is the odoo-ai-skills root.
+#
+# Usage:
+#   - uses: ./.github/actions/odoo-gate
+#     with:
+#       bundle_dir: evidence_bundle
+#       strict: "true"
+#       fail_closed_severities: "S3,S4"
+# ──────────────────────────────────────────────────────────────────────────────
+name: "Odoo AI evidence gate"
+description: >
+  Aggregate an evidence bundle into an approve/needs_human/block decision, post a
+  sticky PR comment, and fail the build on block or fail-closed severities.
+
+inputs:
+  bundle_dir:
+    description: "Directory of evidence JSON artifacts to gate (e.g. evidence_bundle)."
+    required: true
+  strict:
+    description: 'Run Layer L policy v2 (deploy_gate.py --strict). "true" | "false".'
+    required: false
+    default: "true"
+  fail_closed_severities:
+    description: >
+      Comma-separated severities that fail the build when the decision is not
+      approve, even if it is not a hard block (e.g. "S3,S4"). Older reports carry
+      no severity on findings → nothing is treated as fail-closed.
+    required: false
+    default: "S3,S4"
+  comment:
+    description: 'Post a sticky PR comment with the verdict. "true" | "false".'
+    required: false
+    default: "true"
+  github_token:
+    description: "Token used to post the sticky PR comment."
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  decision:
+    description: "The gate decision: approve | needs_human | block | unknown."
+    value: ${{ steps.decision.outputs.decision }}
+
+runs:
+  using: "composite"
+  steps:
+    # ── 1. Run the gate ─────────────────────────────────────────────────────
+    # deploy_gate.py prints the report JSON to stdout and ALWAYS exits 0. We
+    # capture it to gate_report.json; enforcement happens in step 5.
+    - name: Run evidence gate (deploy_gate.py)
+      id: gate
+      shell: bash
+      env:
+        STRICT: ${{ inputs.strict }}
+        BUNDLE_DIR: ${{ inputs.bundle_dir }}
+      run: |
+        set -euo pipefail
+        GATE="$GITHUB_ACTION_PATH/../../../skills/odoo-introspect/scripts/deploy_gate.py"
+        FLAG=""
+        if [ "$STRICT" = "true" ]; then FLAG="--strict"; fi
+        python "$GATE" $FLAG "$BUNDLE_DIR" > gate_report.json
+        echo "Wrote gate_report.json for bundle: $BUNDLE_DIR"
+
+    # ── 2. Build the evidence artifact (optional) ───────────────────────────
+    # evidence_schema.py may not exist yet (added by the evidence-schema task);
+    # only run it when present, and never let it fail the build (|| true).
+    - name: Build evidence artifact (if schema tool present)
+      shell: bash
+      env:
+        BUNDLE_DIR: ${{ inputs.bundle_dir }}
+      run: |
+        set -euo pipefail
+        SCHEMA="$GITHUB_ACTION_PATH/../../../skills/odoo-introspect/scripts/evidence_schema.py"
+        if [ -f "$SCHEMA" ]; then
+          python "$SCHEMA" build "$BUNDLE_DIR" --out evidence_artifact.json || true
+          echo "Built evidence_artifact.json"
+        else
+          echo "evidence_schema.py not present — skipping evidence artifact."
+        fi
+
+    # ── 3. Parse the decision → step output ─────────────────────────────────
+    # Handle both the nested {"decision":{"decision":..}} and flat shapes.
+    - name: Parse gate decision
+      id: decision
+      shell: bash
+      run: |
+        set -euo pipefail
+        DECISION=$(python - <<'PY'
+        import json
+        try:
+            r = json.load(open("gate_report.json"))
+            d = r.get("decision")
+            if isinstance(d, dict):
+                d = d.get("decision")
+            print(d if isinstance(d, str) else "unknown")
+        except Exception:
+            print("unknown")
+        PY
+        )
+        echo "decision=$DECISION" >> "$GITHUB_OUTPUT"
+        echo "Gate decision: $DECISION"
+
+    # ── 4. Sticky PR comment (only on PR events, when enabled) ──────────────
+    # pr_comment.py always exits 0; a missing token/gh is reported as JSON, not a
+    # failure, so a fork PR without a token can't break the pipeline here.
+    - name: Post sticky PR comment
+      if: ${{ inputs.comment == 'true' && github.event.number }}
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.number }}
+        BUNDLE_DIR: ${{ inputs.bundle_dir }}
+      run: |
+        set -euo pipefail
+        PR_TOOL="$GITHUB_ACTION_PATH/../../../skills/odoo-introspect/scripts/pr_comment.py"
+        python "$PR_TOOL" post gate_report.json \
+          --repo "$REPO" --pr "$PR_NUMBER" --bundle-dir "$BUNDLE_DIR" \
+          | python -c "import sys,json; d=json.load(sys.stdin); print('PR comment:', d.get('error') or (d.get('action','?')+' '+str(d.get('comment_url') or '')))"
+
+    # ── 5. Enforce ──────────────────────────────────────────────────────────
+    # Fail the build when:
+    #   • decision == block                                    (always fatal), OR
+    #   • decision != approve AND a finding carries a fail-closed severity.
+    # Severity is parsed defensively — absent on older reports → not fail-closed.
+    - name: Enforce gate decision
+      shell: bash
+      env:
+        DECISION: ${{ steps.decision.outputs.decision }}
+        FAIL_CLOSED: ${{ inputs.fail_closed_severities }}
+      run: |
+        set -euo pipefail
+        python - "$DECISION" "$FAIL_CLOSED" <<'PY'
+        import json, sys
+        decision = sys.argv[1]
+        fail_closed = {s.strip() for s in sys.argv[2].split(",") if s.strip()}
+        try:
+            report = json.load(open("gate_report.json"))
+        except Exception as e:
+            print(f"::error::cannot read gate_report.json: {e}")
+            sys.exit(1)
+
+        # A hard block is always fatal.
+        if decision == "block":
+            print("::error::Evidence gate decision = block — failing the build.")
+            sys.exit(1)
+
+        # Fail-closed: any finding at a configured severity blocks a non-approve.
+        d = report.get("decision")
+        findings = d.get("blocking_findings") if isinstance(d, dict) else None
+        findings = findings or report.get("blocking_findings") or report.get("findings") or []
+        hits = sorted({
+            f.get("severity") for f in findings
+            if isinstance(f, dict) and f.get("severity") in fail_closed
+        })
+        if decision != "approve" and hits:
+            print(f"::error::Fail-closed severities present ({', '.join(hits)}) with "
+                  f"decision={decision} — failing the build.")
+            sys.exit(1)
+
+        print(f"Gate decision={decision}; no fail-closed severity → build continues.")
+        PY
