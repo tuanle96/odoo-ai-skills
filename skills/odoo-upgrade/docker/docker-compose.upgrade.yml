@@ -17,16 +17,25 @@ services:
       POSTGRES_PASSWORD: odoo
       POSTGRES_DB: postgres
     volumes: [upgrade-db:/var/lib/postgresql/data]
+    # `--wait db` only means "ready" with a healthcheck; without it the next
+    # odoo run races postgres startup and dies on connect (burns an iteration).
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
   odoo18:   # seed a rehearsal db / sanity-check the restored dump on its own version
     image: odoo:18
-    depends_on: [db]
+    depends_on:
+      db: {condition: service_healthy}
     environment: {HOST: db, USER: odoo, PASSWORD: odoo}
     volumes:
       - ${CUSTOM_ADDONS:-./addons}:/mnt/extra-addons:ro
       - upgrade-filestore:/var/lib/odoo
   odoo19:   # runs OpenUpgrade (-u all with --upgrade-path) and the post-upgrade check
     image: odoo:19
-    depends_on: [db]
+    depends_on:
+      db: {condition: service_healthy}
     environment: {HOST: db, USER: odoo, PASSWORD: odoo}
     volumes:
       - ${CUSTOM_ADDONS:-./addons}:/mnt/extra-addons:ro

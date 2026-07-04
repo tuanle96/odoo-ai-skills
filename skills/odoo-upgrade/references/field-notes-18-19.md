@@ -126,11 +126,53 @@ as evidence — re-verify against your own target checkout, don't trust prose.
     `relative_factor`, `uom/models/uom_uom.py`). Category-based logic ports to
     walking `relative_uom_id` to the root reference unit (kg / litre / meter
     xmlids survive). `uom.uom.factor` and `.rounding` still exist (computed).
+    **This reaches into XML DATA too**: `<record model="uom.category">` records
+    and `uom.uom` records using `category_id` / `uom_type` / `factor_inv` all
+    break. Port the data to the tree: drop the `uom.category` record; a root
+    unit gets `relative_factor eval="1.0"` (no `relative_uom_id`), a derived
+    unit gets `relative_factor eval="N"` + `relative_uom_id ref="root"`
+    (mirrors `uom/data/uom_data.xml`).
 23. **`mobile` → `phone` consolidation** on partner/users/crm: related fields,
     domains and create-vals referencing `mobile` crash at registry setup.
 24. Monkeypatches of ORM internals (`_read_group_process_groupby`,
     `fields.Many2many.read = ...`) — check whether the module is even
     installed in production before porting; ours wasn't (dead since 17).
+32. **`from odoo import registry` removed** from the top-level `odoo`
+    namespace — `from odoo.modules.registry import Registry`, call
+    `Registry(dbname)`. Often it's just an unused import (drop it).
+33. **`fields.date` / `fields.datetime` (lowercase helpers) removed** — use the
+    `fields.Date` / `fields.Datetime` classes (`fields.Date.today()`,
+    `fields.Datetime.now()`). Mechanical; `preflight.py` does this.
+34. **res.groups internals renamed (a roles/security module hits all of
+    these).** On `res.groups`: `category_id` → `privilege_id.category_id`
+    (category moved to the privilege); `trans_implied_ids` → `all_implied_ids`
+    (`base/models/res_groups.py:71`, "Transitively Implied Groups"); `users` →
+    `user_ids`. These are the Python-side twins of the XML #6/#7 transform — a
+    module that *reads/iterates* groups (not just declares them) needs them too.
+36. **Custom model that `_inherit`ed a core model inherits its COLUMNS —
+    orphaned on the DB upgrade.** When a custom model does `_inherit='uom.uom'`
+    (etc.) it gets the core model's columns in the DB. If 19 drops one of those
+    core fields, the custom table keeps the orphaned column and the DB-upgrade
+    framework hard-errors: `UpgradeError: forgot to call util.remove_field on
+    <custom.model>.<field>`. Fix is a Phase-4 migration in the owning custom
+    module: `migrations/19.0.x.y.z/pre-migrate.py` → `util.remove_field(cr,
+    "<custom.model>", "<field>")`. Real case: `bm.report.product.uom`
+    (`_inherit='uom.uom'`) kept `hr_timesheet`'s `timesheet_widget` column,
+    removed in 19. This is a CODE-install-green module that still breaks the
+    DATABASE upgrade — installability ≠ data-migration-ready.
+37. **Series-less module versions (`"1.0"`, `"1.0.0"`) are a trap.** `preflight`
+    bumps only `18.0.`/`17.0.`/`16.0.`-prefixed versions, so a series-less one
+    stays put — and Odoo runs `migrations/<ver>/` scripts only when the version
+    INCREASES. A module at `"1.0"` will silently skip its own migration scripts
+    on `-u`. Bump such modules to `19.0.x.y.z` by hand (preflight flags them).
+
+35. **19 hard-asserts `unknown comodel_name` at field setup.** A Many2one/
+    Many2many pointing at a model that does not exist now raises
+    `AssertionError: Field X with unknown comodel_name 'Y'` and blocks the
+    whole registry — 18 tolerated the dangling reference. Low-quality vendor
+    code carries these; they're PRE-EXISTING bugs the upgrade merely surfaces.
+    Point the field at the real model, or quarantine the module and report it —
+    do not invent a model to force a green.
 28. **Install/uninstall hook signature changed.** 18: `def post_init_hook(cr,
     registry)` (also `pre_init_hook`, `uninstall_hook`). 19 passes a single
     `env`: `def post_init_hook(env)` — the 18 signature raises
@@ -170,6 +212,48 @@ FIRST — the port strategy differs per class:
     Scope the first verify to the subset whose closure is core-only; unblock
     the rest by staging the OCA target branches. "Port the customs" here means
     "port the customs AND stage their upstream stack at the target version".
+
+## Enterprise tier + the uom-field rename wave (only a real enterprise run surfaces these)
+
+Found porting 21 enterprise-dependent modules (crm_enterprise, quality, mrp
+integration, account_reports) — verify against a REAL enterprise checkout, not
+community. To run the verify at all you must mount the enterprise addons:
+`docker run odoo:19 -v <ent_src>/odoo/addons:/mnt/ent:ro -v <custom>:/mnt/custom:ro
+--addons-path=/mnt/ent,/mnt/custom` (the community `odoo:19` image has none).
+The `odoo_19.0+e` tarball merges community+enterprise into one `odoo/addons`.
+
+38. **The uom `_id`-suffix rename wave.** 19 renamed the uom Many2ones to add
+    `_id`: `sale.order.line.product_uom` → `product_uom_id`, `stock.move.
+    product_uom` → `product_uom_id`, etc. Breaks `@depends`, related paths,
+    create-vals and view `<field>`s. CAREFUL: many custom modules define their
+    OWN `product_uom` field (e.g. `sale.blanket.order.line.product_uom`) — those
+    stay; only references that traverse into a CORE model get `_id`.
+39. **uom rework ripples further than the model.** Beyond `uom.category` (#22):
+    `uom.uom.factor_inv` → gone (use `1.0/factor`), `uom_type`/`ratio` → gone
+    (relative tree), and any `related='...uom_id.category_id'` field (e.g.
+    `product_uom_category_id` on account.analytic.line or a custom line) is dead —
+    drop it and any `domain=[('category_id','=',product_uom_category_id)]` uom
+    filter it fed.
+40. **mrp/quality lot rework: single → multi (M2m).** `mrp.production.
+    lot_producing_id` (M2o) → `lot_producing_ids` (M2m); `quality.check.lot_id`
+    → `lot_ids`, `finished_lot_id` → `finished_lot_ids` (M2m). Views: rename +
+    `widget="many2many_tags"`. Python single-lot logic best-ports to
+    `..._ids[:1]` for reads and `[(6,0,ids)]` for writes with a
+    `TODO(migration)` — but if a module REWRITES the whole quality.check form
+    and leans on removed 18-era quality fields (`spreadsheet_check_cell`, …),
+    that's a quality-domain redesign, not a rename → quarantine it honestly.
+41. **`account.reconcile.model.rule_type` → `trigger`.** 18 values map:
+    `writeoff_button` → `manual`; `invoice_matching`/`writeoff_suggestion` →
+    `auto_reconcile`. Hits reconcile-model data/records.
+42. **`account.analytic.account._name_search` gone** (and `name_get` across the
+    board): #17/#19 apply to enterprise/accounting models too. `name_get` →
+    `_compute_display_name`; `from odoo.osv.expression import SQL` → `from
+    odoo.tools import SQL`; `name_search(self, name, args=..., operator, limit)`
+    → `name_search(self, name, domain=..., operator, limit)` (2nd param renamed).
+43. **Undeclared python deps surface only at runtime.** A module importing
+    `pandas` (etc.) without declaring `external_dependencies.python` won't show
+    in preflight's deps scan and dies with `ModuleNotFoundError` at install —
+    grep the module imports, not just the manifests, before the verify.
 
 ## Data (the manifest can't see these)
 
@@ -216,6 +300,20 @@ FIRST — the port strategy differs per class:
   grep the field-notes patterns directly — but DO grep them. Skipping this on
   a 6-module set missed `base_phone`'s `related='...mobile'` and cost an
   iteration.
+- **Sweep `groups_id` in BOTH Python AND XML.** `<field name="groups_id">`
+  inside a view / menu / action record → `group_ids` (#9). This is NOT a safe
+  preflight blind-replace: `<field name="groups_id">` also appears in a view
+  ARCH to display some model's own field, so it needs record-model context.
+  Grep the XML too — a Python-only sweep leaves the view records broken.
+- **Distinguish a module's OWN field from the core one.** A roles/security
+  module may define its own `groups_ids` / `group_ids` Many2many — that field
+  is NOT the res.users rename and must be left alone. Only res.users
+  reads/writes get #8. Read before you sed.
+- **The db container needs a healthcheck for `compose up -d --wait db` to
+  mean "ready".** Without it, `--wait` returns on "running" and the next odoo
+  run races postgres startup and dies on connect — a non-failure that burns an
+  iteration. The shipped compose files set a `pg_isready` healthcheck +
+  `depends_on: {db: {condition: service_healthy}}`.
 - **`preflight.py` reports only errors it INTRODUCED**, snapshotting the
   source's already-broken files first. A real repo shipped 123 files with
   pre-existing syntax errors (committed-broken tests); without the baseline,

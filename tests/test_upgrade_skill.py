@@ -356,6 +356,33 @@ class TestPreflight(unittest.TestCase):
             self.assertIn("mod/hooks.py", out)
             self.assertNotIn("ok/__init__.py", out)
 
+    def test_fields_lowercase_helpers(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            ws = self._ws(td, "{'name':'m','version':'18.0.1.0.0'}",
+                          {"models/m.py": "d = fields.date.today()\n"
+                                          "n = fields.datetime.now()\n"
+                                          "keep = fields.Date(default=fields.Date.today())\n"})
+            preflight.fix_fields_import(ws)
+            out = (ws / "mod" / "models" / "m.py").read_text()
+            self.assertIn("fields.Date.today()", out)
+            self.assertIn("fields.Datetime.now()", out)
+            self.assertNotIn("fields.date.today()", out)
+            self.assertNotIn("fields.datetime.now()", out)
+
+    def test_hr_fleet_category_remap(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            ws = self._ws(td, "{'name':'m','version':'18.0.1.0.0'}",
+                          {"security/g.xml":
+                           '<odoo><record model="res.groups.privilege" id="p">'
+                           '<field name="category_id" ref="base.module_category_human_resources_fleet"/>'
+                           '</record></odoo>'})
+            preflight.xml_sweeps(ws)
+            out = (ws / "mod" / "security" / "g.xml").read_text()
+            self.assertIn("base.module_category_human_resources", out)
+            self.assertNotIn("human_resources_fleet", out)
+
     def test_fields_import_and_deps_scan(self):
         import tempfile
         with tempfile.TemporaryDirectory() as td:

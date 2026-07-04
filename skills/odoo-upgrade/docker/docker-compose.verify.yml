@@ -14,9 +14,17 @@ services:
       POSTGRES_PASSWORD: odoo
       POSTGRES_DB: postgres
     volumes: [verify-db:/var/lib/postgresql/data]
+    # without this, `compose up -d --wait db` returns on "running" (not ready)
+    # and the very next odoo run races postgres startup and dies on connect.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
   odoo:
     image: odoo:19
-    depends_on: [db]
+    depends_on:
+      db: {condition: service_healthy}
     environment: {HOST: db, USER: odoo, PASSWORD: odoo}
     volumes:
       - ${CUSTOM_ADDONS:-./addons}:/mnt/extra-addons:ro

@@ -38,6 +38,7 @@ CATEGORY_MAP = {
     "base.module_category_inventory": "base.module_category_supply_chain",
     "base.module_category_manufacturing": "base.module_category_supply_chain",
     "base.module_category_sales_sales": "base.module_category_sales",
+    "base.module_category_human_resources_fleet": "base.module_category_human_resources",
 }
 TARGET_SERIES = "19.0"
 OLD_SERIES = ("18.0", "17.0", "16.0")
@@ -97,16 +98,29 @@ def convert_sql_constraints(ws: Path) -> str:
 
 
 def bump_versions(ws: Path) -> str:
+    """#3 — bump old-series versions to the target series. Series-less versions
+    (`"1.0"`) are NOT auto-bumped (could be intentional) but FLAGGED: they skip
+    their own migration scripts on -u unless bumped to 19.0.x (field-notes #37)."""
     n = 0
+    seriesless = []
     pat = re.compile(r"([\"']version[\"']\s*:\s*[\"'])(?:%s)\." % "|".join(
         re.escape(s.split(".")[0] + "." + s.split(".")[1]) for s in OLD_SERIES))
+    ver_re = re.compile(r"[\"']version[\"']\s*:\s*[\"']([^\"']+)[\"']")
     for mf in ws.glob("*/__manifest__.py"):
         t = mf.read_text(encoding="utf-8", errors="replace")
         t2 = pat.sub(r"\g<1>%s." % TARGET_SERIES, t)
         if t2 != t:
             mf.write_text(t2)
             n += 1
-    return f"#3 manifest version -> {TARGET_SERIES}: {n}"
+        else:
+            m = ver_re.search(t)
+            if m and not re.match(r"(?:19|18|17|16)\.0\.", m.group(1)):
+                seriesless.append(f"{mf.parent.name} (={m.group(1)})")
+    out = f"#3 manifest version -> {TARGET_SERIES}: {n}"
+    if seriesless:
+        out += ("\n     #37 series-less versions — bump to 19.0.x by hand or "
+                "their migrations won't run: " + ", ".join(seriesless))
+    return out
 
 
 def strip_description(ws: Path) -> str:
@@ -157,15 +171,20 @@ def xml_sweeps(ws: Path) -> str:
 
 
 def fix_fields_import(ws: Path) -> str:
+    """#16 — `from odoo.fields import datetime/date` (19 made odoo.fields a
+    package) → stdlib; and lowercase `fields.date` / `fields.datetime` helpers
+    (gone in 19) → the `fields.Date` / `fields.Datetime` classes."""
     n = 0
     for p in _py_files(ws):
         t = p.read_text(encoding="utf-8", errors="replace")
         t2 = re.sub(r"^from odoo\.fields import (datetime|date)\b",
                     lambda m: f"from datetime import {m.group(1)}", t, flags=re.M)
+        t2 = re.sub(r"\bfields\.date\b", "fields.Date", t2)
+        t2 = re.sub(r"\bfields\.datetime\b", "fields.Datetime", t2)
         if t2 != t:
             p.write_text(t2)
             n += 1
-    return f"#16 odoo.fields stdlib import: {n}"
+    return f"#16 odoo.fields import/helper: {n}"
 
 
 def flag_init_hooks(ws: Path) -> str:
