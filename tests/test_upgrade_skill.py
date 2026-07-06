@@ -31,6 +31,7 @@ gen_manifest = _load("gen_manifest")
 migrate_all = _load("migrate_all")
 db_upgrade = _load("db_upgrade")
 preflight = _load("preflight")
+source_sweep = _load("source_sweep")
 
 
 class TestFixtureRegression(unittest.TestCase):
@@ -112,6 +113,16 @@ KeyError: 'x'
         line = "2026-07-03 07:25:28,163 1 INFO verify19 odoo.modules.loading: Loading module bm_country (15/15)"
         self.assertTrue(re.search(r"Loading module bm_country \(\d+/\d+\)", line))
 
+    def test_batch_load_status_requires_every_expected_module(self):
+        log = "\n".join([
+            "2026-07-03 07:25:28,163 1 INFO db odoo.modules.loading: Loading module a (1/3)",
+            "2026-07-03 07:25:29,163 1 INFO db odoo.modules.loading: Loading module c (3/3)",
+        ])
+        status = upgrade_verify.module_load_status(log, ["a", "b", "c"])
+        self.assertEqual(status["loaded_modules"], ["a", "c"])
+        self.assertEqual(status["missing_modules"], ["b"])
+        self.assertFalse(status["all_modules_loaded"])
+
 
 class TestManifestMatching(unittest.TestCase):
     def _model(self, *fields):
@@ -188,8 +199,29 @@ class TestFleetOrchestrator(unittest.TestCase):
             self.assertEqual(fleet["order"], ["fixture_module_18"])
             m = fleet["modules"]["fixture_module_18"]
             self.assertEqual((m["errors"], m["warnings"], m["effort"]), (6, 3, "L"))
+            self.assertIn("classification", m)
+            self.assertIn("source_sweep_summary", fleet["meta"])
             written = json.loads((Path(td) / "fleet.json").read_text())
             self.assertEqual(written["totals"]["modules"], 1)
+
+    def test_classify_and_stage_modules(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "addons"
+            mod = root / "oca_mod"
+            mod.mkdir(parents=True)
+            (mod / "__manifest__.py").write_text(
+                "{'name':'x','author':'OCA','depends':['account_reports'],"
+                "'auto_install': True}")
+            cls = migrate_all.classify_module("oca_mod", mod)
+            self.assertIn("wait_oca_target", cls["flags"])
+            self.assertIn("enterprise_required", cls["flags"])
+            self.assertIn("auto_install_risk", cls["flags"])
+
+            stage = Path(td) / "stage"
+            migrate_all.stage_modules({"oca_mod": mod}, ["oca_mod"], stage)
+            self.assertTrue((stage / ".odoo_ai_stage").exists())
+            self.assertTrue((stage / "oca_mod" / "__manifest__.py").exists())
 
 
 class TestDbUpgradeCommands(unittest.TestCase):
@@ -224,6 +256,7 @@ class TestDbUpgradeCommands(unittest.TestCase):
         self.assertEqual(db_upgrade.verdict_of(0, errors), "ok_with_log_errors")
         self.assertEqual(db_upgrade.verdict_of(0, crash), "failed")
         self.assertEqual(db_upgrade.verdict_of(1, clean), "failed")
+        self.assertEqual(db_upgrade.verdict_of(0, clean, ["missing_mod"]), "module_not_loaded")
 
 
 class TestPortableSet(unittest.TestCase):
@@ -396,6 +429,31 @@ class TestPreflight(unittest.TestCase):
             out = Path(td) / "out"
             preflight.scan_python_deps(ws, out)
             self.assertEqual((out / "pydeps.txt").read_text(), "PyJWT xlrd")
+
+
+class TestSourceSweep(unittest.TestCase):
+    def test_flags_source_verified_patterns_and_undeclared_imports(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            mod = Path(td) / "mod"
+            (mod / "models").mkdir(parents=True)
+            (mod / "views").mkdir()
+            (mod / "__manifest__.py").write_text("{'name':'m','depends':['base']}")
+            (mod / "models" / "m.py").write_text(
+                "import pandas\n"
+                "from odoo import models\n"
+                "class M(models.Model):\n"
+                "    _name = 'x'\n"
+                "    def name_get(self):\n"
+                "        return request.jsonrequest\n")
+            (mod / "views" / "v.xml").write_text(
+                '<odoo><record model="ir.ui.view"><field name="groups_id"/></record></odoo>')
+            report = source_sweep.scan([Path(td)])
+            kinds = {f["kind"] for f in report["findings"]}
+            self.assertIn("name_get_override", kinds)
+            self.assertIn("request_jsonrequest", kinds)
+            self.assertIn("groups_id_xml_record_field", kinds)
+            self.assertIn("undeclared_python_import", kinds)
 
 
 if __name__ == "__main__":

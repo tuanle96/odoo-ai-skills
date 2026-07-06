@@ -32,6 +32,10 @@ case "$MANIFEST" in /*) MF="$MANIFEST";; *) MF="$HERE/$MANIFEST";; esac
 python3 "$HERE/scripts/upgrade_brief.py" --module "$MODULE_PATH" \
   --manifest "$MF" --out "$OUT/brief.json"
 
+banner 2b "source-verified sweep checklist"
+python3 "$HERE/scripts/source_sweep.py" --addons-dir "$MODULE_PATH" \
+  --out "$OUT/source_sweep.json" || true
+
 banner 3 "NEXT (agent loop — see SKILL.md)"
 echo "fix findings in $OUT/brief.json, then:"
 echo "  python3 scripts/upgrade_verify.py --module $MOD --db verify19 --docker-compose docker/docker-compose.verify.yml"

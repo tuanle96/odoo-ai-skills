@@ -7,7 +7,8 @@ Orchestrates the docker/docker-compose.upgrade.yml harness:
   restore  load a pg_dump into the harness postgres
   upgrade  run OpenUpgrade on the db: odoo19 -u all with --upgrade-path
   check    plain post-upgrade `-u <modules>` on the target (no OpenUpgrade) —
-           this is where your PORTED custom modules must come up clean
+           this is where your PORTED custom modules must come up clean and all
+           expected modules must show positive load proof
   full     restore -> upgrade -> check
 
 Every step writes a structured JSON verdict (same traceback parser as
@@ -55,6 +56,8 @@ _spec = importlib.util.spec_from_file_location("upgrade_verify", HERE / "upgrade
 _uv = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_uv)
 parse_output = _uv.parse_output
+split_modules = _uv.split_modules
+module_load_status = _uv.module_load_status
 
 ODOO_BASE_ARGS = ["--stop-after-init", "--log-level=info", "--max-cron-threads=0"]
 # odoo:19 image default addons_path is /mnt/extra-addons (+ its own dist-packages);
@@ -108,7 +111,9 @@ def cmd_check(compose_file: str, db: str, modules: str) -> list[str]:
                    "-d", db, "-u", modules, *ODOO_BASE_ARGS)
 
 
-def verdict_of(rc: int, parsed: dict) -> str:
+def verdict_of(rc: int, parsed: dict, missing_modules: list[str] | None = None) -> str:
+    if missing_modules:
+        return "module_not_loaded"
     if rc != 0 or parsed["tracebacks"] or \
             any(e["level"] == "CRITICAL" for e in parsed["log_errors"]):
         return "failed"
@@ -120,7 +125,8 @@ def verdict_of(rc: int, parsed: dict) -> str:
 # --------------------------------------------------------------------------- #
 
 def run_step(name: str, cmd: list[str], out_dir: Path, timeout: int,
-             stdin_file: Path | None = None, hints: list[str] | None = None) -> dict:
+             stdin_file: Path | None = None, hints: list[str] | None = None,
+             expected_modules: list[str] | None = None) -> dict:
     started = _dt.datetime.now(_dt.timezone.utc)
     stdin = stdin_file.open("rb") if stdin_file else None
     try:
@@ -138,14 +144,16 @@ def run_step(name: str, cmd: list[str], out_dir: Path, timeout: int,
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / f"{name}.log").write_text(output)
     parsed = parse_output(output, hints or [])
+    load_status = module_load_status(output, expected_modules) if expected_modules else {}
     result = {
         "step": name,
         "command": cmd,
         "returncode": rc,
-        "verdict": verdict_of(rc, parsed),
+        "verdict": verdict_of(rc, parsed, load_status.get("missing_modules")),
         "started_at": started.isoformat(timespec="seconds"),
         "duration_s": round((_dt.datetime.now(_dt.timezone.utc) - started).total_seconds(), 1),
         **parsed,
+        **load_status,
         "log_file": str(out_dir / f"{name}.log"),
     }
     (out_dir / f"{name}.json").write_text(json.dumps(result, indent=2, ensure_ascii=False))
@@ -166,10 +174,15 @@ def main() -> int:
     ap.add_argument("--dump", type=Path, help="pg_dump file (.dump/-Fc or .sql) for restore/full")
     ap.add_argument("--modules", default="base",
                     help="seed: modules to install; check: modules to update (or 'all')")
+    ap.add_argument("--modules-file", type=Path,
+                    help="comma/newline-separated expected custom modules for check/full")
     ap.add_argument("--timeout", type=int, default=3600)
     ap.add_argument("--out", type=Path, default=Path("/tmp/odoo-ai/upgrade/_db"))
     args = ap.parse_args()
     cf, db = args.docker_compose, args.db
+    expected = split_modules(args.modules_file.read_text()) if args.modules_file else []
+    check_modules = ",".join(expected) if expected and args.modules == "base" else args.modules
+    check_expected = expected or ([] if check_modules == "all" else split_modules(check_modules))
 
     def restore() -> dict:
         if not args.dump or not args.dump.is_file():
@@ -184,8 +197,9 @@ def main() -> int:
         "restore": restore,
         "upgrade": lambda: run_step("upgrade", cmd_upgrade(cf, db), args.out, args.timeout,
                                     hints=["/mnt/extra-addons"]),
-        "check": lambda: run_step("check", cmd_check(cf, db, args.modules), args.out,
-                                  args.timeout, hints=["/mnt/extra-addons"]),
+        "check": lambda: run_step("check", cmd_check(cf, db, check_modules), args.out,
+                                  args.timeout, hints=["/mnt/extra-addons"],
+                                  expected_modules=check_expected),
     }
     order = ["restore", "upgrade", "check"] if args.step == "full" else [args.step]
     for s in order:

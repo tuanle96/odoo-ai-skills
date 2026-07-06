@@ -40,8 +40,9 @@ script templates** built on `odoo/upgrade-util`.
 
 All machine outputs go to `/tmp/odoo-ai/upgrade/<module>/`:
 `precheck.txt`, `upgrade_code.txt`, `module_migrate.txt`, `brief.json`,
-`verify.json`, `verify.log`, `report.html`. Fleet runs add
-`_fleet/fleet.json`; database runs add `_db/<step>.{json,log}`.
+`source_sweep.json`, `verify.json`, `verify.log`, `report.html`. Fleet runs add
+`_fleet/fleet.json`, `_fleet/source_sweep.json`, `_fleet/install_set.txt`;
+database runs add `_db/<step>.{json,log}`.
 
 ## Migrating EVERYTHING (all custom addons + the database)
 
@@ -57,17 +58,22 @@ COPY of the addons tree — never the originals.
    Feed that list to the fleet brief. On our fleet 18/89 modules were
    uninstalled — one of them would have been the hardest "fix" in the pile.
 2. **Fleet brief + portable set** — one command over the whole tree:
-   ```bash
-   python3 scripts/migrate_all.py --addons-dir /path/to/COPY \
-       --manifest references/manifest_18_19.json \
-       --installed-file prod_installed.txt \
-       --exclude <enterprise-dep and quarantined modules>
-   ```
-   `fleet.json` gives the dependency-sorted port `order` and S/M/L effort;
-   `install_set.txt` is the portable set (exclusions propagate to dependents
-   transitively). Quarantine early: modules built on removed subsystems
-   (SVL, procurement.group, l10n data rewrites) are redesign work with
-   business decisions — mark `TODO(migration)` and keep them out of the loop.
+     ```bash
+     python3 scripts/migrate_all.py --addons-dir /path/to/COPY \
+         --manifest references/manifest_18_19.json \
+         --installed-file prod_installed.txt \
+         --exclude <enterprise-dep and quarantined modules> \
+         --stage-dir /tmp/odoo-ai/upgrade/_fleet/clean-addons
+     ```
+     `fleet.json` gives the dependency-sorted port `order` and S/M/L effort;
+     `install_set.txt` is the portable set (exclusions propagate to dependents
+     transitively). Each module also carries a static routing classification
+     (`custom`, `replace_upstream`, `wait_oca_target`, `enterprise_required`,
+     `auto_install_risk`), and `--stage-dir` copies only the portable set into a
+     clean addons dir to avoid vendored `auto_install` poisoning. Quarantine early:
+     modules built on removed subsystems
+     (SVL, procurement.group, l10n data rewrites) are redesign work with
+     business decisions — mark `TODO(migration)` and keep them out of the loop.
 3. **Pre-flight, before any container run** (each of these otherwise costs a
    full install iteration):
    ```bash
@@ -78,10 +84,10 @@ COPY of the addons tree — never the originals.
    rewriter, version bump, description xml-decl strip, target=inline,
    search-view group string/expand, module categories, tree leftovers,
    odoo.fields stdlib import) and writes `pydeps.txt` for the verify container.
-   Then **read `brief.json`'s WARNINGs as a checklist** — the day-1 brief
-   already names high-signal breakages (e.g. a removed field like
-   `crm.lead.mobile`); fix those preventively now instead of letting them
-   crash at iteration N. Source-verified transforms (res.groups→privilege,
+     Then **read `brief.json`'s WARNINGs and `source_sweep.json` as a checklist** — the day-1 brief
+     already names high-signal breakages (e.g. a removed field like
+     `crm.lead.mobile`); fix those preventively now instead of letting them
+     crash at iteration N. Source-verified transforms (res.groups→privilege,
    group renames, SVL, mobile→phone...) come next via agents reading
    `references/field-notes-18-19.md`.
 4. **Rewriters** (Phase 1) on the copy, then **`anchor_check.py`**:
@@ -95,9 +101,14 @@ COPY of the addons tree — never the originals.
    runtime Odoo stops at the first one; this collapses N crash-iterations
    into one pass.
 5. **Batch verify loop** — install the WHOLE portable set on a fresh target
-   db in one run (`-i m1,m2,...`); parse the log with `upgrade_verify.py`'s
-   parser; fix the first failure; repeat. The loaded-module count is your
-   progress metric. Opaque errors: re-run with
+     db in one run (`-i m1,m2,...`):
+     ```bash
+     python3 scripts/upgrade_verify.py --modules-file /tmp/odoo-ai/upgrade/_fleet/install_set.txt \
+         --db verify19 --docker-compose docker/docker-compose.verify.yml \
+         --out /tmp/odoo-ai/upgrade/_fleet/_batch
+     ```
+     Parse the resulting `verify.json`; fix the first failure; repeat. The loaded-module count is your
+     progress metric. Opaque errors: re-run with
    `--log-handler odoo.tools.convert:DEBUG` (data ParseError) or
    `--log-handler odoo.tools.view_validation:DEBUG` (RNG). For large fleets,
    fan mechanical sweeps out to parallel agents with DISJOINT file domains
@@ -114,10 +125,10 @@ COPY of the addons tree — never the originals.
    then update your ported customs on it:
    ```bash
    git clone --depth 1 --branch 19.0 https://github.com/OCA/OpenUpgrade ~/src/OpenUpgrade
-   export OPENUPGRADE=~/src/OpenUpgrade CUSTOM_ADDONS=/path/to/PORTED-addons
-   python3 scripts/db_upgrade.py full --dump prod.dump --db up19 \
-       -C docker/docker-compose.upgrade.yml --modules all
-   ```
+     export OPENUPGRADE=~/src/OpenUpgrade CUSTOM_ADDONS=/path/to/PORTED-addons
+     python3 scripts/db_upgrade.py full --dump prod.dump --db up19 \
+         -C docker/docker-compose.upgrade.yml --modules-file /tmp/odoo-ai/upgrade/_fleet/install_set.txt
+     ```
    Each step (`restore`/`upgrade`/`check`) writes a structured verdict.
    **Enterprise / Odoo.sh / Online**: the db goes through upgrade.odoo.com
    (free with an active Enterprise subscription; check
@@ -143,8 +154,11 @@ This runs, in order, skipping tools that aren't installed:
    (tree tags, attrs, Bootstrap classes...). NOTE: a clean precheck means only
    "no syntax-pattern issues" — it does NOT see semantic breakage.
 2. **`upgrade_brief.py`** (this skill) — cross-references the module against
-   `references/manifest_18_19.json`: removed modules/models/fields/methods/xmlids,
-   with rename/merge candidates and file:line locations.
+    `references/manifest_18_19.json`: removed modules/models/fields/methods/xmlids,
+    with rename/merge candidates and file:line locations.
+3. **`source_sweep.py`** — non-mutating checklist for source-verified 18→19
+   patterns the manifest cannot prove (`groups_id`, `mobile`, SVL hooks,
+   `_name_search`, UoM tree, data deletes, undeclared Python imports).
 
 If `references/manifest_18_19.json` is missing or the user targets other
 versions, generate it first (needs both source trees checked out, ideally
@@ -203,6 +217,13 @@ python3 scripts/upgrade_verify.py --module <m> --db verify19 \
 # after fixes:
 python3 scripts/upgrade_verify.py --module <m> --db verify19 \
     --docker-compose docker/docker-compose.verify.yml --update   # -u
+```
+
+For the whole portable set, use the same script in batch mode:
+
+```bash
+python3 scripts/upgrade_verify.py --modules-file install_set.txt --db verify19 \
+    --docker-compose docker/docker-compose.verify.yml
 ```
 
 Loop protocol: read `verify.json` → for each traceback open

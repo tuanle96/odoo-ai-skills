@@ -6,7 +6,7 @@ exposed the silent-skip false pass now guarded by the `module_not_loaded`
 verdict. Re-run with Docker or a local Odoo 19 install for your own module.
 
 What it does (single attempt — the fix LOOP is driven by the agent, see SKILL.md):
-  1. Runs ``odoo-bin -d <db> -i|-u <module> --stop-after-init`` either via a local
+  1. Runs ``odoo-bin -d <db> -i|-u <module[,module...]> --stop-after-init`` either via a local
      odoo-bin or through ``docker compose run``.
   2. Captures the full log, extracts every Python traceback and every
      ERROR/CRITICAL log line into structured JSON.
@@ -36,6 +36,10 @@ Usage (docker):
       --docker-compose docker/docker-compose.verify.yml \
       [--update] [--test-tags /my_module]
 
+Batch usage:
+  python upgrade_verify.py --modules-file install_set.txt --db verify19 \
+      --docker-compose docker/docker-compose.verify.yml
+
 Stdlib only. License: MIT (part of the odoo-upgrade skill).
 """
 
@@ -56,6 +60,7 @@ RE_LOGLINE = re.compile(
 )
 MAX_TB = 25
 MAX_LOG_ERRORS = 60
+RE_LOADED_MODULE = re.compile(r"Loading module (?P<module>[\w.]+) \(\d+/\d+\)")
 
 
 def parse_output(text: str, addons_hints: list[str]) -> dict:
@@ -103,9 +108,61 @@ def parse_output(text: str, addons_hints: list[str]) -> dict:
     return {"tracebacks": tracebacks, "log_errors": log_errors}
 
 
+def split_modules(text: str) -> list[str]:
+    out = []
+    for name in re.split(r"[,\s]+", text):
+        name = name.strip()
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
+def expected_modules(args) -> list[str]:
+    names = []
+    for value in (args.module, args.modules):
+        if value:
+            names.extend(split_modules(value))
+    if args.modules_file:
+        names.extend(split_modules(args.modules_file.read_text()))
+    deduped = []
+    for name in names:
+        if name not in deduped:
+            deduped.append(name)
+    if not deduped:
+        raise SystemExit("error: provide --module, --modules, or --modules-file")
+    return deduped
+
+
+def loaded_modules(text: str) -> set[str]:
+    return {m.group("module") for m in RE_LOADED_MODULE.finditer(text)}
+
+
+def module_load_status(text: str, expected: list[str]) -> dict:
+    loaded = loaded_modules(text)
+    missing = [m for m in expected if m not in loaded]
+    return {
+        "loaded_modules": [m for m in expected if m in loaded],
+        "missing_modules": missing,
+        "loaded_count": len(expected) - len(missing),
+        "expected_count": len(expected),
+        "all_modules_loaded": not missing,
+    }
+
+
+def not_loaded_reasons(text: str, modules: list[str]) -> list[str]:
+    reasons = []
+    for ln in text.splitlines():
+        if any(m in ln for m in modules) and re.search(
+                r"incompatible version|invalid module names|unmet dependencies|installable", ln, re.I):
+            reasons.append(ln.strip())
+            if len(reasons) >= 5:
+                break
+    return reasons
+
+
 def build_command(args) -> list[str]:
     action = "-u" if args.update else "-i"
-    odoo_args = ["-d", args.db, action, args.module, "--stop-after-init",
+    odoo_args = ["-d", args.db, action, args.module_arg, "--stop-after-init",
                  "--log-level=info", "--max-cron-threads=0"]
     if args.addons_path:
         odoo_args += [f"--addons-path={args.addons_path}"]
@@ -121,7 +178,9 @@ def build_command(args) -> list[str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--module", required=True)
+    ap.add_argument("--module", help="single module name; kept for backwards compatibility")
+    ap.add_argument("--modules", help="comma/space-separated module names for one batch install")
+    ap.add_argument("--modules-file", type=Path, help="comma/newline-separated module names")
     ap.add_argument("--db", default="verify19")
     ap.add_argument("--odoo-bin")
     ap.add_argument("--docker-compose")
@@ -132,8 +191,11 @@ def main() -> int:
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--out", type=Path)
     args = ap.parse_args()
+    modules = expected_modules(args)
+    args.module_arg = ",".join(modules)
 
-    out_dir = args.out or Path(f"/tmp/odoo-ai/upgrade/{args.module}")
+    out_dir = args.out or Path(
+        f"/tmp/odoo-ai/upgrade/{modules[0] if len(modules) == 1 else '_batch'}")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Bring the db up and wait for it FIRST — otherwise a cold `compose run`
@@ -158,21 +220,16 @@ def main() -> int:
         return 2
 
     (out_dir / "verify.log").write_text(output)
-    hints = [args.module] + ([p.strip() for p in args.addons_path.split(",")]
-                             if args.addons_path else [])
+    hints = modules + ([p.strip() for p in args.addons_path.split(",")]
+                       if args.addons_path else [])
     parsed = parse_output(output, hints)
 
     # Odoo exits 0 even when it silently skips the module (installable=False,
     # unmet dependencies, not on addons path) — require positive proof of load.
-    module_loaded = bool(re.search(
-        rf"Loading module {re.escape(args.module)} \(\d+/\d+\)", output))
-    not_loaded_reasons = [
-        ln.strip() for ln in output.splitlines()
-        if args.module in ln and re.search(
-            r"incompatible version|invalid module names|unmet dependencies|installable", ln, re.I)
-    ][:5]
+    load_status = module_load_status(output, modules)
+    reasons = not_loaded_reasons(output, modules)
 
-    if not module_loaded:
+    if not load_status["all_modules_loaded"]:
         verdict = "module_not_loaded"
     elif rc == 0 and not parsed["tracebacks"] and \
             not any(e["level"] == "CRITICAL" for e in parsed["log_errors"]):
@@ -181,14 +238,16 @@ def main() -> int:
         verdict = "failed"
 
     result = {
-        "module": args.module,
+        "module": modules[0] if len(modules) == 1 else None,
+        "modules": modules,
         "action": "update" if args.update else "install",
         "test_tags": args.test_tags,
         "command": cmd,
         "returncode": rc,
         "verdict": verdict,
-        "module_loaded": module_loaded,
-        **({"not_loaded_reasons": not_loaded_reasons} if not module_loaded else {}),
+        "module_loaded": load_status["all_modules_loaded"],
+        **load_status,
+        **({"not_loaded_reasons": reasons} if not load_status["all_modules_loaded"] else {}),
         "verdict_note": ("'ok' = installs on target runtime; business-logic "
                          "correctness still requires tests + human review."),
         "started_at": started.isoformat(timespec="seconds"),
@@ -199,6 +258,7 @@ def main() -> int:
     (out_dir / "verify.json").write_text(json.dumps(result, indent=2, ensure_ascii=False))
 
     print(f"wrote {out_dir/'verify.json'}  verdict={verdict} rc={rc} "
+          f"loaded={load_status['loaded_count']}/{load_status['expected_count']} "
           f"tracebacks={len(parsed['tracebacks'])} log_errors={len(parsed['log_errors'])}")
     for tb in parsed["tracebacks"][:3]:
         loc = tb["custom_frame"] or (tb["frames"][-1] if tb["frames"] else {})

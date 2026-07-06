@@ -7,6 +7,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`odoo-upgrade`: migration coverage hardening for full 18→19 fleets.**
+  `upgrade_verify.py` now supports batch `--modules-file` installs and reports
+  `loaded_count/expected_count/missing_modules`; `migrate_all.py` classifies
+  upstream/OCA/Enterprise/auto-install routing flags, emits `source_sweep.json`,
+  writes `install_set.txt` unconditionally, and can stage a clean portable addons
+  dir. New `source_sweep.py` is a non-mutating checklist scanner for the
+  source-verified breakages the manifest cannot prove (`groups_id`, `mobile`,
+  SVL hooks, UoM tree, data deletes, undeclared imports). `db_upgrade.py`
+  `--modules-file` enforces per-custom-module load parity during check/full.
 - **`odoo-upgrade`: battle-tested fleet workflow + two new assets from a real
   89-module production migration** (45/45 portable modules verified green on
   Odoo 19 in 17 iterations + 3 parallel domain agents).
