@@ -5,7 +5,7 @@
     "generator": "gen_manifest.py (odoo-upgrade skill)",
     "method": "static AST + XML scan; _inherit extensions merged within the scanned tree only; rename matching is HEURISTIC (see *_candidates keys)",
     "old": {
-      "root": "/Users/justin/Dev/Bestmix/odoo",
+        "root": "odoo-18.0-community-source-redacted",
       "git_ref": "unknown",
       "py_files": 5137,
       "xml_files": 3265,
@@ -14,7 +14,7 @@
       "modules_scanned": 565
     },
     "new": {
-      "root": "/private/tmp/claude-501/-Users-justin-Dev-VibeLab-odoo-ai-skills/750fcca0-3bb5-4f11-ad48-8ca2c7a1f266/scratchpad/odoo19-src",
+        "root": "odoo-19.0-community-source-redacted",
       "git_ref": "unknown",
       "py_files": 5879,
       "xml_files": 4683,

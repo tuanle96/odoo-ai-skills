@@ -42,8 +42,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Four pieces no existing rewriter/pattern-library has: (1) `gen_manifest.py`
   *generates* the breaking-change manifest from real source-tree diffs (hand-curated
   lists go stale — OCA's renamed-model data stops at 16→17); ships
-  `references/manifest_18_19.json` generated from full community trees (610 vs 680
-  addons) with confirmed ground truth (`hr.contract`→`hr.version`,
+    `references/manifest_18_19.json` generated from community trees (565 vs 639
+    scanned addon dirs in the shipped metadata) with confirmed ground truth (`hr.contract`→`hr.version`,
   `hr.candidate`→`hr.applicant`, `hr.expense.sheet`→`hr.expense`). (2)
   `upgrade_brief.py` cross-references a custom module against the manifest —
   severity-ranked findings with file:line, heuristic candidates always labeled

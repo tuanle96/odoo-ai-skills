@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """upgrade_verify.py — Runtime verification of a migrated module on the TARGET Odoo.
 
-STATUS: code-complete, NOT yet integration-tested against a live Odoo 19
-(requires Docker or a local Odoo 19 install — see docker/docker-compose.verify.yml).
-Treat the parser as beta until the first real run; the JSON schema is stable.
+STATUS: integration-tested against a live Odoo 19 compose harness; that run
+exposed the silent-skip false pass now guarded by the `module_not_loaded`
+verdict. Re-run with Docker or a local Odoo 19 install for your own module.
 
 What it does (single attempt — the fix LOOP is driven by the agent, see SKILL.md):
   1. Runs ``odoo-bin -d <db> -i|-u <module> --stop-after-init`` either via a local

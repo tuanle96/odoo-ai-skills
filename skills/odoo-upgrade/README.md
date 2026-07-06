@@ -29,7 +29,7 @@ This skill adds exactly those four pieces and orchestrates everything else.
 
 | Component | Status |
 |---|---|
-| `scripts/gen_manifest.py` | ✅ Run on FULL community trees 18.0 vs 19.0 (610 vs 680 addons). Ground truth confirmed at scale: `hr.contract`→`hr.version` (0.75), `hr.candidate`→`hr.applicant` (0.771), `hr.expense.sheet`→`hr.expense` (0.618), `res.partner.title` removed, `res.groups.privilege` added. Calibration hardened after full-scale run: absolute-intersection floor on rename matching + `test_*` addons excluded (they produced 124 phantom "removed models" and spurious rename candidates). |
+| `scripts/gen_manifest.py` | ✅ Run on community trees 18.0 vs 19.0; the shipped manifest metadata reports 565 vs 639 scanned addon dirs after filtering non-deployed `test_*` addons. Ground truth confirmed at scale: `hr.contract`→`hr.version` (0.75), `hr.candidate`→`hr.applicant` (0.771), `hr.expense.sheet`→`hr.expense` (0.618), `res.partner.title` removed, `res.groups.privilege` added. Calibration hardened after full-scale run: absolute-intersection floor on rename matching + `test_*` addons excluded (they produced 124 phantom "removed models" and spurious rename candidates). |
 | `scripts/upgrade_brief.py` | ✅ 9/9 planted breakages on `examples/fixture_module_18` (6 ERROR, 3 WARNING) with file:line — regression-checked after every change. Dogfooded on real 18.0 production modules with the full manifest; `static/lib` now correctly skipped and generic method tokens (create/get/check...) require the model name on the matched line. |
 | `scripts/run_pipeline.sh` | ✅ Smoke-tested end-to-end with graceful skips. |
 | Vendored TAQAT precheck | ✅ Runs standalone (`python3 -m scripts.precheck`). |
@@ -114,8 +114,8 @@ odoo-upgrade/
    scaffolds `pre-migrate.py` (see the `odoo-migration` skill).
 4. (parked) Upstream PR: feed generated renamed/removed-model data to
    OCA/odoo-module-migrator (their datasets stop at 16→17).
-5. `make_report.py`: single-file HTML report generator (or reuse this repo's
-   `html-report` skill).
+5. HTML reports reuse this repo's `html-report` skill; no standalone report
+   generator is planned.
 6. Odoo 19 → 20 manifest when 20 lands (Oct 2026) — the generator makes this a
    one-command refresh.
 

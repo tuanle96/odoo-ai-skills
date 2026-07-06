@@ -23,5 +23,4 @@ Vendored files are content-unmodified (TAQAT SKILL.md renamed to VENDORED_SKILL.
 | odoo/upgrade-util (`odoo.upgrade.util`) | LGPL-3.0 |
 | odoo-ps/custom-util | see upstream |
 
-Own code in `scripts/` (gen_manifest.py, upgrade_brief.py, upgrade_verify.py,
-run_pipeline.sh), `templates/`, and `SKILL.md`: MIT (see LICENSE).
+Own code in `scripts/`, `templates/`, and `SKILL.md`: MIT (see LICENSE).

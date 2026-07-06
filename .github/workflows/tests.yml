@@ -12,5 +12,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Run unit tests (stdlib only, no Odoo required)
-        run: python -m unittest discover -s tests -p "test_*.py" -v
+        - name: Install optional test deps
+          run: python -m pip install lxml
+        - name: Run unit tests (no Odoo required)
+          run: python -m unittest discover -s tests -p "test_*.py" -v

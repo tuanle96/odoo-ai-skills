@@ -1,5 +1,5 @@
 # Verification harness for upgrade_verify.py (target: Odoo 19).
-# STATUS: not yet integration-tested — first real run may need volume tweaks.
+# STATUS: integration-tested with CUSTOM_ADDONS mounted at /mnt/extra-addons.
 #
 #   CUSTOM_ADDONS=/path/to/your/addons docker compose -f docker/docker-compose.verify.yml pull
 #   python3 scripts/upgrade_verify.py --module my_module --db verify19 \
