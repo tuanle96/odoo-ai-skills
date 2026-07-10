@@ -157,6 +157,7 @@ The code gate targets environments where code can actually run (self-hosted, Odo
 | **odoo-migration** | Version upgrades & migration scripts (`migrations/<version>/`), reverse-impact before renames. |
 | **odoo-upgrade** | Cross-version migration (18→19) of **everything**: breaking-change manifest **generated** from real source diffs, per-module semantic brief with file:line findings, runtime verify loop on a live target container (`module_not_loaded` guards the silent-skip false pass), fleet orchestrator (`migrate_all.py`: topo port order + S/M/L effort over a whole addons tree), and a whole-database rehearsal harness (`db_upgrade.py`: restore → OpenUpgrade → check, structured verdicts). Orchestrates official `upgrade_code` + OCA `odoo-module-migrate` first; data-migration hand-off to `odoo-migration`. |
 | **odoo-perf** | Recordset hygiene, prefetch/cache, stored-compute cost, indexes. |
+| **odoo-worktree** | Isolated feature dev on a LIVE dev env: git worktree branch cut from production while the container runs the main tree's uncommitted files; path-scoped sync (`rsync`/`git restore --source`), idempotent hook adopt-vs-create packaging, and the mandatory clean-install test ritual. |
 | **odoo-deploy** | `odoo.conf`, workers, Docker, CI test runs — plus **odoo.sh** (git-push deploy, staging rehearsal) and Odoo Online limits. |
 
 ### Tier 4 — Domain playbooks
