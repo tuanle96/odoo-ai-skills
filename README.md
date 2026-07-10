@@ -65,7 +65,7 @@ claude plugin marketplace add tuanle96/odoo-ai-skills   # register the marketpla
 claude plugin install odoo-ai-skills@odoo-ai            # install the plugin
 ```
 
-The 21 skills then load namespaced — `/odoo-ai-skills:odoo` (router), `/odoo-ai-skills:odoo-introspect`, etc. Update later with `claude plugin update odoo-ai-skills@odoo-ai`.
+The 24 skills then load namespaced — `/odoo-ai-skills:odoo` (router), `/odoo-ai-skills:odoo-introspect`, etc. Update later with `claude plugin update odoo-ai-skills@odoo-ai`.
 
 To try it before installing, load it straight from a local clone:
 
@@ -149,6 +149,7 @@ The code gate targets environments where code can actually run (self-hosted, Odo
 | **odoo-owl** | OWL 2 **backend** web client: components, custom field widgets, patching, services, assets. |
 | **odoo-web** | **Public** web: HTTP controllers (`http.route`), website pages, the portal `/my`, and the `publicWidget`→Interactions shift. |
 | **odoo-reports** | QWeb PDF/HTML reports: actions, templates, `_get_report_values`, paperformat. |
+| **odoo-statutory-reports** | Dynamic financial statements via the `account.report` engine: line/expression model, engines (domain/aggregation/custom handler), `date_scope` semantics, the `_report_custom_engine_*` contract, **self-verifying statutory design** (catch-alls = 0, balance identities, reconciliation lines), regime versioning, xlsxwriter data-pack escape hatch. |
 
 ### Tier 3 — Lifecycle
 | Skill | What it does |
@@ -163,7 +164,7 @@ The code gate targets environments where code can actually run (self-hosted, Odo
 ### Tier 4 — Domain playbooks
 | Skill | What it does |
 |-------|--------------|
-| **odoo-domain-playbooks** | Per-app maps (sale/stock/account/mrp/purchase/hr): key models, methods to introspect, right hooks, gotchas. |
+| **odoo-domain-playbooks** | Per-app maps (sale/stock/account/mrp/purchase/hr): key models, methods to introspect, right hooks, gotchas — plus country/regime playbooks (Vietnamese accounting: VAS, TT200→TT99 2026, e-invoice/tax calendar). |
 
 ### Report output
 | Skill | What it does |

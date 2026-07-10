@@ -8,7 +8,10 @@ description: >-
   / margins / page breaks, translating a report per partner language, or
   debugging "my changes don't show / wrong template / values undefined in the
   PDF". Don't guess the template id or whether a parser exists — find the
-  existing report with the `odoo-introspect` skill first, then inherit.
+  existing report with the `odoo-introspect` skill first, then inherit. NOT
+  for the dynamic financial-statement grids under Accounting → Reporting
+  (P&L, balance sheet, tax reports) — those are the `account.report` engine:
+  use `odoo-statutory-reports`.
 ---
 
 # Odoo QWeb reports (PDF / HTML)

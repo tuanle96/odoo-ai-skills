@@ -8,10 +8,12 @@ description: >-
   bill), or hr (employees, time-off). Use whenever the work touches one of these
   domains, even if the user doesn't say the word "skill" — any time you'd
   otherwise GUESS which method to override, which hook builds the next document,
-  or how the sale→stock→account chain fires. Each app here is a STARTING MAP of
-  the key models, the methods to read first, and the right extension hook — NOT
-  ground truth. Confirm every name against the running instance with the
-  `odoo-introspect` skill before you write a line.
+  or how the sale→stock→account chain fires. Also holds COUNTRY/REGIME
+  playbooks — currently Vietnamese accounting compliance (VAS, TT200→TT99
+  2026, e-invoice, VAT/CIT calendar, statutory reports). Each app here is a
+  STARTING MAP of the key models, the methods to read first, and the right
+  extension hook — NOT ground truth. Confirm every name against the running
+  instance with the `odoo-introspect` skill before you write a line.
 ---
 
 # Odoo domain playbooks
@@ -54,6 +56,13 @@ MRO alone is never enough for these flows — they are graphs across many models
 | Manufacturing | `mrp.production`, `mrp.bom`, `stock.move` | `references/mrp.md` | `button_mark_done` |
 | Purchase + HR | `purchase.order(.line)`, `hr.employee`, `hr.leave` | `references/purchase-hr.md` | `button_confirm` |
 
+Country / regime playbooks (the *what/when* of local compliance; the build
+technique lives in `odoo-statutory-reports`):
+
+| Country / regime | Scope | Playbook |
+|------------------|-------|----------|
+| Vietnam (VAS, TT200→TT99 2026) | CoA crosswalk, B01/B02/B03/B09, sổ kế toán, e-invoice/VAT/CIT calendar, `l10n_vn*` coverage | `references/vietnam-accounting.md` |
+
 ## How to use a playbook (every file, same shape)
 
 1. **Key models** — what you're really touching (and which module adds it).
@@ -71,3 +80,4 @@ Then confirm exact names against the brief (half the "new" fields already exist)
 - `references/mrp.md` — mrp.production/bom: move generation, BoM explosion, backorders, component reservation.
 - `references/purchase-hr.md` — purchase.order: `button_confirm` → receipt → bill; plus a brief hr.employee / hr.leave note.
 - `references/scenario-playbooks.md` — three end-to-end `introspect → plan → patch → test` walkthroughs (`invoice_post`, `picking_validate`, `mrp_produce`): the right hook, the guard-before / react-after rule, and the per-flow gotchas.
+- `references/vietnam-accounting.md` — Vietnamese accounting compliance map (verified 07/2026, re-verify after): TT200→TT99 regime switch, statement/CoA deltas, sổ-kế-toán "quy chế mapping appendix" pattern, tax calendar, what `l10n_vn*` ships vs what to build.
