@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "odoo-ai-skills",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "license": "LGPL-3.0-or-later",
   "description": "The local-first verification & deploy gate for AI-written Odoo 17/18/19 changes — static indexes suggest; this verifies against the running instance. Read ground truth from the live instance first (fields, MRO/super chains, views, security, runtime flow, runtime state + exception post-mortem, reverse field impact, effective per-user/company security, module load state), build the smallest correct change, prove it with tests, and review it before merge — never guess. Layer-K discovery solves the cold-start problem — rank the live entrypoint surface (buttons/crons/automations/routes), sample the real cross-app flow as an Execution Surface Graph, measure hallucination reduction against a benchmark, and ENFORCE no-introspect-no-edit via a PreToolUse hook. Layer-I enforcement gates turn that evidence into proof: risk-based scenario test generation, dev-vs-prod environment parity, a static anti-pattern validator, enforced privacy redaction, an upgrade/migration harness, a deploy approval gate, a one-command evidence bundle (PR-comment verdict), and a bring-your-own-index claim verifier; plus a local Odoo developer-docs index (Layer J). No SaaS, no seats, no metadata leaves the box. Covers models, scaffolding, views, OWL, public web (controllers/website/portal), security, reports, data, migration, performance, deploy (incl. odoo.sh), and domain playbooks.",
   "author": {

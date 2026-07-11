@@ -6,7 +6,42 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-07-11
+
+Three battle-tested additions distilled from a real statutory-reporting
+engagement (full Vietnamese TT99 financial-statement set built and verified on
+a production clone), plus the fleet-migration hardening accumulated since
+0.14.0. The suite is now 24 skills.
+
 ### Added
+- **`odoo-statutory-reports` (new skill)** — dynamic financial statements via
+  the `account.report` engine (Enterprise `account_reports`): the
+  line/expression anatomy, engine table (domain/aggregation/account_codes/
+  tax_tags/external/custom), the `sum`/`-sum` sign convention, `date_scope`
+  semantics (`strict_range` / `from_beginning` / `to_beginning_of_period`),
+  the full custom-engine contract (`_report_custom_engine_*` full-name
+  formula, `custom_handler_model_id`, the `{'result': …}` return key,
+  `_get_report_query`), **self-verifying statutory design** (catch-all lines
+  = 0, balance identities, reconciliation pairs, suspense visibility,
+  prefix-overlap audit), regime versioning (never edit the old report in
+  place), the render-test ritual (the date dict must go INTO
+  `get_options()`), and the xlsxwriter data-pack escape hatch for what a grid
+  can't hold.
+- **`odoo-domain-playbooks`: `references/vietnam-accounting.md`** — the first
+  country/regime playbook: Vietnamese accounting compliance verified 07/2026
+  (with a re-verify instruction): the TT200→TT99/2025 regime switch with
+  chart and statement deltas (B01/B02/B03/B09), the sổ-kế-toán
+  "quy chế mapping appendix" pattern, the tax calendar (e-invoice NĐ254/TT91,
+  VAT 8% to 31/12/2026, CIT Luật 67/2025, audit NĐ90/2025), what `l10n_vn*`
+  ships vs what to build, and design decisions that survived a real client
+  (expense categories = CoA sub-accounts not analytic tags, perpetual
+  152→154→155 costing, the 131/331 no-offset per-partner split).
+- **`odoo-worktree` (new skill)** — isolated feature development on a LIVE
+  Odoo dev environment: the container runs the main tree's uncommitted files
+  while a git worktree holds a clean branch cut from production; path-scoped
+  sync only (`rsync` / `git restore --source`), idempotent `post_init_hook`
+  adopt-vs-create packaging, and the mandatory clean-install test ritual
+  (`-u` never re-runs hooks).
 - **`odoo-upgrade`: migration coverage hardening for full 18→19 fleets.**
   `upgrade_verify.py` now supports batch `--modules-file` installs and reports
   `loaded_count/expected_count/missing_modules`; `migrate_all.py` classifies
@@ -997,7 +1032,8 @@ against a live Odoo 18 instance.
 - Pure-function unit tests and a compile/test CI workflow.
 - Odoo version coverage extended to 19 (current LTS).
 
-[Unreleased]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.14.0...v0.15.0
 [0.12.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.9.1...v0.10.0
