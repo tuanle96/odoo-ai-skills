@@ -6,6 +6,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`odoo-valuation-repair` (new skill)** — diagnose and repair broken
+  inventory valuation on AVCO/FIFO products, distilled from a production
+  engagement that repaired hundreds of drifted books: the core invariant
+  (`Σ stock.valuation.layer.quantity` = physical stock in valued locations),
+  the read-only RCA ladder (formula check, book-start dating via
+  moves-vs-layers by month, config-flip archaeology on `stock_move_id=False`
+  layers, per-lot tear listing under `lot_valuated`), a **fail-closed
+  per-lot repair runbook** delivered as a DRY-RUN-first server action
+  (SaaS-safe, context-parameterised, self-verifying with full rollback,
+  remaining-qty hygiene against `_run_fifo_vacuum`, stored product/lot cost
+  sync via jsonb SQL to avoid `_change_standard_price` double layers), and a
+  daily drift-check SQL that also catches positive-but-wrong costs. Ten-row
+  gotcha table (readonly `fields_get` metadata on SVL vs RPC create,
+  `code_store` jsonb, NULL-company quants, transit scope, safe_eval limits).
+
 ## [0.15.0] - 2026-07-11
 
 Three battle-tested additions distilled from a real statutory-reporting
