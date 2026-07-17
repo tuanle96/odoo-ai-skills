@@ -6,6 +6,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-07-17
+
+One production-grade valuation repair playbook plus a browser-tested OWL client
+action scroll invariant. The suite is now 25 skills.
+
 ### Added
 - **`odoo-valuation-repair` (new skill)** — diagnose and repair broken
   inventory valuation on AVCO/FIFO products, distilled from a production
@@ -21,6 +26,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   daily drift-check SQL that also catches positive-but-wrong costs. Ten-row
   gotcha table (readonly `fields_get` metadata on SVL vs RPC create,
   `code_store` jsonb, NULL-company quants, transit scope, safe_eval limits).
+
+### Fixed
+- **`odoo-owl`** — document the native full-screen client-action scroll
+  contract: keep `.o_action_manager` untouched, make the action root the
+  `height: 100%` / `overflow-y: auto` scroll owner, and prove wheel scrolling
+  by observing the root's `scrollTop`.
 
 ## [0.15.0] - 2026-07-11
 
@@ -1048,7 +1059,8 @@ against a live Odoo 18 instance.
 - Pure-function unit tests and a compile/test CI workflow.
 - Odoo version coverage extended to 19 (current LTS).
 
-[Unreleased]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.14.0...v0.15.0
 [0.12.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/tuanle96/odoo-ai-skills/compare/v0.10.0...v0.11.0

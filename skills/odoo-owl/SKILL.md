@@ -1,15 +1,6 @@
 ---
 name: odoo-owl
-description: >-
-  Building or extending the Odoo 17/18/19 web client — OWL 2 components, custom
-  field widgets (widget="..."), view widgets, client actions, systray items,
-  patching core web components, ORM/notification/dialog/action services, and the
-  assets bundles that load them. Use whenever writing JavaScript/XML under
-  static/src, wiring a widget into a view, or debugging "my component renders
-  nothing / props are undefined / the template isn't found". OWL is where LLM
-  memory is most stale (v16→v17→v18 renamed half the field API) — do NOT write a
-  hook, service, registry category, or field-prop name from memory. Read the real
-  addon source first, then write.
+description: Building or extending the Odoo 17/18/19 web client — OWL 2 components, custom field widgets (widget="..."), view widgets, client actions, systray items, patching core web components, ORM/notification/dialog/action services, and the assets bundles that load them. Use whenever writing JavaScript/XML under static/src, wiring a widget into a view, or debugging "my component renders nothing / props are undefined / the template isn't found / the client action is clipped or cannot scroll". OWL is where LLM memory is most stale (v16→v17→v18 renamed half the field API) — do NOT write a hook, service, registry category, or field-prop name from memory. Read the real addon source first, then write.
 ---
 
 # Odoo web frontend (OWL 2)
@@ -128,6 +119,11 @@ A component whose template isn't in a bundle mounts and renders **nothing, no er
 
 ## Gotchas that fail silently
 
+- **Full-screen client actions do not inherit page scrolling.** Native `.o_action_manager` owns the viewport with `height: 100%; overflow: hidden`; a content-sized root such as `min-height: 100%` is clipped. Make the client-action root the scroll container:
+  ```scss
+  .my_client_action { height: 100%; overflow-y: auto; }
+  ```
+  Do not patch `body` or `.o_action_manager`. In browser QA, require `scrollHeight > clientHeight`, computed `overflowY === "auto"`, and a wheel/scroll action that increases the root's `scrollTop`.
 - **`t-name` ≠ `static template`** → "Missing template" only at mount. The name is `module.DottedName`; it must match `static template` exactly.
 - **`owl="1"` is dead.** It was a v14/15 transitional marker. v17/18 backend templates are `<templates xml:space="preserve"><t t-name="module.X">` with **no** `owl` attribute. The real requirement is the bundle + matching name, not that attribute.
 - **Mutating non-reactive state doesn't re-render.** Only `useState(...)` objects and `props` are reactive. Reassigning a plain `this.x` updates nothing on screen.

@@ -1,6 +1,6 @@
 {
   "name": "odoo-ai-skills",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Local-first Odoo 17/18/19 runtime verification and deploy gate for AI-written Odoo changes.",
   "author": {
     "name": "Le Anh Tuan",
