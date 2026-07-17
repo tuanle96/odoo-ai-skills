@@ -6,6 +6,19 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **`odoo-valuation-repair`** — hardened from a second production campaign:
+  per-lot cost **sanity clamp** in the repair action (a lot's own inbound
+  average can be poisoned by a single MO consuming mis-valued components —
+  observed at ~166x real cost — producing negative-unit-cost deliveries and a
+  deeply negative COGS sub-account; deviation >3x either way now falls back to
+  the reference cost with a marked plan line), a new **period-split section**
+  for management-only ledgers (prior-FY-end milestone JE + current-year
+  remainder, milestone cost clamped too, lock-date check, GL-only caveat), and
+  three new gotchas (poisoned-MO pattern, XML-RPC int >2^31 marshalling — use
+  floats or a small compensating JE, `amount_currency` requirement when
+  flipping posted-line direction).
+
 ## [0.16.0] - 2026-07-17
 
 One production-grade valuation repair playbook plus a browser-tested OWL client
