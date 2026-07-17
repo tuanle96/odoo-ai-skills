@@ -81,6 +81,18 @@ first commit): the lot's own genuine inbound layers' average (`quantity > 0`,
 has `stock_move_id`, `unit_cost > 0`) → the product's latest genuine inbound
 layer → an explicit override parameter.
 
+**Clamp the ladder — a lot's own inbound average can itself be poisoned.**
+One production order consuming mis-valued components can inject an inflated
+inbound layer worth orders of magnitude more than reality (observed: a single
+MO receipt at ~166× the real unit cost). From then on that lot's "genuine
+average" is garbage, and deliveries from it can post **negative unit costs**
+(positive-value outgoing layers → journal entries flipped to Dr inventory /
+Cr COGS on a *delivery*). The P&L tell: a COGS sub-account driven deeply
+negative. So: if a lot's inbound average deviates more than **3× either way**
+from the reference cost, use the reference instead and mark the plan line —
+the code below does this. Sanity-check the reference itself against sibling
+products / nearby healthy lots before trusting it.
+
 | Where you are | Delivery vehicle |
 |---|---|
 | Self-hosted, shell access | `odoo-bin shell` script implementing the same algorithm; `env.cr.commit()` only after the verify block passes |
@@ -136,12 +148,16 @@ for lid in set(list(phys.keys()) + list(book.keys())):
     bq = book.get(lid, (0.0, 0.0))[0]
     bv = book.get(lid, (0.0, 0.0))[1]
     c = 0.0
+    clamped = ''
     if pq > 0:
         c = ref_cost
         if lid:
             ins = SVL.read_group([('product_id', '=', PRODUCT_ID), ('lot_id', '=', lid), ('quantity', '>', 0), ('stock_move_id', '!=', False), ('unit_cost', '>', 0)], ['quantity:sum', 'value:sum'], [])
             if ins and ins[0].get('quantity'):
                 c = ins[0]['value'] / ins[0]['quantity']
+                if c > ref_cost * 3 or c * 3 < ref_cost:
+                    c = ref_cost
+                    clamped = ' [LOT COST ABNORMAL -> USING REFERENCE]'
     target_v = round(pq * c)
     dq = pq - bq
     dv = target_v - bv
@@ -150,7 +166,7 @@ for lid in set(list(phys.keys()) + list(book.keys())):
     adj.append({'lot': lid, 'pq': pq, 'dq': dq, 'dv': dv, 'c': c, 'tv': target_v})
     total_dv += dv
     lname = env['stock.lot'].sudo().browse(lid).name if lid else '(no lot)'
-    lines.append('lot %s: on hand %s | book %s / %s -> dq %+g, dv %+d, cost %s' % (lname, pq, bq, round(bv), dq, round(dv), round(c, 2)))
+    lines.append('lot %s: on hand %s | book %s / %s -> dq %+g, dv %+d, cost %s%s' % (lname, pq, bq, round(bv), dq, round(dv), round(c, 2), clamped))
 lines.append('TOTAL VALUE DELTA: %s (Dr %s / Cr %s, journal %s)' % (round(total_dv), val_acc.code, cogs.code, journal.code))
 if not adj:
     raise UserError('Book already matches physical — nothing to repair.')
@@ -237,6 +253,29 @@ log('REPAIR OK %s: JE %s | qty %s | value %s | new cost %s' % (P.display_name, j
 - Rollback of a committed product = reverse the JE + unlink its layers
   (matched by description + product) as one unit; each product is independent.
 
+## Period split — when the ledger is management-only
+
+If the Odoo ledger is **not** the statutory books, statutory error-correction
+machinery (retained-earnings restatement etc.) does not bind — the useful goal
+becomes *each fiscal year carries its own share of the correction* so
+per-year P&L / inventory analytics read true. Split each product's repair:
+
+- `Δprior = (physical qty at prior FY end × milestone cost) − (Σ SVL value at
+  prior FY end)` — physical-at-date via `qty_available` with a `to_date`
+  context; book-at-date via a `create_date <=` aggregate. Book one JE dated
+  the last day of the prior FY (Dr valuation / Cr adjustment sub-account, or
+  reversed) — check `fiscalyear_lock_date`/`hard_lock_date` first.
+- `Δcurrent = Δtotal − Δprior` — the repair JE stays in the current year at
+  this amount. Products the current year *sold down* get a flipped sign here;
+  that is correct, not a bug.
+- **Milestone cost can be garbage too** (inbound layers near the FY cutoff may
+  carry the same disease) — clamp it against the trusted current reference the
+  same way as lot costs.
+- The split applies to the **general ledger** only; the valuation-layer
+  register stays dated at repair time, so "valuation at prior FY end" reports
+  keep showing pre-repair numbers unless you also backdate layers (heavy,
+  usually not worth it).
+
 ## Prevent — the drift check
 
 The negative-cost alert (`standard_price <= 0 and qty_available > 0`) catches
@@ -289,6 +328,9 @@ WHERE p.active AND pt.is_storable
 | JE lines on expense accounts | May carry default taxes — always `('tax_ids', [(5, 0, 0)])` on both lines and verify zero tax lines after posting |
 | Old layers' `remaining_qty` | Negative remainders left behind get "vacuumed" against the next real receipt and re-corrupt values — zero them as part of the repair |
 | Deleted-layer vs never-created | Both look identical in data; done moves with empty `stock_valuation_layer_ids` prove the hole either way — logs (if any) date the reset |
+| One poisoned MO receipt | A production order consuming mis-valued components can inflate a finished lot by orders of magnitude in a single layer; subsequent deliveries post **negative unit costs** → journal entries flip to Dr inventory / Cr COGS on deliveries → a COGS sub-account goes deeply negative. Trace the biggest layers of the sick lot to find it |
+| XML-RPC integers > 2³¹ | Writing a debit/credit above 2,147,483,647 over XML-RPC fails to marshal ("int exceeds XML-RPC limits") — send the amount as a float, or leave the big JE untouched and post a small compensating JE instead of editing giant lines |
+| Editing posted-JE lines across direction | Reset to draft first; when flipping a line from debit to credit you must also pass `amount_currency = debit − credit`, or the sign-consistency constraint blocks the write |
 
 ## Related skills
 
