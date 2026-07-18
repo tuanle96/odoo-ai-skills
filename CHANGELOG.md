@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-07-18
+
 ### Changed
 - **`odoo-valuation-repair`** — hardened from a second production campaign:
   per-lot cost **sanity clamp** in the repair action (a lot's own inbound
@@ -18,6 +20,26 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   three new gotchas (poisoned-MO pattern, XML-RPC int >2^31 marshalling — use
   floats or a small compensating JE, `amount_currency` requirement when
   flipping posted-line direction).
+- **`odoo-valuation-repair`** — **purchase-side cost error** coverage from a
+  third production campaign. A receipt booked at a wrong unit cost (a UoM /
+  decimal slip, classically ×1000) leaves book quantity **matching physical**,
+  so the drift check stays silent while the AVCO is absurd — a new failure
+  class the skill now names and diagnoses (cost-sanity read vs PO/bill and
+  siblings). Documents the **AVCO-return trap**: a full goods return removes at
+  the *current* average, not the receipt cost, so it can never un-mix a cost
+  error (quantity nets to 0, value does not) — only revaluation fixes it under
+  AVCO, whereas FIFO would self-clean via layer identity. Establishes the
+  **GR/IR-interim counterpart**: the bad receipt posted Dr inventory / Cr
+  goods-received/invoice interim, wholly on the balance sheet, so the repair is
+  **zero-P&L** against that interim (never a COGS account, never the reconcilable
+  vendor payable) — the opposite of mid-stream drift's P&L counterpart. Adds a
+  **second native-wizard failure mode** (it spreads a value write-down
+  proportionally by quantity and drives a small healthy layer negative when the
+  garbage is concentrated in one layer — the server action sets each layer's
+  value directly and sidesteps it), a note that the action posts large deltas
+  server-side (dodging the 2³¹ marshalling cap without chunking), and three
+  gotchas (return-won't-clean, purchase-error counterpart, cost-wrong-but-book-
+  ties-out).
 
 ## [0.16.0] - 2026-07-17
 
