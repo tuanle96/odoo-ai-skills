@@ -11,7 +11,12 @@ description: >-
   valuation on a product that already has history. Covers the read-only RCA
   query ladder, a fail-closed per-lot repair runbook (shell / server action /
   RPC-driven, SaaS-safe), and a daily drift check that also catches the silent
-  victims whose cost is wrong but still positive.
+  victims whose cost is wrong but still positive. Also covers the purchase-side
+  variant — a receipt booked at a wrong unit cost (a UoM / decimal slip,
+  classically ×1000) that leaves book quantity perfectly matching physical (so
+  the drift check passes) yet an absurd AVCO, which a full goods return cannot
+  un-mix, repaired against the goods-received/invoice interim with zero P&L
+  impact.
 ---
 
 # Broken inventory valuation — diagnose, repair, prevent
@@ -66,7 +71,9 @@ Root causes to expect: valuation started mid-stream (product not tracked at
 first, or layers deleted in a past "reset"); category cost-method /
 valuation-mode flips with stock on hand; `lot_valuated` enabled on a product
 with history; negative-stock episodes later "fixed" by the FIFO vacuum at
-mismatched costs; direct SVL tampering.
+mismatched costs; direct SVL tampering; a **purchase receipt booked at a wrong
+unit cost** (a UoM / decimal slip) — value-only, book quantity stays correct,
+so this one hides from the drift check (see *Purchase-side cost error* below).
 
 ## Repair — per product, per lot, fail-closed
 
@@ -245,13 +252,55 @@ log('REPAIR OK %s: JE %s | qty %s | value %s | new cost %s' % (P.display_name, j
   cost and destroys lot history.
 - **Never write `standard_price` via UI/ORM** on a broken product (each write
   creates ANOTHER layer); stored product/lot costs are synced by SQL above.
-- The native revaluation wizard cannot fix this class of damage: it is
-  **value-only** (no quantity leg) and refuses `quantity_svl <= 0`.
+- The native revaluation wizard cannot fix this class of damage. It fails two
+  ways: it refuses `quantity_svl <= 0` (the mid-stream case); and even for a
+  healthy-quantity value-only write-down it spreads the delta across the
+  remaining layers **proportionally by quantity**, so when the garbage sits in
+  one layer but the spread reaches a small healthy layer it drives that layer's
+  `remaining_value` negative (*"the value of a stock valuation layer cannot be
+  negative"*). The server action sets each layer's value directly and sidesteps
+  both.
 - JE date = run date. Backdating needs the period-lock discussion first.
 - The fix is **prospective**: historical COGS posted at garbage costs stays —
   say so to accounting explicitly.
 - Rollback of a committed product = reverse the JE + unlink its layers
   (matched by description + product) as one unit; each product is independent.
+
+## Purchase-side cost error — the return that won't clean
+
+Not every broken cost is mid-stream drift. A **purchase receipt posted at a
+wrong unit cost** (a UoM / decimal slip — a price entered orders of magnitude
+off, classically ×1000) inflates the AVCO while **book quantity still exactly
+matches physical**. The drift check passes; only the *cost* is absurd. So
+whenever a cost looks wrong but the book ties out, run a second read: compare
+`unit_cost` on the product's recent inbound layers against the vendor bill / PO
+price and sibling receipts — the ×1000 layer stands out immediately.
+
+**The AVCO-return trap — why sending the goods back does not fix it.** Average
+costing removes a return at the *current* average — already diluted by every
+receipt and consumption since the bad one — not at the cost the receipt came in
+at. A wrong-cost receipt returned **in full** therefore still leaves a value
+residual stuck: value-in (qty × wrong cost) ≠ value-out (qty × current
+average). Quantity nets to zero; value does not. Under FIFO the return would
+unwind that specific layer at its own cost and self-clean; **under AVCO only a
+revaluation fixes a cost error** — you cannot un-mix an average by moving
+quantity. (Intuition: pour boiling water into a bucket, add cold + scoop some
+out, then "return" the boiling volume — you scoop at the *current* temperature,
+so the excess heat stays.)
+
+**The counterpart is the goods-received/invoice interim, not P&L.** Read the
+receipt's valuation entry (`stock.valuation.layer.account_move_id`): a purchase
+receipt posts **Dr stock-valuation / Cr GR-IR interim** — a non-reconcilable
+current-liability clearing account — so the whole error lives on the balance
+sheet and **never reached P&L**. Repair with **that interim as `vr_counterpart`**:
+a write-down posts Dr interim / Cr valuation, **zero P&L impact**, and it clears
+the mirror residual the receipt+return stranded in the interim (receipt credit −
+return debit). This is the opposite of mid-stream drift, where the garbage flowed
+out through deliveries and the counterpart is a P&L (COGS) account. **Confirm the
+account is the interim, not the vendor payable** — the payable is
+reconcilable/per-partner and is already correct from the real invoice; never
+touch it. Nothing else changes: same server action, same DRY-RUN ritual, same
+fail-closed verify; the delta is a pure value write-down (`dq = 0`).
 
 ## Period split — when the ledger is management-only
 
@@ -330,7 +379,11 @@ WHERE p.active AND pt.is_storable
 | Deleted-layer vs never-created | Both look identical in data; done moves with empty `stock_valuation_layer_ids` prove the hole either way — logs (if any) date the reset |
 | One poisoned MO receipt | A production order consuming mis-valued components can inflate a finished lot by orders of magnitude in a single layer; subsequent deliveries post **negative unit costs** → journal entries flip to Dr inventory / Cr COGS on deliveries → a COGS sub-account goes deeply negative. Trace the biggest layers of the sick lot to find it |
 | XML-RPC integers > 2³¹ | Writing a debit/credit above 2,147,483,647 over XML-RPC fails to marshal ("int exceeds XML-RPC limits") — send the amount as a float, or leave the big JE untouched and post a small compensating JE instead of editing giant lines |
+| Server action vs the 2³¹ cap | The marshalling cap only bites values crossing the wire. A JE **created inside the server action** posts server-side, so any amount goes in one shot — no chunking. Prefer the action over RPC-driven line writes for large deltas |
 | Editing posted-JE lines across direction | Reset to draft first; when flipping a line from debit to credit you must also pass `amount_currency = debit − credit`, or the sign-consistency constraint blocks the write |
+| Returning goods to "fix" a bad receipt cost | AVCO removes the return at the *current* average, not the receipt cost — a wrong-cost receipt returned in full still leaves a stuck value residual (quantity nets to 0, value does not). A cost error under AVCO is fixed by revaluation, never by a return; FIFO would self-clean via layer identity |
+| Purchase-error counterpart | The bad receipt booked Dr inventory / Cr GR-IR interim (balance sheet only, never P&L) — repair against **that interim** (zero P&L), not a COGS account; and never against the **vendor payable** (reconcilable/per-partner, already correct from the real invoice) |
+| Cost wrong but book ties out | A bad receipt cost is value-only: `Σ SVL qty == physical`, so the drift check is silent. Add a cost-sanity read (inbound `unit_cost` vs PO/bill + siblings) — the ×1000 layer is obvious |
 
 ## Related skills
 
